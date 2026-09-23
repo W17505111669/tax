@@ -1,0 +1,17 @@
+{
+  "name": "@tax/agent-rd-audit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./agent.config.ts"
+  },
+  "dependencies": {
+    "@tax/agent-core": "workspace:*",
+    "@tax/shared-schemas": "workspace:*",
+    "typebox": "1.3.27"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}

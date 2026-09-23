@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+data/uploads/*
+data/outputs/*
+data/database/*
+data/agent-home/*
+!data/**/.gitkeep
+*.log
+.DS_Store

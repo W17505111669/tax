@@ -1,0 +1,21 @@
+{
+  "name": "@tax/agent-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.87.1",
+    "@tax/shared-schemas": "workspace:*",
+    "typebox": "1.3.27"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.6"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "verify:pi": "tsx scripts/verify-pi.ts"
+  }
+}

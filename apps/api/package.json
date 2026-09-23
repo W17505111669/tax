@@ -1,0 +1,25 @@
+{
+  "name": "@tax/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "verify:agents": "tsx scripts/verify-agents.ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.0.1",
+    "@fastify/multipart": "^9.0.3",
+    "@tax/agent-core": "workspace:*",
+    "@tax/agent-land-vat": "workspace:*",
+    "@tax/agent-rd-audit": "workspace:*",
+    "@tax/shared-schemas": "workspace:*",
+    "fastify": "^5.3.3",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.6"
+  }
+}

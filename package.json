@@ -1,0 +1,23 @@
+{
+  "name": "tax-agent-competition",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "全国税务师行业 AI 赋能涉税专业服务技能竞赛 - 双智能体共享技术底座",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @tax/api --filter @tax/web dev",
+    "dev:api": "pnpm --filter @tax/api dev",
+    "dev:web": "pnpm --filter @tax/web dev",
+    "verify:pi": "pnpm --filter @tax/agent-core verify:pi",
+    "verify:agents": "pnpm --filter @tax/api verify:agents",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "@types/node": "^24.9.2",
+    "typescript": "^5.9.3"
+  },
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=22.13"
+  }
+}
