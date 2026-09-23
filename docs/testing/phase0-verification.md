@@ -122,3 +122,14 @@ check_rd_expenses(ok) → search_public_cases(ok) → calculate_rd_adjustment(ok
 `calculate_rd_adjustment, check_rd_expenses, fetch_public_document, search_public_cases` 与
 `check_amount_consistency, fetch_public_document, match_contract_invoice, match_invoice_ledger, search_public_cases`，
 业务工具仍无重叠，内置编码工具仍禁用。
+## 本机网关自带搜索实测结论（不启用）
+
+对 `http://127.0.0.1:15721/v1`（Responses API）做了三组对照实测：
+
+| 组 | 请求 | 结果 |
+| --- | --- | --- |
+| A | `tools:[{type:"web_search"}]`，查询过去日期公告 | 200，`output` 仅 `reasoning,message`，无 `web_search_call`；模型自述「我当前没有可用的联网检索/浏览工具」 |
+| B | 顶层 `enable_search:true` | 90-100s 超时无响应 |
+| C | 不带任何搜索参数（对照） | 与 A 同样拒答或超时 |
+
+结论：`/v1/models` 中的 `supports_search_tool=true` 只是网关目录元数据，代理并未真正执行搜索工具。**网关自带搜索不启用**，联网检索继续使用本项目自建引擎（Bing 主、百度兜底，`TAXAI_SEARCH_ENGINES` 可调顺序）。后续如取得 Bocha / 智谱 / Bing API key，可在 `search_public_cases` 内增加 `api` provider。

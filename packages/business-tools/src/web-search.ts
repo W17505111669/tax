@@ -80,23 +80,42 @@ function parseBaidu(html: string): WebSearchResult[] {
   return out;
 }
 
+type SearchEngine = "bing" | "baidu";
+
+/** 检索引擎顺序可用环境变量 TAXAI_SEARCH_ENGINES 调整，默认 bing,baidu。 */
+function engineOrder(): SearchEngine[] {
+  const raw = process.env.TAXAI_SEARCH_ENGINES ?? "bing,baidu";
+  const list = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s): s is SearchEngine => s === "bing" || s === "baidu");
+  return list.length > 0 ? list : ["bing", "baidu"];
+}
+
+function searchUrl(engine: SearchEngine, query: string): string {
+  const q = encodeURIComponent(query);
+  return engine === "bing"
+    ? `https://www.bing.com/search?q=${q}&setlang=zh-hans`
+    : `https://www.baidu.com/s?wd=${q}`;
+}
+
+function parseEngine(engine: SearchEngine, html: string): WebSearchResult[] {
+  return engine === "bing" ? parseBing(html) : parseBaidu(html);
+}
+
 /** 实时联网检索：Bing 为主，失败或无结果时降级百度。 */
 export async function searchWeb(query: string, signal?: AbortSignal): Promise<WebSearchResult[]> {
-  const q = encodeURIComponent(query);
-  try {
-    const html = await getHtml(`https://www.bing.com/search?q=${q}&setlang=zh-hans`, signal);
-    const results = parseBing(html);
-    if (results.length > 0) return results;
-  } catch {
-    // 落到百度
+  // 检索属于辅助能力：任一引擎异常都跳到下一引擎，全部失败则返回空结果，不让整个任务失败
+  for (const engine of engineOrder()) {
+    try {
+      const html = await getHtml(searchUrl(engine, query), signal);
+      const results = parseEngine(engine, html);
+      if (results.length > 0) return results;
+    } catch {
+      // 尝试下一引擎
+    }
   }
-  // 检索属于辅助能力：任一引擎异常都降级为空结果，不让整个任务失败
-  try {
-    const html = await getHtml(`https://www.baidu.com/s?wd=${q}`, signal);
-    return parseBaidu(html);
-  } catch {
-    return [];
-  }
+  return [];
 }
 
 function assertSafeUrl(raw: string): URL {
