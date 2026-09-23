@@ -15,6 +15,8 @@ export interface RuntimeConfig {
   api: string;
   modelId: string;
   thinkingLevel: "off" | "low" | "medium" | "high";
+  /** 额外加载的 Pi 社区扩展入口文件（如 pi-web-access）。 */
+  extensionPaths: string[];
 }
 
 function env(name: string, fallback: string): string {
@@ -42,9 +44,14 @@ export function loadRuntimeConfig(rootDir?: string): RuntimeConfig {
     api: env("TAXAI_API", "openai-responses"),
     modelId: env("TAXAI_MODEL", "qwen3.8-max"),
     thinkingLevel: env("TAXAI_THINKING", "low") as RuntimeConfig["thinkingLevel"],
+    extensionPaths: env("TAXAI_PI_EXTENSIONS", "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0),
   };
 
   writeModelsJson(cfg);
+  writeWebSearchConfig(cfg);
   return cfg;
 }
 
@@ -71,6 +78,23 @@ function writeModelsJson(cfg: RuntimeConfig): void {
     },
   };
   fs.writeFileSync(cfg.modelsPath, JSON.stringify(models, null, 2), "utf8");
+}
+
+/**
+ * pi-web-access 社区扩展的配置文件（位于隔离 agentDir 内）。
+ * 默认开启网页抓取类工具；搜索 provider 由扩展自动降级链决定（Exa MCP 零配置可用）。
+ */
+function writeWebSearchConfig(cfg: RuntimeConfig): void {
+  const file = path.join(cfg.agentDir, "web-search.json");
+  if (fs.existsSync(file)) return; // 允许人工覆盖
+  const config = {
+    webSearch: { enabled: true },
+    tools: {
+      fetchContent: { enabled: true },
+      getSearchContent: { enabled: true },
+    },
+  };
+  fs.writeFileSync(file, JSON.stringify(config, null, 2), "utf8");
 }
 
 function findRoot(): string {

@@ -12,14 +12,19 @@
   "dependencies": {
     "@fastify/cors": "^11.0.1",
     "@fastify/multipart": "^9.0.3",
+    "@mozilla/readability": "^0.6.0",
     "@tax/agent-core": "workspace:*",
     "@tax/agent-land-vat": "workspace:*",
     "@tax/agent-rd-audit": "workspace:*",
     "@tax/shared-schemas": "workspace:*",
     "fastify": "^5.3.3",
+    "linkedom": "^0.18.13",
+    "pi-web-access": "0.31.0",
+    "turndown": "^7.2.4",
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@types/turndown": "^5.0.5",
     "tsx": "^4.20.6"
   }
 }

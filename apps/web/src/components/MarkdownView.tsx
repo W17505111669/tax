@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type MouseEvent } from "react";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import mermaid from "mermaid";
@@ -52,9 +52,11 @@ interface Props {
   /** 流式输出期间为 true：延迟渲染且不执行 mermaid，避免半成品图报错。 */
   live?: boolean;
   className?: string;
+  /** 点击外部链接时回调（用于侧边阅读器），不设置则保持默认跳转。 */
+  onOpenUrl?: (url: string) => void;
 }
 
-export function MarkdownView({ text, live = false, className = "" }: Props) {
+export function MarkdownView({ text, live = false, className = "", onOpenUrl }: Props) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -71,5 +73,15 @@ export function MarkdownView({ text, live = false, className = "" }: Props) {
     };
   }, [text, live]);
 
-  return <div ref={ref} className={`md-body ${className}`} />;
+  const handleClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (!onOpenUrl) return;
+    const anchor = (event.target as HTMLElement).closest("a[href]");
+    if (!anchor) return;
+    const href = anchor.getAttribute("href") ?? "";
+    if (!/^https?:\/\//i.test(href)) return;
+    event.preventDefault();
+    onOpenUrl(href);
+  };
+
+  return <div ref={ref} onClick={handleClick} className={`md-body ${className}`} />;
 }

@@ -4,6 +4,7 @@ import multipart from "@fastify/multipart";
 import { apiHost, apiPort, maxUploadBytes } from "./config.ts";
 import { agentsRoutes } from "./routes/agents.ts";
 import { taskRoutes } from "./routes/tasks.ts";
+import { readerRoutes } from "./routes/reader.ts";
 
 const app = Fastify({ logger: { level: "info" } });
 
@@ -19,6 +20,7 @@ app.get("/api/health", async () => ({
 
 await app.register(agentsRoutes);
 await app.register(taskRoutes);
+await app.register(readerRoutes);
 
 app.setErrorHandler((error: FastifyError, _req, reply) => {
   app.log.error(error);

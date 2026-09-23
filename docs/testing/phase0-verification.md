@@ -122,6 +122,29 @@ check_rd_expenses(ok) → search_public_cases(ok) → calculate_rd_adjustment(ok
 `calculate_rd_adjustment, check_rd_expenses, fetch_public_document, search_public_cases` 与
 `check_amount_consistency, fetch_public_document, match_contract_invoice, match_invoice_ledger, search_public_cases`，
 业务工具仍无重叠，内置编码工具仍禁用。
+
+## 社区网搜扩展接入（pi-web-access）
+
+选型：`pi-web-access@0.31.0`（MIT，npm 现成包，社区最成熟的检索+正文提取扩展）；零配置走 Exa MCP，无需 API key。
+加载方式：`DefaultResourceLoader({ additionalExtensionPaths: [pi-web-access/dist/index.js] })`，配置写入隔离 agentDir 的 `web-search.json`（开启 fetch_content / get_search_content）。
+
+`pnpm verify:agents` 实测会话工具增量：`web_search, fetch_content, source_check, get_search_content, web_enable`，两个 Agent 均加载成功，内置编码工具仍禁用。
+
+真实任务「社区扩展 web_search 实测」工具调用序列：
+
+```
+web_search:True → check_rd_expenses:True → web_search:True → fetch_content:False → fetch_content:True
+```
+
+`web_search` 通过 Exa MCP 零配置返回结果；`fetch_content` 首次失败为目标页拒绝抓取，换页后成功，符合扩展自身降级设计。自建 `search_public_cases` 保留为兜底 provider。
+
+## 侧边阅读器（网页 / 文件 / 产物）
+
+服务端：`GET /api/reader`（linkedom + @mozilla/readability + turndown 转 Markdown，10 分钟内存缓存，SSRF 内网拦截，PDF 返回 contentType 供前端 iframe 预览）；`GET /api/tasks/:id/files/:fileId/content` 与 `GET /api/tasks/:id/artifacts[/:name/content]` 提供资料与产物预览流。
+
+前端：`SideReader` 可折叠侧栏；Markdown 输出中的外部链接点击被拦截并在阅读器内以阅读模式打开；业务资料与生成产物列表项点击同样进入阅读器；阅读器展开时自动收起中间信息栏以保证主区域宽度。
+
+浏览器实测：点击结论中 12366 链接，侧栏标题显示「国家税务总局12366纳税服务平台」，正文为 Readability 提取的阅读模式内容，并附「原文以来源链接为准」提示。
 ## 本机网关自带搜索实测结论（不启用）
 
 对 `http://127.0.0.1:15721/v1`（Responses API）做了三组对照实测：

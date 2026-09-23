@@ -3,6 +3,7 @@ import { createTaxAgentSession, loadRuntimeConfig, TaskEventBus } from "@tax/age
 import type { NormalizedAgentEvent } from "@tax/agent-core";
 import type { AgentId } from "@tax/shared-schemas";
 import { dirs } from "../config.ts";
+import { resolveCommunityExtensions } from "../extensions.ts";
 import { getAgent } from "../agents.ts";
 import {
   appendEvent,
@@ -37,6 +38,7 @@ export async function runTask(taskId: string, instruction: string): Promise<void
 
   const agent = getAgent(task.agentId as AgentId);
   const cfg = loadRuntimeConfig();
+  cfg.extensionPaths = [...cfg.extensionPaths, ...resolveCommunityExtensions()];
   const taskCwd = path.join(dirs.uploads, taskId);
 
   const pendingToolCalls = new Map<string, string>();

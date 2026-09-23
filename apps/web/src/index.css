@@ -115,6 +115,13 @@ body {
   text-align: left;
   vertical-align: top;
 }
+.md-body td,
+.md-body th {
+  min-width: 96px;
+}
+.md-body a {
+  word-break: break-all;
+}
 .md-body th {
   background: var(--color-ink-100);
   font-weight: 600;

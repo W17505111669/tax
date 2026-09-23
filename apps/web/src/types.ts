@@ -71,3 +71,18 @@ export interface ToolCall {
   startedAt: string;
   endedAt: string | null;
 }
+
+export interface ReaderResult {
+  url: string;
+  title: string;
+  excerpt: string;
+  markdown: string;
+  retrievedAt: string;
+  contentType?: string;
+}
+
+export interface ArtifactInfo {
+  name: string;
+  byteSize: number;
+  updatedAt: string;
+}

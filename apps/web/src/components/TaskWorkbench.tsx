@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { AgentInfo, FileInfo, TaskInfo } from "../types.ts";
+import { api } from "../api.ts";
+import type { AgentInfo, ArtifactInfo, FileInfo, TaskInfo } from "../types.ts";
 import { useTaskEvents } from "../hooks/useTaskEvents.ts";
 import { MarkdownView } from "./MarkdownView.tsx";
-import { IconAlert, IconCheck, IconFile, IconPlay, IconSpinner, IconTool } from "./Icons.tsx";
+import { SideReader, type ReaderTarget } from "./SideReader.tsx";
+import { IconAlert, IconCheck, IconFile, IconPanel, IconPlay, IconSpinner, IconTool } from "./Icons.tsx";
 
 interface Props {
   agent: AgentInfo;
@@ -22,7 +24,31 @@ const STATUS_META: Record<string, { label: string; className: string }> = {
 export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
   const { timeline, toolCalls, status } = useTaskEvents(task.id);
   const [tab, setTab] = useState<"timeline" | "tools" | "result">("timeline");
+  const [readerOpen, setReaderOpen] = useState(false);
+  const [readerTarget, setReaderTarget] = useState<ReaderTarget | null>(null);
+  const [artifacts, setArtifacts] = useState<ArtifactInfo[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const openReader = (target: ReaderTarget) => {
+    setReaderTarget(target);
+    setReaderOpen(true);
+  };
+
+  // 产物清单：进入任务与任务结束时刷新
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      void api.listArtifacts(task.id).then((list) => {
+        if (!cancelled) setArtifacts(list);
+      }).catch(() => undefined);
+    };
+    load();
+    const timer = setInterval(load, 10000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [task.id, task.status]);
 
   const liveStatus = status === "created" ? task.status : status;
   const meta = STATUS_META[liveStatus] ?? STATUS_META.created!;
@@ -67,6 +93,19 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
         </div>
         <button
           type="button"
+          onClick={() => setReaderOpen((v) => !v)}
+          title={readerOpen ? "收起侧边阅读器" : "展开侧边阅读器"}
+          className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[12.5px] transition-colors ${
+            readerOpen
+              ? "border-ink-400 bg-ink-100 text-ink-900"
+              : "border-ink-200 bg-white text-ink-700 hover:border-ink-300 hover:bg-ink-50"
+          }`}
+        >
+          <IconPanel className="h-3.5 w-3.5" />
+          阅读器
+        </button>
+        <button
+          type="button"
           onClick={onRerun}
           disabled={running}
           className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12.5px] text-ink-700 transition-colors hover:border-ink-300 hover:bg-ink-50 disabled:opacity-40"
@@ -102,13 +141,19 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
           </div>
 
           <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-8 py-5">
-            {tab === "timeline" && <TimelineView items={timeline} accent={agent.accent} />}
+            {tab === "timeline" && <TimelineView items={timeline} accent={agent.accent} onOpenUrl={openReader} />}
             {tab === "tools" && <ToolView calls={toolCalls} />}
-            {tab === "result" && <ResultView result={finalResult} error={task.error} status={liveStatus} />}
+            {tab === "result" && (
+              <ResultView result={finalResult} error={task.error} status={liveStatus} onOpenUrl={openReader} />
+            )}
           </div>
         </div>
 
-        <aside className="hidden w-[280px] shrink-0 overflow-y-auto border-l border-ink-200 bg-white px-5 py-5 xl:block">
+        <aside
+          className={`w-[280px] shrink-0 overflow-y-auto border-l border-ink-200 bg-white px-5 py-5 ${
+            readerOpen ? "hidden" : "hidden xl:block"
+          }`}
+        >
           <div className="text-[11px] font-medium uppercase tracking-wider text-ink-400">任务指令</div>
           <p className="mt-1.5 whitespace-pre-wrap rounded-md bg-ink-50 px-3 py-2 text-[12.5px] leading-5 text-ink-700">
             {task.instruction}
@@ -120,12 +165,45 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
           ) : (
             <ul className="mt-1.5 space-y-1">
               {files.map((f) => (
-                <li key={f.id} className="flex items-start gap-2 rounded border border-ink-100 px-2 py-1.5">
-                  <IconFile className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-400" />
-                  <span className="min-w-0">
-                    <span className="block truncate text-[12px] text-ink-700">{f.fileName}</span>
-                    <span className="block text-[11px] text-ink-400">{(f.byteSize / 1024).toFixed(1)} KB · {f.parseStatus}</span>
-                  </span>
+                <li key={f.id}>
+                  <button
+                    type="button"
+                    onClick={() => openReader({ kind: "file", taskId: task.id, fileId: f.id, name: f.fileName })}
+                    className="flex w-full items-start gap-2 rounded border border-ink-100 px-2 py-1.5 text-left transition-colors hover:border-ink-300 hover:bg-ink-50"
+                    title="在侧边阅读器中预览"
+                  >
+                    <IconFile className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-400" />
+                    <span className="min-w-0">
+                      <span className="block truncate text-[12px] text-ink-700">{f.fileName}</span>
+                      <span className="block text-[11px] text-ink-400">
+                        {(f.byteSize / 1024).toFixed(1)} KB · {f.parseStatus}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="mt-5 text-[11px] font-medium uppercase tracking-wider text-ink-400">生成产物</div>
+          {artifacts.length === 0 ? (
+            <p className="mt-1.5 text-[12px] text-ink-400">暂无产物（底稿导出后在此预览）</p>
+          ) : (
+            <ul className="mt-1.5 space-y-1">
+              {artifacts.map((a) => (
+                <li key={a.name}>
+                  <button
+                    type="button"
+                    onClick={() => openReader({ kind: "artifact", taskId: task.id, name: a.name })}
+                    className="flex w-full items-start gap-2 rounded border border-ink-100 px-2 py-1.5 text-left transition-colors hover:border-ink-300 hover:bg-ink-50"
+                    title="在侧边阅读器中预览"
+                  >
+                    <IconFile className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-400" />
+                    <span className="min-w-0">
+                      <span className="block truncate text-[12px] text-ink-700">{a.name}</span>
+                      <span className="block text-[11px] text-ink-400">{(a.byteSize / 1024).toFixed(1)} KB</span>
+                    </span>
+                  </button>
                 </li>
               ))}
             </ul>
@@ -140,12 +218,22 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
             ))}
           </ul>
         </aside>
+
+        {readerOpen && <SideReader target={readerTarget} onClose={() => setReaderOpen(false)} />}
       </div>
     </div>
   );
 }
 
-function TimelineView({ items, accent }: { items: ReturnType<typeof useTaskEvents>["timeline"]; accent: string }) {
+function TimelineView({
+  items,
+  accent,
+  onOpenUrl,
+}: {
+  items: ReturnType<typeof useTaskEvents>["timeline"];
+  accent: string;
+  onOpenUrl: (target: ReaderTarget) => void;
+}) {
   if (items.length === 0) {
     return <div className="py-10 text-center text-[13px] text-ink-400">等待执行事件…</div>;
   }
@@ -177,7 +265,11 @@ function TimelineView({ items, accent }: { items: ReturnType<typeof useTaskEvent
             {item.detail && !isText && <p className="mt-1 text-[12.5px] leading-5 text-ink-600">{item.detail}</p>}
             {isText && (
               <div className="mt-2 rounded-md border border-ink-100 bg-white px-4 py-3">
-                <MarkdownView text={item.detail ?? ""} live={item.streaming} />
+                <MarkdownView
+                  text={item.detail ?? ""}
+                  live={item.streaming}
+                  onOpenUrl={(url) => onOpenUrl({ kind: "url", url })}
+                />
                 {item.streaming && <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-ink-400 align-middle" />}
               </div>
             )}
@@ -250,7 +342,17 @@ function ToolView({ calls }: { calls: ReturnType<typeof useTaskEvents>["toolCall
   );
 }
 
-function ResultView({ result, error, status }: { result: string; error: string | null; status: string }) {
+function ResultView({
+  result,
+  error,
+  status,
+  onOpenUrl,
+}: {
+  result: string;
+  error: string | null;
+  status: string;
+  onOpenUrl: (target: ReaderTarget) => void;
+}) {
   if (error) {
     return (
       <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-[13px] text-rose-700">
@@ -268,7 +370,7 @@ function ResultView({ result, error, status }: { result: string; error: string |
   }
   return (
     <article className="max-w-4xl rounded-md border border-ink-200 bg-white px-6 py-5">
-      <MarkdownView text={result} />
+      <MarkdownView text={result} onOpenUrl={(url) => onOpenUrl({ kind: "url", url })} />
     </article>
   );
 }

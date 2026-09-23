@@ -42,6 +42,7 @@ export async function createTaxAgentSession(input: CreateAgentSessionInput): Pro
   const resourceLoader = new DefaultResourceLoader({
     cwd,
     agentDir: cfg.agentDir,
+    additionalExtensionPaths: cfg.extensionPaths,
     systemPromptOverride: () => agent.systemPrompt,
     // 禁止从用户全局目录追加提示词，保证参赛作品行为可复现。
     appendSystemPromptOverride: () => [],

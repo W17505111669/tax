@@ -1,4 +1,4 @@
-import type { AgentEvent, AgentInfo, FileInfo, TaskInfo, ToolCall } from "./types.ts";
+import type { AgentEvent, AgentInfo, ArtifactInfo, FileInfo, ReaderResult, TaskInfo, ToolCall } from "./types.ts";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
@@ -42,6 +42,16 @@ export const api = {
     request<{ task: TaskInfo; toolCalls: ToolCall[]; events: AgentEvent[]; files: FileInfo[] }>(
       `/api/tasks/${id}/results`,
     ),
+
+  readUrl: (url: string) => request<ReaderResult>(`/api/reader?url=${encodeURIComponent(url)}`),
+
+  listArtifacts: (taskId: string) =>
+    request<{ artifacts: ArtifactInfo[] }>(`/api/tasks/${taskId}/artifacts`).then((r) => r.artifacts),
+
+  fileContentUrl: (taskId: string, fileId: string) => `/api/tasks/${taskId}/files/${fileId}/content`,
+
+  artifactContentUrl: (taskId: string, name: string) =>
+    `/api/tasks/${taskId}/artifacts/${encodeURIComponent(name)}/content`,
 };
 
 export function openEventStream(taskId: string, onEvent: (event: AgentEvent) => void): () => void {

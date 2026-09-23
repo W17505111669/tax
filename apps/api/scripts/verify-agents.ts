@@ -4,10 +4,13 @@
  * 运行：pnpm verify:agents
  */
 import { loadRuntimeConfig, createTaxAgentSession } from "@tax/agent-core";
+import { resolveCommunityExtensions } from "../src/extensions.ts";
 import rdAuditAgent from "@tax/agent-rd-audit";
 import landVatAgent from "@tax/agent-land-vat";
 
 const cfg = loadRuntimeConfig();
+cfg.extensionPaths = [...cfg.extensionPaths, ...resolveCommunityExtensions()];
+console.log("[verify] 社区扩展:", cfg.extensionPaths.join(", ") || "(未解析到)");
 const agents = [rdAuditAgent, landVatAgent];
 
 // 业务工具必须互不重叠；sharedTools 属共用基础设施，允许同时出现在两个 Agent 中
@@ -33,9 +36,11 @@ for (const agent of agents) {
   });
   const active = session.tools;
   const actual = [...active].sort();
-  const same = JSON.stringify(expected) === JSON.stringify(actual);
+  // 会话工具应包含全部业务/共用工具，社区扩展工具为额外增量
+  const same = expected.every((name) => actual.includes(name));
+  const extra = actual.filter((name) => !expected.includes(name));
   const noBuiltin = !actual.some((n) => ["read", "bash", "edit", "write", "grep", "find", "ls"].includes(n));
-  console.log(`[verify] ${agent.shortName} 会话工具: ${actual.join(", ") || "(无)"} | 与配置一致=${same} | 已禁用内置编码工具=${noBuiltin} | 共用工具=${[...sharedNames].join(",")}`);
+  console.log(`[verify] ${agent.shortName} 会话工具: ${actual.join(", ") || "(无)"} | 含全部业务工具=${same} | 扩展增量=${extra.join(",") || "(无)"} | 已禁用内置编码工具=${noBuiltin}`);
   pass = pass && same && noBuiltin;
   session.dispose();
 }
