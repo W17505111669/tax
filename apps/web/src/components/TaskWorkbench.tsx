@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentInfo, FileInfo, TaskInfo } from "../types.ts";
 import { useTaskEvents } from "../hooks/useTaskEvents.ts";
+import { MarkdownView } from "./MarkdownView.tsx";
 import { IconAlert, IconCheck, IconFile, IconPlay, IconSpinner, IconTool } from "./Icons.tsx";
 
 interface Props {
@@ -175,8 +176,8 @@ function TimelineView({ items, accent }: { items: ReturnType<typeof useTaskEvent
             </div>
             {item.detail && !isText && <p className="mt-1 text-[12.5px] leading-5 text-ink-600">{item.detail}</p>}
             {isText && (
-              <div className="mt-2 whitespace-pre-wrap rounded-md border border-ink-100 bg-white px-3.5 py-3 text-[13px] leading-6 text-ink-800">
-                {item.detail}
+              <div className="mt-2 rounded-md border border-ink-100 bg-white px-4 py-3">
+                <MarkdownView text={item.detail ?? ""} live={item.streaming} />
                 {item.streaming && <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-ink-400 align-middle" />}
               </div>
             )}
@@ -266,8 +267,8 @@ function ResultView({ result, error, status }: { result: string; error: string |
     );
   }
   return (
-    <article className="max-w-4xl whitespace-pre-wrap rounded-md border border-ink-200 bg-white px-5 py-4 text-[13.5px] leading-7 text-ink-800">
-      {result}
+    <article className="max-w-4xl rounded-md border border-ink-200 bg-white px-6 py-5">
+      <MarkdownView text={result} />
     </article>
   );
 }

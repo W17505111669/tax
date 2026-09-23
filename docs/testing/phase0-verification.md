@@ -100,3 +100,25 @@ unmatched: FP-005(发票未注明合同编号)
 - Excel 底稿模板填列尚未实现，等待客户原始模板。
 - 政策知识库检索尚未实现，Agent 会明确声明未检索政策而不虚构文号。
 - 任务会话为内存态，进程重启后可通过事件回放查看历史，但不支持断点续跑。
+- 任务会话为内存态，进程重启后可通过事件回放查看历史，但不支持断点续跑。
+
+## 联网检索与 Markdown/mermaid 输出（2026-09-23 增补）
+
+新增共用工具 `search_public_cases`（Bing 主、百度兜底，异常降级为空结果）与 `fetch_public_document`（带内网地址拦截）。
+
+真实任务「缺失资料联网检索与图表输出验证」中 Agent 实际调用：
+
+```
+check_rd_expenses(ok) → search_public_cases(ok) → calculate_rd_adjustment(ok)
+→ fetch_public_document(ok) → search_public_cases(ok)
+```
+
+检索词示例：`研发费用加计扣除 研发人员名单 缺失 案例`，返回 8 条公开结果（含标题、URL、摘要、检索引擎）。
+
+前端已接入 Markdown 阅读器（marked + DOMPurify）与 mermaid 渲染。浏览器实测该任务结论页：
+`mermaid svg=1 tables=5 h3=5`，差异传导 flowchart 正常出图，表格与分节标题按报告样式渲染。
+
+`pnpm verify:agents` 复测：两个 Agent 会话工具分别为
+`calculate_rd_adjustment, check_rd_expenses, fetch_public_document, search_public_cases` 与
+`check_amount_consistency, fetch_public_document, match_contract_invoice, match_invoice_ledger, search_public_cases`，
+业务工具仍无重叠，内置编码工具仍禁用。

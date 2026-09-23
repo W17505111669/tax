@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@tax/agent-core": "workspace:*",
+    "@tax/business-tools": "workspace:*",
     "@tax/shared-schemas": "workspace:*",
     "typebox": "1.3.27"
   },

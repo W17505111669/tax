@@ -56,7 +56,7 @@ export async function createTaxAgentSession(input: CreateAgentSessionInput): Pro
     thinkingLevel: cfg.thinkingLevel,
     // "builtin" = 关闭 Pi 的 read/bash/edit/write，只保留业务自定义工具。
     noTools: "builtin",
-    customTools: agent.tools,
+    customTools: [...(agent.sharedTools ?? []), ...agent.tools],
     resourceLoader,
     sessionManager: SessionManager.inMemory(),
   });
@@ -86,13 +86,23 @@ export async function createTaxAgentSession(input: CreateAgentSessionInput): Pro
     if (event.type === "tool_execution_end") {
       const e = event as unknown as {
         toolName?: string;
-        result?: { isError?: boolean; details?: unknown };
+        result?: {
+          isError?: boolean;
+          details?: unknown;
+          content?: Array<{ type: string; text?: string }>;
+        };
       };
+      const errorText = e.result?.isError
+        ? (e.result.content ?? [])
+            .filter((c) => c.type === "text" && typeof c.text === "string")
+            .map((c) => c.text as string)
+            .join(" ")
+        : undefined;
       onEvent({
         kind: "tool_end",
         toolName: e.toolName ?? "(unknown)",
         ok: e.result?.isError !== true,
-        result: e.result?.details ?? null,
+        result: e.result?.details ?? (errorText ? { error: errorText } : null),
       });
     }
   });

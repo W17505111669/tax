@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import type { TaxAgentConfig } from "@tax/agent-core";
+import { sharedWebTools } from "@tax/business-tools";
 import { rdTools } from "./tools/rd-tools.ts";
 
 const systemPrompt = fs.readFileSync(new URL("./system-prompt.md", import.meta.url), "utf8");
@@ -20,6 +21,7 @@ export const rdAuditAgent: TaxAgentConfig = {
   accent: "#0f766e",
   systemPrompt,
   tools: rdTools,
+  sharedTools: sharedWebTools,
   samplePrompts: [
     "某制造业企业 2025 年度研发项目「高精度数控主轴研发」，辅助账归集如下：人员人工 860000 元、直接投入 420000 元、折旧 150000 元、无形资产摊销 60000 元、新产品设计费 90000 元、其他相关费用 180000 元。请按 100% 比例测算可加计扣除金额，并说明其他相关费用是否存在超限。",
     "请核查项目「智能检测算法研发」的费用归集：辅助账为人员人工 500000 元、直接投入 200000 元、其他相关费用 30000 元；财务明细账为人员人工 500000 元、直接投入 260000 元、其他相关费用 30000 元。留存备查资料中立项决议已取得、研发人员名单未取得。请列出全部差异与缺失事项。",

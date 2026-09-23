@@ -13,6 +13,8 @@ export interface TaxAgentConfig {
   accent: string;
   systemPrompt: string;
   tools: ToolDefinition[];
+  /** 两个作品共用的基础设施工具（联网检索等），不计入业务工具独立性校验。 */
+  sharedTools?: ToolDefinition[];
   /** 建议的示例任务，方便评委一键体验。 */
   samplePrompts: string[];
 }

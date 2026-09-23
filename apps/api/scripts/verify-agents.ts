@@ -10,8 +10,10 @@ import landVatAgent from "@tax/agent-land-vat";
 const cfg = loadRuntimeConfig();
 const agents = [rdAuditAgent, landVatAgent];
 
+// 业务工具必须互不重叠；sharedTools 属共用基础设施，允许同时出现在两个 Agent 中
 const rdTools = new Set(rdAuditAgent.tools.map((t) => t.name));
 const lvTools = new Set(landVatAgent.tools.map((t) => t.name));
+const sharedNames = new Set((rdAuditAgent.sharedTools ?? []).map((t) => t.name));
 const overlap = [...rdTools].filter((n) => lvTools.has(n));
 
 console.log("[verify] 智研税审工具:", [...rdTools].join(", "));
@@ -22,6 +24,7 @@ console.log("[verify] 系统提示词是否不同:", rdAuditAgent.systemPrompt !
 let pass = overlap.length === 0 && rdAuditAgent.systemPrompt !== landVatAgent.systemPrompt;
 
 for (const agent of agents) {
+  const expected = [...(agent.sharedTools ?? []), ...agent.tools].map((t) => t.name).sort();
   const session = await createTaxAgentSession({
     agent,
     cfg,
@@ -29,11 +32,10 @@ for (const agent of agents) {
     onEvent: () => {},
   });
   const active = session.tools;
-  const expected = agent.tools.map((t) => t.name).sort();
   const actual = [...active].sort();
   const same = JSON.stringify(expected) === JSON.stringify(actual);
   const noBuiltin = !actual.some((n) => ["read", "bash", "edit", "write", "grep", "find", "ls"].includes(n));
-  console.log(`[verify] ${agent.shortName} 会话工具: ${actual.join(", ") || "(无)"} | 与配置一致=${same} | 已禁用内置编码工具=${noBuiltin}`);
+  console.log(`[verify] ${agent.shortName} 会话工具: ${actual.join(", ") || "(无)"} | 与配置一致=${same} | 已禁用内置编码工具=${noBuiltin} | 共用工具=${[...sharedNames].join(",")}`);
   pass = pass && same && noBuiltin;
   session.dispose();
 }

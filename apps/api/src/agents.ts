@@ -9,7 +9,7 @@ import landVatAgent from "@tax/agent-land-vat";
  * 两个 Agent 各自拥有独立系统提示词与独立工具集，通过 ToolRegistry 校验重名。
  */
 function buildRegistry(agent: TaxAgentConfig): TaxAgentConfig {
-  const registry = new ToolRegistry().registerAll(agent.tools);
+  const registry = new ToolRegistry().registerAll([...(agent.sharedTools ?? []), ...agent.tools]);
   return { ...agent, tools: registry.list() };
 }
 

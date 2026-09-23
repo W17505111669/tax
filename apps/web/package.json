@@ -10,6 +10,9 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "dompurify": "^3.2.5",
+    "marked": "^15.0.7",
+    "mermaid": "^11.6.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
