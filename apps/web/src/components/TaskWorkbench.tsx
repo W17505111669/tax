@@ -1249,6 +1249,40 @@ function TimelineView({
         </button>
         <button
           type="button"
+          className="action-btn"
+          title="复制当前视图条件与可见事件摘要"
+          onClick={() => {
+            const visible = items.filter((it) => {
+              if (view === "tools" && it.kind !== "tool_start" && it.kind !== "run_started") return false;
+              if (
+                view === "text" &&
+                !["agent_text", "run_started", "run_completed", "run_failed"].includes(it.kind)
+              ) {
+                return false;
+              }
+              if (view === "fails" && it.kind !== "tool_start" && it.kind !== "run_failed") return false;
+              const qq = tlQuery.trim().toLowerCase();
+              if (qq && it.kind !== "tool_start" && !`${it.title} ${it.detail ?? ""}`.toLowerCase().includes(qq)) {
+                return false;
+              }
+              if (legendKind && it.kind !== legendKind) return false;
+              return true;
+            });
+            const lines = [
+              `视图：view=${view} 过滤=${tlQuery || "(无)"} 隔离=${legendKind ?? "(无)"} 时间戳=${showTs ? "开" : "关"}`,
+              `可见事件 ${visible.length}/${items.length}`,
+              ...visible
+                .slice(0, 50)
+                .map((it) => `#${it.seq} ${it.kind} ${it.at} ${(it.detail ?? it.title).replace(/\s+/g, " ").slice(0, 60)}`),
+            ];
+            copyText(lines.join("\n"));
+          }}
+        >
+          <IconCopy className="h-3 w-3" />
+          复制视图
+        </button>
+        <button
+          type="button"
           onClick={onToggleAutoFollow}
           title="流式输出时是否自动滚动跟随"
           className={`rounded-full border px-2.5 py-0.5 text-[11px] transition-colors ${
