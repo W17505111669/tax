@@ -602,6 +602,10 @@ export function Sidebar({
                   key={t}
                   type="button"
                   onClick={() => setTagFilter((v) => (v === t ? null : t))}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setTagFilter(null);
+                  }}
                   className={`rounded-full border px-1.5 py-0.5 text-[10px] transition-colors ${
                     tagFilter === t
                       ? "border-glow-500 bg-glow-500/15 text-glow-300"

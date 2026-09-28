@@ -196,6 +196,39 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
     setEditingKey(null);
   };
 
+  // 粘贴并恢复视图状态（与「复制状态」配对；排序键重映射到当前标签）
+  const pasteState = async () => {
+    try {
+      const raw = await navigator.clipboard.readText();
+      const s = JSON.parse(raw) as {
+        zoom?: number;
+        rot?: number;
+        fitWidth?: boolean;
+        showLines?: boolean;
+        find?: string;
+        sort?: Record<string, { col: string; dir: 1 | -1 }>;
+      };
+      if (typeof s.zoom === "number") setZoom(Math.min(3, Math.max(0.5, s.zoom)));
+      if (typeof s.rot === "number") setRot(((s.rot % 360) + 360) % 360);
+      if (typeof s.fitWidth === "boolean") setFitWidth(s.fitWidth);
+      if (typeof s.showLines === "boolean") setShowLines(s.showLines);
+      if (typeof s.find === "string") setFindQuery(s.find);
+      const sortEntries = s.sort && typeof s.sort === "object" ? Object.entries(s.sort) : [];
+      if (sortEntries.length > 0) {
+        setSort((prev) => {
+          const next = { ...prev };
+          for (const [k, v] of sortEntries) {
+            const sheetPart = k.slice(k.indexOf(":") + 1);
+            next[`${activeKey}:${sheetPart}`] = v;
+          }
+          return next;
+        });
+      }
+    } catch {
+      /* 剪贴板内容非法时忽略 */
+    }
+  };
+
   // Text preview in-page search highlight
   const findTrim = findQuery.trim();
   const findEscaped = findTrim.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -767,6 +800,9 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
             }
           >
             复制状态
+          </button>
+          <button type="button" className="action-btn" title="从剪贴板恢复视图状态" onClick={() => void pasteState()}>
+            粘贴状态
           </button>
         </div>
       )}
