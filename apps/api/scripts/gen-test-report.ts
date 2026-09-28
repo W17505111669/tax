@@ -139,7 +139,33 @@ if (comparedTotal > 0) {
 }
 lines.push("");
 
-lines.push(`## 五、已知限制`);
+lines.push(`## 五、案例回归（case:run）`);
+lines.push("");
+lines.push(`| 案例 | 状态 | 比对准确率 | 结论 | 工具链 |`);
+lines.push(`| --- | --- | --- | --- | --- |`);
+const casesDir = path.join(root, "data", "cases");
+if (fs.existsSync(casesDir)) {
+  for (const dirName of fs.readdirSync(casesDir).sort()) {
+    const dir = path.join(casesDir, dirName);
+    if (!fs.statSync(dir).isDirectory()) continue;
+    const reports = fs.readdirSync(dir).filter((f) => /^report-.*\.md$/.test(f)).sort();
+    const latest = reports[reports.length - 1];
+    if (!latest) {
+      lines.push(`| ${dirName} | 暂无回归记录 | — | — | — |`);
+      continue;
+    }
+    const text = fs.readFileSync(path.join(dir, latest), "utf8");
+    const status = /- 状态：(.+)/.exec(text)?.[1]?.trim() ?? "—";
+    const chain = /- 工具链：(.+)/.exec(text)?.[1]?.trim() ?? "—";
+    const acc = /比对准确率：(.+)/.exec(text)?.[1]?.trim() ?? "—";
+    const verdict = /\*\*结论：(PASS|FAIL)\*\*/.exec(text)?.[1] ?? "—";
+    lines.push(`| ${dirName}（${latest.replace("report-", "").replace(".md", "")}） | ${status} | ${acc} | ${verdict} | ${chain} |`);
+  }
+} else {
+  lines.push(`| — | 无案例目录 | — | — | — |`);
+}
+lines.push("");
+lines.push(`## 六、已知限制`);
 lines.push("");
 lines.push(`- OCR 扫描件识别未接入：PDF 无文本层时工具明确提示需 OCR，不虚构内容。`);
 lines.push(`- 政策快照为开发参考版本，正式引用前 Agent 会联网核验并记录核验时间。`);

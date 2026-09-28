@@ -37,14 +37,30 @@
 | 映射模式填列验证 | land-vat | LV-2026-002 | failed（服务重启导致执行中断） | parse_uploaded_files → inspect_workpaper_template → match_contract_invoice → fill_land_vat_workpaper → web_search → search_public_cases(…) → search_public_cases → check_amount_consistency → generate_workpaper | — | 2 个（上传 1） |
 | 底稿比对准确率闭环 | rd-audit | RD-2026-003 | failed（服务重启导致执行中断） | parse_uploaded_files → generate_workpaper → compare_workpapers → generate_workpaper → compare_workpapers → generate_workpaper → compare_workpapers → check_rd_expenses → generate_workpaper → compare_workpapers → web_search | 0%（地址模式） | 4 个（上传 1） |
 | 记录级底稿比对闭环 | rd-audit | RD-2026-004 | completed | parse_uploaded_files → generate_workpaper → compare_workpapers → web_search | 66.67% | 1 个（上传 1） |
+| 人工复核流程验证 | rd-audit | RD-2026-005 | completed | parse_uploaded_files → check_rd_expenses → web_search → fetch_content → search_rd_policy → fetch_content → web_search | — | — |
+| 人工复核状态机验证 | rd-audit | RD-2026-006 | completed | parse_uploaded_files → check_rd_expenses | — | — |
+| 续跑会话历史验证 | rd-audit | RD-2026-007 | waiting_review | check_rd_expenses | — | — |
+| OCR 扫描件解析验证 | rd-audit | RD-2026-008 | completed | parse_uploaded_files | — | —（上传 1） |
+| 比对联动验证 | rd-audit | RD-2026-009 | waiting_review | parse_uploaded_files → generate_workpaper(…) → generate_workpaper → compare_workpapers | 50% | 2 个 |
+| 回归案例：研发费用归集核查与底稿 | rd-audit | case-rd-basic | waiting_review | parse_uploaded_files → check_rd_expenses → generate_workpaper | — | 1 个（上传 1） |
+| 回归案例：研发费用归集核查与底稿 | rd-audit | case-rd-basic | waiting_review | parse_uploaded_files → check_rd_expenses → generate_workpaper | — | 1 个（上传 1） |
+| 回归案例：研发费用归集核查与底稿 | rd-audit | case-rd-basic | waiting_review | parse_uploaded_files → check_rd_expenses → generate_workpaper | — | 1 个（上传 1） |
+| 回归案例：土增模板映射填列 | land-vat | case-lv-template | waiting_review | parse_uploaded_files → inspect_workpaper_template → match_contract_invoice → fill_land_vat_workpaper → check_amount_consistency → generate_workpaper | — | 2 个（上传 1） |
 
 ## 四、准确率统计（记录级比对口径）
 
-- 比对项合计 3：一致 2、差异 1、仅系统 0、仅人工 0
-- 记录级比对总准确率：**66.67%**
+- 比对项合计 5：一致 3、差异 2、仅系统 0、仅人工 0
+- 记录级比对总准确率：**60%**
 - 口径说明：一致=正确识别；差异=错误识别；仅人工=未识别；仅系统=系统多出项（需人工复核）。差异项一律列为待核查事项，不计入正确。
 
-## 五、已知限制
+## 五、案例回归（case:run）
+
+| 案例 | 状态 | 比对准确率 | 结论 | 工具链 |
+| --- | --- | --- | --- | --- |
+| case-lv-template（2026-09-28） | waiting_review | 未比对 | PASS | parse_uploaded_files:ok → inspect_workpaper_template:ok → match_contract_invoice:ok → fill_land_vat_workpaper:ok → check_amount_consistency:ok → generate_workpaper:ok |
+| case-rd-basic（2026-09-28） | waiting_review | 66.67% | PASS | parse_uploaded_files:ok → check_rd_expenses:ok → generate_workpaper:ok |
+
+## 六、已知限制
 
 - OCR 扫描件识别未接入：PDF 无文本层时工具明确提示需 OCR，不虚构内容。
 - 政策快照为开发参考版本，正式引用前 Agent 会联网核验并记录核验时间。
