@@ -853,6 +853,9 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
                     任务：{task.title}　案例：{task.caseId}　状态：{liveStatus}　打印时间：
                     {new Date().toLocaleString("zh-CN", { hour12: false })}
                   </div>
+                  <div className="mt-0.5 text-[10.5px] text-gray-600">
+                    任务 ID：{task.id}　模型：{agent.model ?? "—"}　运行次数：{runCount}
+                  </div>
                 </div>
                 {prevConclusion && (
                   <div className="no-print mb-3 rounded-md border border-line bg-night-850 px-3 py-2 text-[11.5px] leading-5 text-mist-500">

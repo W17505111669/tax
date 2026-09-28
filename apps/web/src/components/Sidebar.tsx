@@ -78,6 +78,12 @@ export function IconRail({
   onRefresh: () => void;
 }) {
   const [helpOpen, setHelpOpen] = useState(false);
+
+  useEffect(() => {
+    const h = () => setHelpOpen((v) => !v);
+    window.addEventListener("taxai-toggle-help", h);
+    return () => window.removeEventListener("taxai-toggle-help", h);
+  }, []);
   return (
     <div className="icon-rail no-print flex w-[46px] shrink-0 flex-col items-center gap-1.5 py-3">
       <div
@@ -122,6 +128,7 @@ export function IconRail({
                 { keys: "↑ / ↓", desc: "选择比对差异行" },
                 { keys: "Enter", desc: "阅读器双底稿定位" },
                 { keys: "Alt+1~4", desc: "切换工作台页签" },
+                { keys: "?", desc: "开关本帮助" },
               ].map((s) => (
                 <li key={s.keys} className="flex items-center justify-between gap-2">
                   <span>{s.desc}</span>

@@ -113,6 +113,17 @@ export default function App() {
     setAnnounce(`任务状态：${label[s] ?? s}`);
   }, [taskDetail?.task.status]);
 
+  // 「?」键开关快捷键帮助浮层
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (e.key === "?") window.dispatchEvent(new CustomEvent("taxai-toggle-help"));
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
   // 深链进入时按任务归属纠正智能体选择
   useEffect(() => {
     if (!activeTaskId || tasks.length === 0) return;
