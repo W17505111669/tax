@@ -801,6 +801,7 @@ function TimelineView({
   const lastTextId = [...items].reverse().find((t) => t.kind === "agent_text" && t.detail)?.id;
   let runSeq = 0;
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [view, setView] = useState<"all" | "tools" | "text">("all");
 
   const copyText = (text: string) => {
     void navigator.clipboard?.writeText(text).catch(() => undefined);
@@ -812,6 +813,28 @@ function TimelineView({
 
   return (
     <div className="space-y-4">
+      <div className="flex gap-1.5">
+        {(
+          [
+            ["all", "全部"],
+            ["tools", "仅工具"],
+            ["text", "仅结论"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setView(id)}
+            className={`rounded-full border px-2.5 py-0.5 text-[11px] transition-colors ${
+              view === id
+                ? "border-glow-500 bg-glow-500/15 text-glow-300"
+                : "border-line bg-night-850 text-mist-500 hover:text-mist-100"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <div className="flex justify-end">
         <div className="user-bubble max-w-[78%] whitespace-pre-wrap px-4 py-2.5 text-[13px] leading-6">
           {instruction}
@@ -820,6 +843,16 @@ function TimelineView({
 
       {items.map((item) => {
         const cls = runSeq > 1 ? "ml-3 border-l-2 border-line/70 pl-3" : "";
+        if (view === "tools" && item.kind !== "tool_start" && item.kind !== "run_started") return null;
+        if (
+          view === "text" &&
+          item.kind !== "agent_text" &&
+          item.kind !== "run_started" &&
+          item.kind !== "run_completed" &&
+          item.kind !== "run_failed"
+        ) {
+          return null;
+        }
         if (item.kind === "tool_start") {
           const name = String((item.payload as { toolName?: string } | undefined)?.toolName ?? "");
           const idx = counters.current[name] ?? 0;
