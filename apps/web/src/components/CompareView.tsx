@@ -39,6 +39,8 @@ export function CompareView({ compares, onOpenTarget }: Props) {
 
   const [onlyLatest, setOnlyLatest] = useState(false);
   const shownCompares = onlyLatest ? compares.slice(-1) : compares;
+  const [baseId, setBaseId] = useState<string | null>(null);
+  const baseRec = baseId ? shownCompares.find((c) => c.id === baseId) ?? compares.find((c) => c.id === baseId) : undefined;
   const flat = useMemo(
     () =>
       shownCompares.flatMap((rec) =>
@@ -362,6 +364,7 @@ export function CompareView({ compares, onOpenTarget }: Props) {
         if (!t) return null;
         const prevAcc = ri > 0 ? shownCompares[ri - 1]?.result?.totals?.accuracyPercent : undefined;
         const accDelta = typeof prevAcc === "number" ? t.accuracyPercent - prevAcc : undefined;
+        const baseT = baseRec && baseRec.id !== rec.id ? baseRec.result?.totals : undefined;
         return (
           <section key={rec.id} className="glow-card px-5 py-4">
             <div className="flex flex-wrap items-baseline gap-3">
@@ -371,6 +374,18 @@ export function CompareView({ compares, onOpenTarget }: Props) {
                 {rec.result.sheets[0]?.mode === "address" ? "地址模式" : "记录级模式"}
               </span>
               <span className="ml-auto flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setBaseId((v) => (v === rec.id ? null : rec.id))}
+                  className={`rounded border px-2 py-0.5 text-[11px] transition-colors ${
+                    baseId === rec.id
+                      ? "border-glow-500 bg-glow-500/15 text-glow-300"
+                      : "border-line bg-night-800 text-mist-300 hover:border-glow-500 hover:text-glow-300"
+                  }`}
+                  title="设为基准后，其余记录显示相对该次的变化"
+                >
+                  {baseId === rec.id ? "取消基准" : "设为基准"}
+                </button>
                 <button
                   type="button"
                   onClick={() => exportReport(rec)}
@@ -423,6 +438,17 @@ export function CompareView({ compares, onOpenTarget }: Props) {
             </div>
 
             <div className="mt-3 grid gap-3 sm:grid-cols-3 xl:grid-cols-6">
+              {baseT && (
+                <div className="sm:col-span-3 xl:col-span-6">
+                  <span className="rounded border border-glow-500/35 bg-glow-500/10 px-2 py-1 text-[11px] text-glow-300">
+                    较基准：准确率 {t.accuracyPercent - baseT.accuracyPercent >= 0 ? "+" : ""}
+                    {t.accuracyPercent - baseT.accuracyPercent}pp · 差异 {t.mismatched - baseT.mismatched >= 0 ? "+" : ""}
+                    {t.mismatched - baseT.mismatched} · 仅系统 {t.onlyA - baseT.onlyA >= 0 ? "+" : ""}
+                    {t.onlyA - baseT.onlyA} · 仅人工 {t.onlyB - baseT.onlyB >= 0 ? "+" : ""}
+                    {t.onlyB - baseT.onlyB}
+                  </span>
+                </div>
+              )}
               <div className="glow-card glow-ring px-4 py-3">
                 <div className="text-[11px] text-mist-600">总准确率</div>
                 <div className="mt-1 text-[26px] font-semibold tracking-tight text-glow-300">
