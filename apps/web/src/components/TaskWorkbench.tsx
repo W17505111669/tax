@@ -100,6 +100,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   const [readerOpen, setReaderOpen] = useState(false);
   const [readerTabs, setReaderTabs] = useState<ReaderTarget[]>([]);
   const [readerActive, setReaderActive] = useState(0);
+  const [readerSplitReq, setReaderSplitReq] = useState<{ secondKey: string; nonce: number } | null>(null);
   const [artifacts, setArtifacts] = useState<ArtifactInfo[]>([]);
   const [resumeOpen, setResumeOpen] = useState(false);
   const [resumeText, setResumeText] = useState("");
@@ -335,32 +336,68 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     }
   };
 
-  const openCompareTarget = (ref: {
+  type CompareTargetRef = {
     kind: "upload" | "artifact";
     name: string;
     highlight?: string;
     highlightValue?: string | number | null;
-  }) => {
+  };
+
+  const toReaderTarget = (ref: CompareTargetRef): ReaderTarget | null => {
     if (ref.kind === "artifact") {
-      openReader({
+      return {
         kind: "artifact",
         taskId: task.id,
         name: ref.name,
         highlight: ref.highlight,
         highlightValue: ref.highlightValue,
-      });
-      return;
+      };
     }
     const file = files.find((f) => f.fileName === ref.name);
-    if (file)
-      openReader({
-        kind: "file",
-        taskId: task.id,
-        fileId: file.id,
-        name: file.fileName,
-        highlight: ref.highlight,
-        highlightValue: ref.highlightValue,
-      });
+    if (!file) return null;
+    return {
+      kind: "file",
+      taskId: task.id,
+      fileId: file.id,
+      name: file.fileName,
+      highlight: ref.highlight,
+      highlightValue: ref.highlightValue,
+    };
+  };
+
+  const openCompareTarget = (ref: CompareTargetRef) => {
+    const target = toReaderTarget(ref);
+    if (target) openReader(target);
+  };
+
+  /** 差异行联动：A 进主栏、B 进副栏，并自动开启双栏对照（两份都会预载） */
+  const openComparePair = (a: CompareTargetRef, b: CompareTargetRef) => {
+    const ta = toReaderTarget(a);
+    const tb = toReaderTarget(b);
+    if (!ta || !tb) {
+      if (ta) openReader(ta);
+      if (tb) openReader(tb);
+      return;
+    }
+    lastFocusRef.current = document.activeElement as HTMLElement | null;
+    const next = [...readerTabs];
+    const place = (t: ReaderTarget): number => {
+      const i = next.findIndex((x) => readerKey(x) === readerKey(t));
+      if (i >= 0) {
+        next[i] = t; // 同一份底稿再次定位时刷新高亮信息
+        return i;
+      }
+      next.push(t);
+      return next.length - 1;
+    };
+    const ia = place(ta);
+    const ib = place(tb);
+    setReaderTabs(next);
+    setReaderActive(ia);
+    setReaderSplitReq(
+      ia === ib ? null : (prev) => ({ secondKey: readerKey(tb), nonce: (prev?.nonce ?? 0) + 1 }),
+    );
+    setReaderOpen(true);
   };
 
   const finalResult = useMemo(() => {
@@ -1240,7 +1277,9 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
               />
               </>
             )}
-            {tab === "compare" && <CompareView compares={compares} onOpenTarget={openCompareTarget} />}
+            {tab === "compare" && (
+              <CompareView compares={compares} onOpenTarget={openCompareTarget} onOpenPair={openComparePair} />
+            )}
             {tab === "review" && (
               <ReviewView issues={issues} reviews={reviews} pending={pendingReviews} onReview={handleReview} />
             )}
@@ -1356,6 +1395,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
         {readerOpen && (
           <SideReader
             tabs={readerTabs}
+            splitRequest={readerSplitReq}
             activeIndex={readerActive}
             onSelect={setReaderActive}
             onCloseTab={closeTab}

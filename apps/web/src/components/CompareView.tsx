@@ -23,9 +23,11 @@ function csvEsc(v: string | number | null | undefined): string {
 interface Props {
   compares: CompareRecord[];
   onOpenTarget: (ref: CompareRef) => void;
+  /** 两份底稿都存在时优先走这里：A 进主栏、B 进副栏并自动开启双栏对照 */
+  onOpenPair?: (a: CompareRef, b: CompareRef) => void;
 }
 
-export function CompareView({ compares, onOpenTarget }: Props) {
+export function CompareView({ compares, onOpenTarget, onOpenPair }: Props) {
   const [sel, setSel] = useState<number | null>(null);
   const [kindFilter, setKindFilter] = useState<"all" | "mismatch" | "only_a" | "only_b">(() => {
     const v = localStorage.getItem("taxai-compare-kind");
@@ -187,13 +189,19 @@ export function CompareView({ compares, onOpenTarget }: Props) {
   };
 
   /**
-   * 差异行联动：两份底稿同时进阅读器，带上完整地址与该侧期望值。
+   * 差异行联动：两份底稿同时进阅读器（可双栏对照），带上完整地址与该侧期望值。
    * 完整地址（含「/列名」或 A1 形式）由阅读器的 sheetLocate 解析到行与列，
    * 期望值用于值校验，避免解析器跳行时高亮落到错误行。
    */
   const openBoth = (rec: CompareRecord, d: CompareDiff) => {
-    if (rec.result.a) onOpenTarget({ ...rec.result.a, highlight: d.address, highlightValue: d.a });
-    if (rec.result.b) onOpenTarget({ ...rec.result.b, highlight: d.address, highlightValue: d.b });
+    const a = rec.result.a ? { ...rec.result.a, highlight: d.address, highlightValue: d.a } : undefined;
+    const b = rec.result.b ? { ...rec.result.b, highlight: d.address, highlightValue: d.b } : undefined;
+    if (a && b && onOpenPair) {
+      onOpenPair(a, b);
+      return;
+    }
+    if (a) onOpenTarget(a);
+    if (b) onOpenTarget(b);
   };
 
   // 差异表导出 CSV（BOM + 引号转义，Excel 中文可直接打开）
@@ -611,7 +619,7 @@ export function CompareView({ compares, onOpenTarget }: Props) {
                               setSel(idx);
                               openBoth(rec, d);
                             }}
-                            title="点击同时在阅读器中打开两份底稿并定位该行"
+                            title="点击以双栏对照打开两份底稿，并按该侧差异值定位到行与单元格"
                             className={`group cursor-pointer transition-colors hover:bg-night-700 ${
                               idx === sel ? "bg-night-700 shadow-[inset_0_0_0_1px_rgba(34,211,238,0.45)]" : ""
                             }`}

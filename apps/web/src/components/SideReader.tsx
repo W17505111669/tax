@@ -93,6 +93,8 @@ interface Props {
   onReorder: (from: number, to: number) => void;
   onCloseAll: (keepKeys: string[]) => void;
   onClose: () => void;
+  /** 比对页「双栏定位」请求：开启对照并把副栏指向另一份底稿（nonce 变化即生效） */
+  splitRequest?: { secondKey: string; nonce: number } | null;
 }
 
 /** 侧边可折叠阅读器：支持多文档标签页，网页阅读模式、任务资料与生成产物统一预览。 */
@@ -320,7 +322,16 @@ function MiniPane({
   );
 }
 
-export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder, onCloseAll, onClose }: Props) {
+export function SideReader({
+  tabs,
+  activeIndex,
+  onSelect,
+  onCloseTab,
+  onReorder,
+  onCloseAll,
+  onClose,
+  splitRequest,
+}: Props) {
   const [states, setStates] = useState<Record<string, ReaderState>>({});
   const { theme } = usePaperTheme();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -447,6 +458,19 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   const secondTab = tabs[secondIdxSafe] ?? null;
   const secondKey = secondTab ? readerKey(secondTab) : "";
   const secondLabel = secondTab ? states[secondKey]?.title || fallbackTitle(secondTab) : "";
+  // 副栏用「副栏那份 target」自己的定位信息：差异行 A/B 两侧的值不同，混用会校验失败
+  const secondHl = secondTab && "highlight" in secondTab ? (secondTab.highlight ?? "") : "";
+  const secondHlValue = secondTab && "highlightValue" in secondTab ? secondTab.highlightValue : undefined;
+
+  // 比对页差异行联动：自动开启双栏对照，并把副栏指向另一份底稿
+  useEffect(() => {
+    if (!splitRequest) return;
+    const idx = tabs.findIndex((t) => readerKey(t) === splitRequest.secondKey);
+    if (idx < 0 || idx === activeIndex) return;
+    setSecondIdx(idx);
+    setSplitView(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [splitRequest?.nonce]);
   const baseText = state.kind === "text" ? state.text : state.kind === "markdown" ? state.markdown : "";
   const matchCount = findTrim ? baseText.toLowerCase().split(findTrim.toLowerCase()).length - 1 : 0;
 
@@ -567,124 +591,130 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   }, [tabs.length, onSelect]);
 
   useEffect(() => {
-    if (!active) return;
-    const key = readerKey(active);
-    if (states[key]) return;
     let cancelled = false;
-    setStates((prev) => ({ ...prev, [key]: { ...INITIAL, loading: true } }));
+    // 双栏对照时副栏那份也要预载，否则从未被激活过的底稿会一直空白
+    const targets: ReaderTarget[] = [];
+    if (active) targets.push(active);
+    if (splitView && secondTab && secondKey !== activeKey) targets.push(secondTab);
 
-    void (async () => {
-      try {
-        if (active.kind === "url") {
-          const result = await api.readUrl(active.url);
-          if (cancelled) return;
-          if ((result.contentType ?? "").includes("application/pdf")) {
-            setStates((prev) => ({
-              ...prev,
-              [key]: {
-                loading: false,
-                error: null,
-                kind: "pdf",
-                title: result.title || active.url,
-                markdown: "",
-                text: "",
-                src: active.url,
-                loadedAt: new Date().toLocaleString("zh-CN", { hour12: false }),
-              },
-            }));
-            return;
-          }
-          setStates((prev) => ({
-            ...prev,
-            [key]: {
-              loading: false,
-              error: null,
-              kind: "markdown",
-              title: result.title || active.url,
-              markdown: result.markdown || result.excerpt || "（该网页未提取到正文）",
-              text: "",
-              src: active.url,
-              loadedAt: new Date().toLocaleString("zh-CN", { hour12: false }),
-            },
-          }));
-          return;
-        }
+    for (const target of targets) {
+      const key = readerKey(target);
+      if (states[key]) continue;
+      setStates((prev) => ({ ...prev, [key]: { ...INITIAL, loading: true } }));
 
-        const url =
-          active.kind === "file"
-            ? api.fileContentUrl(active.taskId, active.fileId)
-            : api.artifactContentUrl(active.taskId, active.name);
-        // Excel 优先走工作表结构化预览
-        if (/\.xlsx?$/i.test(active.name)) {
-          try {
-            const sheetsUrl =
-              active.kind === "file"
-                ? api.fileSheetsUrl(active.taskId, active.fileId)
-                : api.artifactSheetsUrl(active.taskId, active.name);
-            const sheets = await api.readSheets(sheetsUrl);
-            if (!cancelled) {
+      void (async () => {
+        try {
+          if (target.kind === "url") {
+            const result = await api.readUrl(target.url);
+            if (cancelled) return;
+            if ((result.contentType ?? "").includes("application/pdf")) {
               setStates((prev) => ({
                 ...prev,
                 [key]: {
                   loading: false,
                   error: null,
-                  kind: "sheets",
-                  title: active.name,
+                  kind: "pdf",
+                  title: result.title || target.url,
                   markdown: "",
                   text: "",
-                  src: "",
-                  sheets,
+                  src: target.url,
+                  loadedAt: new Date().toLocaleString("zh-CN", { hour12: false }),
                 },
               }));
+              return;
             }
-            return;
-          } catch {
-            // 回退到二进制预览
-          }
-        }
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`读取失败 HTTP ${res.status}`);
-        const kind = previewKind(res.headers.get("X-Preview-Kind"), active.name);
-        if (kind === "text" || kind === "markdown") {
-          const text = await res.text();
-          if (cancelled) return;
-          setStates((prev) => ({
-            ...prev,
-            [key]: { loading: false, error: null, kind, title: active.name, markdown: text, text, src: url },
-          }));
-        } else {
-          if (cancelled) return;
-          setStates((prev) => ({
-            ...prev,
-            [key]: { loading: false, error: null, kind, title: active.name, markdown: "", text: "", src: url },
-          }));
-        }
-      } catch (err) {
-        if (!cancelled) {
-          // 首次失败自动重试一次（网络抖动/冷启动）
-          if (!retriedRef.current.has(key)) {
-            retriedRef.current.add(key);
-            setStates((prev) => {
-              const next = { ...prev };
-              delete next[key];
-              return next;
-            });
-            setReload((r) => r + 1);
+            setStates((prev) => ({
+              ...prev,
+              [key]: {
+                loading: false,
+                error: null,
+                kind: "markdown",
+                title: result.title || target.url,
+                markdown: result.markdown || result.excerpt || "（该网页未提取到正文）",
+                text: "",
+                src: target.url,
+                loadedAt: new Date().toLocaleString("zh-CN", { hour12: false }),
+              },
+            }));
             return;
           }
-          setStates((prev) => ({
-            ...prev,
-            [key]: { ...INITIAL, error: err instanceof Error ? err.message : "读取失败" },
-          }));
+
+          const url =
+            target.kind === "file"
+              ? api.fileContentUrl(target.taskId, target.fileId)
+              : api.artifactContentUrl(target.taskId, target.name);
+          // Excel 优先走工作表结构化预览
+          if (/\.xlsx?$/i.test(target.name)) {
+            try {
+              const sheetsUrl =
+                target.kind === "file"
+                  ? api.fileSheetsUrl(target.taskId, target.fileId)
+                  : api.artifactSheetsUrl(target.taskId, target.name);
+              const sheets = await api.readSheets(sheetsUrl);
+              if (!cancelled) {
+                setStates((prev) => ({
+                  ...prev,
+                  [key]: {
+                    loading: false,
+                    error: null,
+                    kind: "sheets",
+                    title: target.name,
+                    markdown: "",
+                    text: "",
+                    src: "",
+                    sheets,
+                  },
+                }));
+              }
+              return;
+            } catch {
+              // 回退到二进制预览
+            }
+          }
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`读取失败 HTTP ${res.status}`);
+          const kind = previewKind(res.headers.get("X-Preview-Kind"), target.name);
+          if (kind === "text" || kind === "markdown") {
+            const text = await res.text();
+            if (cancelled) return;
+            setStates((prev) => ({
+              ...prev,
+              [key]: { loading: false, error: null, kind, title: target.name, markdown: text, text, src: url },
+            }));
+          } else {
+            if (cancelled) return;
+            setStates((prev) => ({
+              ...prev,
+              [key]: { loading: false, error: null, kind, title: target.name, markdown: "", text: "", src: url },
+            }));
+          }
+        } catch (err) {
+          if (!cancelled) {
+            // 首次失败自动重试一次（网络抖动/冷启动）
+            if (!retriedRef.current.has(key)) {
+              retriedRef.current.add(key);
+              setStates((prev) => {
+                const next = { ...prev };
+                delete next[key];
+                return next;
+              });
+              setReload((r) => r + 1);
+              return;
+            }
+            setStates((prev) => ({
+              ...prev,
+              [key]: { ...INITIAL, error: err instanceof Error ? err.message : "读取失败" },
+            }));
+          }
         }
-      }
-    })();
+      })();
+    }
 
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeKey, reload]);
+  }, [activeKey, secondKey, splitView, reload]);
 
   return (
     <aside className="no-print flex w-[440px] shrink-0 flex-col border-l border-line bg-night-950">
@@ -1402,8 +1432,8 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
           title={secondLabel}
           innerRef={miniRef}
           find={findTrim}
-          highlight={activeHl}
-          highlightValue={activeHlValue}
+          highlight={secondHl}
+          highlightValue={secondHlValue}
           mainSort={Object.fromEntries(
             Object.entries(sort)
               .filter(([k]) => k.startsWith(`${activeKey}:`))

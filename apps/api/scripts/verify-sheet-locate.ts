@@ -105,6 +105,23 @@ expect("值校验-同值多列按列名收窄", sheetLocate(row2, headers2, 0, "
   cols: ["人工"],
 });
 
+// 6) 真实比对数据（联动验证任务）：同一记录 A=420000 / B=425000，
+//    双栏对照时副栏必须用本侧期望值，否则会把命中判成未命中
+const rowA: LocateRow = { 费用类别: "直接投入", "金额（元）": 420000 };
+const rowB: LocateRow = { 费用类别: "直接投入", "金额（元）": 425000 };
+expect("双栏-A 侧用本侧值命中", sheetLocate(rowA, headers, 0, "直接投入/金额（元）", sheet, false, 420000), {
+  hit: true,
+  cols: ["金额（元）"],
+});
+expect("双栏-B 侧用本侧值命中", sheetLocate(rowB, headers, 0, "直接投入/金额（元）", sheet, false, 425000), {
+  hit: true,
+  cols: ["金额（元）"],
+});
+expect("双栏-B 侧误用 A 值则不命中", sheetLocate(rowB, headers, 0, "直接投入/金额（元）", sheet, false, 420000), {
+  hit: false,
+  cols: [],
+});
+
 console.log(`[verify] 表格定位检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  - ${f}`);
