@@ -213,6 +213,35 @@ export function AgentOverview({
     downloadBlob(new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" }), `platform-stats-${stamp}.md`);
   };
 
+  // 概览全量快照：hero/状态分布/14 天桶/perAgent/perTool
+  const exportOverview = () => {
+    const lines = [
+      `# 平台概览快照 · ${agent.shortName}`,
+      "",
+      `- 累计审查任务：${heroValue}（日均 ${dayAvg.toFixed(1)} 件 · 今日 ${days[13] ?? 0} 件）`,
+      `- 周环比：${weekDelta > 0 ? `+${weekDelta}` : weekDelta}（本周 ${weekNow} / 上周 ${weekPrev}）`,
+      `- 状态分布：${bars.map((b) => `${b.label} ${b.value}`).join(" / ")}`,
+      `- 近 14 天日桶：${days.join(", ")}`,
+      "",
+      "| 智能体 | 任务 | 已完成 | 完成率 |",
+      "| --- | --- | --- | --- |",
+      ...(p?.perAgent ?? []).map((pa) => {
+        const rate = pa.tasks > 0 ? Math.round((pa.completed / pa.tasks) * 100) : 0;
+        return `| ${pa.agentId} | ${pa.tasks} | ${pa.completed} | ${rate}% |`;
+      }),
+      "",
+      "| 工具 | 调用 | 成功 |",
+      "| --- | --- | --- |",
+      ...perTool.map((t) => `| ${t.name} | ${t.calls} | ${t.ok} |`),
+      "",
+      `- 导出时间：${new Date().toLocaleString("zh-CN", { hour12: false })}`,
+    ];
+    downloadBlob(
+      new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" }),
+      `概览快照-${new Date().toISOString().slice(0, 10)}.md`,
+    );
+  };
+
   // 核心指标复制为 TSV，便于粘贴进表格软件
   const copyTsv = () => {
     if (!p) return;
@@ -462,6 +491,9 @@ export function AgentOverview({
                 </button>
                 <button type="button" className="action-btn" onClick={() => exportStats("json")} title="导出 JSON 原始数据">
                   导出 JSON
+                </button>
+                <button type="button" className="action-btn" onClick={exportOverview} title="导出概览全量快照 MD">
+                  导出概览
                 </button>
                 <button type="button" className="action-btn" onClick={copyTsv} title="复制核心指标为 TSV">
                   复制表格
