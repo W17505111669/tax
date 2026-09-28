@@ -1059,6 +1059,7 @@ function TimelineView({
   let runSeq = 0;
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [view, setView] = useState<"all" | "tools" | "text" | "fails">("all");
+  const [tlQuery, setTlQuery] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
   const [showTs, setShowTs] = useState(false);
   const fmtTs = (iso: string) => new Date(iso).toLocaleTimeString("zh-CN", { hour12: false });
@@ -1170,6 +1171,12 @@ function TimelineView({
           <IconCopy className="h-3 w-3" />
           复制工具摘要
         </button>
+        <input
+          value={tlQuery}
+          onChange={(e) => setTlQuery(e.target.value)}
+          placeholder="过滤事件…"
+          className="w-28 rounded-full border border-line bg-night-850 px-2.5 py-0.5 text-[11px] text-mist-100 outline-none placeholder:text-mist-600 focus:glow-ring"
+        />
       </div>
       <div className="flex justify-end">
         <div className="user-bubble max-w-[78%] whitespace-pre-wrap px-4 py-2.5 text-[13px] leading-6">
@@ -1190,12 +1197,18 @@ function TimelineView({
           return null;
         }
         if (view === "fails" && item.kind !== "tool_start" && item.kind !== "run_failed") return null;
+        const q = tlQuery.trim().toLowerCase();
+        if (q && item.kind !== "tool_start") {
+          const hay = `${item.title} ${item.detail ?? ""}`.toLowerCase();
+          if (!hay.includes(q)) return null;
+        }
         if (item.kind === "tool_start") {
           const name = String((item.payload as { toolName?: string } | undefined)?.toolName ?? "");
           const idx = counters.current[name] ?? 0;
           counters.current[name] = idx + 1;
           const call = toolCalls.filter((c) => c.toolName === name)[idx];
           if (view === "fails" && call?.ok !== false) return null;
+          if (q && !name.toLowerCase().includes(q)) return null;
           return (
             <div key={item.id} data-tlid={item.id} className={cls}>
               <ToolRow

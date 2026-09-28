@@ -499,8 +499,21 @@ export function Sidebar({
         })}
       </div>
 
-      <div className="border-t border-line px-5 py-3 text-[11px] text-mist-600">
-        Pi Agent SDK · Fastify · React
+      <div className="flex items-center justify-between gap-2 border-t border-line px-5 py-3 text-[11px] text-mist-600">
+        <span>Pi Agent SDK · Fastify · React</span>
+        {order.length > 0 && (
+          <button
+            type="button"
+            className="action-btn"
+            title="清除手动排序，恢复时间倒序"
+            onClick={() => {
+              setOrder([]);
+              localStorage.removeItem("taxai-task-order");
+            }}
+          >
+            复位排序
+          </button>
+        )}
       </div>
     </aside>
   );
