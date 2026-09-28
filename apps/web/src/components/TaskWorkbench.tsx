@@ -90,6 +90,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
     const v = localStorage.getItem("taxai-result-fs");
     return v === "sm" || v === "lg" ? v : "md";
   });
+  const [autoFollow, setAutoFollow] = useState(true);
 
   useEffect(() => {
     localStorage.setItem("taxai-result-fs", fs);
@@ -466,8 +467,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
   // 仅钉底时自动跟随流式输出，用户上滚阅读历史不被打断
   useEffect(() => {
     const el = scrollRef.current;
-    if (el && tab === "timeline" && pinnedRef.current) el.scrollTop = el.scrollHeight;
-  }, [timeline, tab]);
+    if (el && tab === "timeline" && pinnedRef.current && autoFollow) el.scrollTop = el.scrollHeight;
+  }, [timeline, tab, autoFollow]);
 
   // Esc 依次收起续跑面板与侧边阅读器
   useEffect(() => {
@@ -816,7 +817,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
               const el = scrollRef.current;
               if (!el) return;
               const pinned = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
-              pinnedRef.current = pinned;
+              pinnedRef.current = autoFollow && pinned;
               setShowJump(!pinned && tab === "timeline");
               const range = el.scrollHeight - el.clientHeight;
               setScrollPct(range > 0 ? el.scrollTop / range : 0);
@@ -832,6 +833,16 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
                 citations={citations}
                 onOpenUrl={openReader}
                 onRerun={onRerun}
+                autoFollow={autoFollow}
+                onToggleAutoFollow={() => {
+                  const nv = !autoFollow;
+                  setAutoFollow(nv);
+                  if (nv) {
+                    pinnedRef.current = true;
+                    const el = scrollRef.current;
+                    if (el) el.scrollTop = el.scrollHeight;
+                  }
+                }}
               />
             )}
             {tab === "result" && (
@@ -1055,6 +1066,8 @@ function TimelineView({
   citations,
   onOpenUrl,
   onRerun,
+  autoFollow,
+  onToggleAutoFollow,
 }: {
   instruction: string;
   items: ReturnType<typeof useTaskEvents>["timeline"];
@@ -1062,6 +1075,8 @@ function TimelineView({
   citations: Citation[];
   onOpenUrl: (target: ReaderTarget) => void;
   onRerun: () => void;
+  autoFollow: boolean;
+  onToggleAutoFollow: () => void;
 }) {
   const counters = useRef<Record<string, number>>({});
   counters.current = {};
@@ -1156,6 +1171,18 @@ function TimelineView({
         >
           <IconCopy className="h-3 w-3" />
           事件 JSON
+        </button>
+        <button
+          type="button"
+          onClick={onToggleAutoFollow}
+          title="流式输出时是否自动滚动跟随"
+          className={`rounded-full border px-2.5 py-0.5 text-[11px] transition-colors ${
+            autoFollow
+              ? "border-glow-500 bg-glow-500/15 text-glow-300"
+              : "border-line bg-night-850 text-mist-500 hover:text-mist-100"
+          }`}
+        >
+          自动跟随
         </button>
         <button
           type="button"
