@@ -24,6 +24,8 @@ interface Props {
   agent: AgentInfo;
   task: TaskInfo;
   files: FileInfo[];
+  tab: "timeline" | "result" | "compare" | "review";
+  onTabChange: (tab: "timeline" | "result" | "compare" | "review") => void;
   onRerun: () => void;
 }
 
@@ -48,9 +50,8 @@ interface Citation {
   url: string;
 }
 
-export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
+export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }: Props) {
   const { timeline, toolCalls, status } = useTaskEvents(task.id);
-  const [tab, setTab] = useState<"timeline" | "result" | "compare" | "review">("timeline");
   const [compares, setCompares] = useState<CompareRecord[]>([]);
   const [issues, setIssues] = useState<TaskIssue[]>([]);
   const [reviews, setReviews] = useState<ReviewRecord[]>([]);
@@ -383,7 +384,7 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
               <button
                 key={key}
                 type="button"
-                onClick={() => setTab(key)}
+                onClick={() => onTabChange(key)}
                 className={`-mb-px border-b-2 px-3 py-2.5 text-[12.5px] transition-colors ${
                   tab === key
                     ? "border-glow-400 font-medium text-glow-300"

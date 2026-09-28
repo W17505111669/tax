@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api.ts";
 import type { AgentInfo, FileInfo, PlatformStats, TaskInfo } from "./types.ts";
 import { Sidebar } from "./components/Sidebar.tsx";
@@ -6,6 +6,23 @@ import { AgentOverview } from "./components/AgentOverview.tsx";
 import { NewTaskPanel } from "./components/NewTaskPanel.tsx";
 import { TaskWorkbench } from "./components/TaskWorkbench.tsx";
 import { IconAlert } from "./components/Icons.tsx";
+
+type WbTab = "timeline" | "result" | "compare" | "review";
+
+interface Route {
+  agentId?: string;
+  taskId?: string;
+  tab?: WbTab;
+}
+
+const TABS: WbTab[] = ["timeline", "result", "compare", "review"];
+
+function parseHash(): Route {
+  const m = /^#\/agent\/([a-z-]+)(?:\/task\/([\w-]+))?(?:\/tab\/(\w+))?$/.exec(window.location.hash);
+  if (!m) return {};
+  const tab = TABS.includes(m[3] as WbTab) ? (m[3] as WbTab) : undefined;
+  return { agentId: m[1], taskId: m[2], tab };
+}
 
 export default function App() {
   const [agents, setAgents] = useState<AgentInfo[]>([]);
@@ -17,6 +34,8 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [backendDown, setBackendDown] = useState(false);
   const [platform, setPlatform] = useState<PlatformStats | null>(null);
+  const [wbTab, setWbTab] = useState<WbTab>("timeline");
+  const applyingHash = useRef(false);
 
   const refreshTasks = useCallback(async () => {
     try {
@@ -42,6 +61,41 @@ export default function App() {
     })();
     void refreshTasks();
   }, [refreshTasks]);
+
+  // 哈希路由：刷新/深链恢复智能体、任务与页签
+  useEffect(() => {
+    const apply = () => {
+      const route = parseHash();
+      applyingHash.current = true;
+      if (route.agentId) setActiveAgentId(route.agentId);
+      if (route.taskId !== undefined) setActiveTaskId(route.taskId || null);
+      if (route.tab) setWbTab(route.tab);
+      window.setTimeout(() => {
+        applyingHash.current = false;
+      }, 0);
+    };
+    apply();
+    window.addEventListener("hashchange", apply);
+    return () => window.removeEventListener("hashchange", apply);
+  }, []);
+
+  // 状态 → 哈希（replaceState 不触发 hashchange）
+  useEffect(() => {
+    if (applyingHash.current) return;
+    const target = activeTaskId
+      ? `#/agent/${activeAgentId ?? "rd-audit"}/task/${activeTaskId}/tab/${wbTab}`
+      : activeAgentId
+        ? `#/agent/${activeAgentId}`
+        : "#/";
+    if (window.location.hash !== target) window.history.replaceState(null, "", target);
+  }, [activeAgentId, activeTaskId, wbTab]);
+
+  // 深链进入时按任务归属纠正智能体选择
+  useEffect(() => {
+    if (!activeTaskId || tasks.length === 0) return;
+    const task = tasks.find((t) => t.id === activeTaskId);
+    if (task && task.agentId !== activeAgentId) setActiveAgentId(task.agentId);
+  }, [activeTaskId, tasks, activeAgentId]);
 
   // 平台应用效果看板：挂载与周期刷新
   useEffect(() => {
@@ -152,7 +206,14 @@ export default function App() {
         )}
 
         {activeTaskId && taskDetail && activeAgent ? (
-          <TaskWorkbench agent={activeAgent} task={taskDetail.task} files={taskDetail.files} onRerun={handleRerun} />
+          <TaskWorkbench
+            agent={activeAgent}
+            task={taskDetail.task}
+            files={taskDetail.files}
+            tab={wbTab}
+            onTabChange={setWbTab}
+            onRerun={handleRerun}
+          />
         ) : activeAgent ? (
           <div className="min-h-0 flex-1 overflow-y-auto">
             <AgentOverview
