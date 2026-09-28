@@ -284,8 +284,28 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
     const done = [hasRun, toolDone, searchDone, delivered, delivered];
     const labels = ["提问", "工具核验", "联网检索", "结论生成", "交付"];
     const activeIdx = running ? done.findIndex((d) => !d) : -1;
+    // 各步耗时细分：工具核验/联网检索取调用区间，结论生成取末次工具返回→运行完成
+    const span = (list: typeof toolCalls) => {
+      const ended = list.filter((c) => c.endedAt);
+      if (ended.length === 0) return "";
+      const start = Math.min(...ended.map((c) => Date.parse(c.at)));
+      const end = Math.max(...ended.map((c) => Date.parse(c.endedAt ?? c.at)));
+      const s = (end - start) / 1000;
+      return s >= 90 ? `${Math.round(s / 60)}m` : `${s.toFixed(0)}s`;
+    };
+    const concludedAt = [...timeline].reverse().find((t) => t.kind === "run_completed")?.at;
+    const lastEnds = toolCalls.filter((c) => c.endedAt).map((c) => Date.parse(c.endedAt ?? c.at));
+    const genSpan =
+      concludedAt && lastEnds.length > 0
+        ? (() => {
+            const s = (Date.parse(concludedAt) - Math.max(...lastEnds)) / 1000;
+            return s > 0 ? (s >= 90 ? `${Math.round(s / 60)}m` : `${s.toFixed(0)}s`) : "";
+          })()
+        : "";
+    const durs = ["", span(toolCalls.filter((c) => !SEARCH_TOOLS.has(c.toolName))), span(toolCalls.filter((c) => SEARCH_TOOLS.has(c.toolName))), genSpan, ""];
     return labels.map((label, i) => ({
       label,
+      dur: durs[i] ?? "",
       state: done[i] ? "done" : i === activeIdx ? "active" : concluded && i === 3 && running ? "active" : "pending",
     }));
   }, [timeline, toolCalls, liveStatus, running]);
@@ -495,6 +515,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
                 className={`text-[12px] ${step.state === "pending" ? "text-mist-600" : "text-mist-100"}`}
               >
                 {step.label}
+                {step.dur && <span className="ml-1 font-mono text-[10px] text-mist-600">{step.dur}</span>}
               </span>
             </div>
           </div>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CompareRecord, CompareRef } from "../types.ts";
-import { IconAlert, IconCheck, IconDownload } from "./Icons.tsx";
+import { IconAlert, IconCheck, IconCopy, IconDownload } from "./Icons.tsx";
 
 const KIND_META = {
   mismatch: { label: "差异", cls: "border-rose-400/40 bg-rose-400/10 text-rose-300" },
@@ -216,7 +216,7 @@ export function CompareView({ compares, onOpenTarget }: Props) {
                               openBoth(rec, d.address);
                             }}
                             title="点击同时在阅读器中打开两份底稿并定位该行"
-                            className={`cursor-pointer transition-colors hover:bg-night-700 ${
+                            className={`group cursor-pointer transition-colors hover:bg-night-700 ${
                               idx === sel ? "bg-night-700 shadow-[inset_0_0_0_1px_rgba(34,211,238,0.45)]" : ""
                             }`}
                           >
@@ -225,7 +225,20 @@ export function CompareView({ compares, onOpenTarget }: Props) {
                                   {meta.label}
                                 </span>
                               </td>
-                              <td className="border border-line px-2.5 py-1.5 font-mono text-mist-300">{d.address}</td>
+                              <td className="border border-line px-2.5 py-1.5 font-mono text-mist-300">
+                                <span className="mr-1.5">{d.address}</span>
+                                <button
+                                  type="button"
+                                  title="复制地址"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void navigator.clipboard?.writeText(d.address).catch(() => undefined);
+                                  }}
+                                  className="text-mist-600 opacity-0 transition-opacity hover:text-glow-300 focus:opacity-100 group-hover:opacity-100"
+                                >
+                                  <IconCopy className="inline h-3 w-3" />
+                                </button>
+                              </td>
                               <td className="border border-line px-2.5 py-1.5 text-mist-100">{fmt(d.a)}</td>
                               <td className="border border-line px-2.5 py-1.5 text-mist-100">{fmt(d.b)}</td>
                             </tr>
