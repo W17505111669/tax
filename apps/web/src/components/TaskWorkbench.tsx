@@ -627,8 +627,18 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
                   <div className="mb-4 glow-card px-4 py-3">
                     <div className="flex items-center justify-between gap-3">
                       <span className="kicker">结论要点</span>
-                      <span className="shrink-0 text-[10.5px] text-mist-600">
-                        {summary.heads} 节 · {summary.tables} 表 · {summary.mermaids} 图
+                      <span className="flex shrink-0 items-center gap-1.5">
+                        <span className="text-[10.5px] text-mist-600">
+                          {summary.heads} 节 · {summary.tables} 表 · {summary.mermaids} 图
+                        </span>
+                        <button
+                          type="button"
+                          className="action-btn"
+                          title="复制要点"
+                          onClick={() => void navigator.clipboard?.writeText(summary.firstPara).catch(() => undefined)}
+                        >
+                          <IconCopy className="h-3 w-3" />
+                        </button>
                       </span>
                     </div>
                     <p className="mt-1.5 text-[12.5px] leading-6 text-mist-300">{summary.firstPara}…</p>

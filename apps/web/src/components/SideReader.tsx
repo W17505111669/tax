@@ -269,7 +269,9 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                   title={label}
                 >
                   {tab.kind === "url" ? (
-                    <IconExternal className="h-3.5 w-3.5 shrink-0 text-glow-400" />
+                    <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-glow-500/20 text-[8px] font-bold text-glow-300">
+                      {(fallbackTitle(tab).slice(0, 1) || "?").toUpperCase()}
+                    </span>
                   ) : tab.kind === "artifact" ? (
                     <IconFile className="h-3.5 w-3.5 shrink-0 text-jade-400" />
                   ) : (

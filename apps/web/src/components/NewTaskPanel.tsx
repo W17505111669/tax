@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AgentInfo } from "../types.ts";
 import { IconFile, IconPlay, IconUpload } from "./Icons.tsx";
 
@@ -17,9 +17,20 @@ const QUICK_EXTRAS = [
 ];
 
 export function NewTaskPanel({ agent, busy, error, onSubmit }: Props) {
-  const [instruction, setInstruction] = useState("");
-  const [caseId, setCaseId] = useState("DEMO-001");
-  const [title, setTitle] = useState("");
+  // 草稿保护：切换任务/智能体后回来仍保留未提交指令
+  const [instruction, setInstruction] = useState(() => sessionStorage.getItem("taxai-draft-instruction") ?? "");
+  const [caseId, setCaseId] = useState(() => sessionStorage.getItem("taxai-draft-case") ?? "DEMO-001");
+  const [title, setTitle] = useState(() => sessionStorage.getItem("taxai-draft-title") ?? "");
+
+  useEffect(() => {
+    sessionStorage.setItem("taxai-draft-instruction", instruction);
+  }, [instruction]);
+  useEffect(() => {
+    sessionStorage.setItem("taxai-draft-case", caseId);
+  }, [caseId]);
+  useEffect(() => {
+    sessionStorage.setItem("taxai-draft-title", title);
+  }, [title]);
   const [files, setFiles] = useState<File[]>([]);
   const [extras, setExtras] = useState<number[]>([]);
   const [dragging, setDragging] = useState(false);
@@ -34,6 +45,8 @@ export function NewTaskPanel({ agent, busy, error, onSubmit }: Props) {
     const extraText = extras.map((i) => QUICK_EXTRAS[i]!.snippet).join("\n");
     const finalInstruction = extraText ? `${instruction.trim()}\n${extraText}` : instruction.trim();
     onSubmit({ instruction: finalInstruction, caseId: caseId.trim() || "DEMO-001", title: title.trim(), files });
+    setInstruction("");
+    setTitle("");
   };
 
   return (
