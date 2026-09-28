@@ -20,6 +20,8 @@ interface Props {
   tasks: TaskInfo[];
   open: boolean;
   revealNonce: number;
+  /** 概览批量「转为待复核」后自增：侧栏据此打开复核过滤，让处理结果立刻可见 */
+  reviewNonce: number;
   onSelectAgent: (id: string) => void;
   onSelectTask: (id: string) => void;
   onNewTask: () => void;
@@ -172,6 +174,7 @@ export function Sidebar({
   tasks,
   open,
   revealNonce,
+  reviewNonce,
   onSelectAgent,
   onSelectTask,
   onNewTask,
@@ -181,6 +184,7 @@ export function Sidebar({
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [starOnly, setStarOnly] = useState(false);
   const [weekOnly, setWeekOnly] = useState(false);
+  const [reviewOnly, setReviewOnly] = useState(false);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [dragTag, setDragTag] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
@@ -223,6 +227,11 @@ export function Sidebar({
   useEffect(() => {
     if (revealNonce > 0) setCollapsed({});
   }, [revealNonce]);
+
+  // 批量转为待复核后自动切到「复核」过滤
+  useEffect(() => {
+    if (reviewNonce > 0) setReviewOnly(true);
+  }, [reviewNonce]);
 
   // Ctrl+Shift+↑ 全折 / Ctrl+Shift+↓ 全展
   useEffect(() => {
@@ -548,6 +557,7 @@ export function Sidebar({
       (statusFilter === "all" || t.status === statusFilter) &&
       (!starOnly || starred.has(t.id)) &&
       (!weekOnly || Date.now() - Date.parse(t.createdAt) < 7 * 86400000) &&
+      (!reviewOnly || (t.reviewPending ?? 0) > 0) &&
       (!tagFilter || (tagsMap[t.id] ?? []).includes(tagFilter)) &&
       (q === "" ||
         t.title.toLowerCase().includes(q) ||
@@ -556,6 +566,16 @@ export function Sidebar({
         t.caseId.toLowerCase().includes(q) ||
         kwStatus === t.status),
   );
+
+  // 复核过滤的口径与计数：任何仍有待复核问题的任务（含完成态缺口与失败任务）
+  const reviewTasks = tasks.filter((t) => (t.reviewPending ?? 0) > 0);
+  const reviewByStatus = reviewTasks.reduce<Record<string, number>>((acc, t) => {
+    acc[t.status] = (acc[t.status] ?? 0) + 1;
+    return acc;
+  }, {});
+  const reviewBreakdown = Object.entries(reviewByStatus)
+    .map(([s, n]) => `${STATUS_TEXT[s] ?? s} ${n}`)
+    .join(" · ");
 
   const [cursor, setCursor] = useState<number | null>(null);
   // 与渲染顺序一致的扁平可见列表（收藏组优先）
@@ -743,6 +763,20 @@ export function Sidebar({
             >
               本周
             </button>
+            {reviewTasks.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setReviewOnly((v) => !v)}
+                title={`仅显示仍有待复核问题的任务：${reviewBreakdown}`}
+                className={`rounded border px-1.5 py-0.5 text-[10.5px] transition-colors ${
+                  reviewOnly
+                    ? "border-amber-400/60 bg-amber-400/15 text-amber-300"
+                    : "border-line bg-night-850 text-mist-600 hover:text-amber-300"
+                }`}
+              >
+                复核 {reviewTasks.length}
+              </button>
+            )}
             <button
               type="button"
               className="action-btn !px-1.5 !py-0.5 !text-[10px]"

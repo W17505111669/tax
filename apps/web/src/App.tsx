@@ -41,6 +41,7 @@ export default function App() {
   const [wbTab, setWbTab] = useState<WbTab>("timeline");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [revealNonce, setRevealNonce] = useState(0);
+  const [reviewNonce, setReviewNonce] = useState(0);
   const [secTarget, setSecTarget] = useState<number | null>(null);
   const [announce, setAnnounce] = useState("");
   const applyingHash = useRef(false);
@@ -158,6 +159,11 @@ export default function App() {
   const handleBatchReopen = async (ids: string[]): Promise<number> => {
     const res = await api.reopenReviewBatch(ids);
     await Promise.all([refreshTasks(), refreshPlatform()]);
+    if (res.total > 0) {
+      // 展开侧栏并切到「复核」过滤，转换结果立刻可见
+      setSidebarOpen(true);
+      setReviewNonce((n) => n + 1);
+    }
     return res.total;
   };
 
@@ -255,6 +261,7 @@ export default function App() {
         tasks={visibleTasks}
         open={sidebarOpen}
         revealNonce={revealNonce}
+        reviewNonce={reviewNonce}
         onSelectAgent={(id) => {
           setActiveAgentId(id);
           setActiveTaskId(null);
