@@ -138,8 +138,84 @@ function MiniPane({
   const [z, setZ] = useState(1);
   const [mfind, setMfind] = useState("");
   const [msheet, setMsheet] = useState(0);
+  const localRef = useRef<HTMLDivElement | null>(null);
+  // 副栏滚动容器同时挂到父级传入的 ref（滚动同步用）与本地 ref（自动定位用）
+  const attachRef = (el: HTMLDivElement | null) => {
+    localRef.current = el;
+    if (!innerRef) return;
+    if (typeof innerRef === "function") innerRef(el);
+    else innerRef.current = el;
+  };
+
+  // 表格派生数据（渲染与自动定位共用）：当前工作表、跟随主栏的行序、命中结果
+  const sheetView = (() => {
+    if (st.kind !== "sheets" || st.loading || st.error) return null;
+    const list = st.sheets ?? [];
+    const idx = Math.min(msheet, Math.max(0, list.length - 1));
+    const s = list[idx];
+    if (!s) return null;
+    const spec = mainSort?.[s.name];
+    const base = s.rows.slice(0, 100);
+    const rows = !spec
+      ? base
+      : [...base].sort((a, b) => {
+          const av = a[spec.col];
+          const bv = b[spec.col];
+          const an = typeof av === "number" ? av : parseFloat(String(av ?? ""));
+          const bn = typeof bv === "number" ? bv : parseFloat(String(bv ?? ""));
+          if (!Number.isNaN(an) && !Number.isNaN(bn)) return (an - bn) * spec.dir;
+          return String(av ?? "").localeCompare(String(bv ?? ""), "zh-CN") * spec.dir;
+        });
+    const hl = (highlight ?? "").trim();
+    const hlHits = hl
+      ? rows.map((row, i) => sheetLocate(row, s.headers, i, hl, s.name, Boolean(spec), highlightValue))
+      : [];
+    return { list, idx, s, spec, rows, hl, hlHits, hlCount: hlHits.filter((h) => h.hit).length };
+  })();
+
+  // 定位关键字变化时，副栏自动切到首个命中的工作表（多表底稿不用手工翻）
+  useEffect(() => {
+    const hl = (highlight ?? "").trim();
+    if (!hl || st.kind !== "sheets" || st.loading || st.error) return;
+    const list = st.sheets ?? [];
+    if (list.length < 2) return;
+    const hitIdx = list.findIndex((sh) => {
+      const sorted = Boolean(mainSort?.[sh.name]);
+      return sh.rows
+        .slice(0, 100)
+        .some((row, i) => sheetLocate(row, sh.headers, i, hl, sh.name, sorted, highlightValue).hit);
+    });
+    if (hitIdx >= 0) setMsheet(hitIdx);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [st.sheets, st.loading, st.error, highlight, highlightValue]);
+
+  // 副栏把自己的首个命中行滚到视口中央；rAF 让位给主栏定位滚动与滚动同步
+  const hlCount = sheetView?.hlCount ?? 0;
+  const hlKey = sheetView?.hl ?? "";
+  const hlSheet = sheetView?.s.name ?? "";
+  useEffect(() => {
+    if (hlCount === 0) return;
+    const id = requestAnimationFrame(() => {
+      const root = localRef.current;
+      const row = root?.querySelector<HTMLElement>("tr.row-hl");
+      if (!root || !row) return;
+      // 表格自带内层滚动容器（max-h-[60vh]），要滚的是它而不是外层副栏
+      let scroller: HTMLElement = root;
+      for (let el = row.parentElement; el && el !== root; el = el.parentElement) {
+        if (el.scrollHeight > el.clientHeight + 1) {
+          scroller = el;
+          break;
+        }
+      }
+      const rr = scroller.getBoundingClientRect();
+      const br = row.getBoundingClientRect();
+      scroller.scrollTop += br.top - rr.top - (scroller.clientHeight - br.height) / 2;
+    });
+    return () => cancelAnimationFrame(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hlCount, hlKey, hlSheet, st.loading]);
   return (
-    <div ref={innerRef} className="min-h-0 flex-1 overflow-y-auto border-l border-line px-3 py-3">
+    <div ref={attachRef} className="min-h-0 flex-1 overflow-y-auto border-l border-line px-3 py-3">
       <div className="mb-2 truncate text-[11px] text-mist-500" title={title}>
         对照：{title}
       </div>
@@ -193,30 +269,9 @@ function MiniPane({
           className="w-full rounded border border-line bg-white"
         />
       )}
-      {!st.loading && !st.error && st.kind === "sheets" &&
+      {sheetView &&
         (() => {
-          const list = st.sheets ?? [];
-          const idx = Math.min(msheet, Math.max(0, list.length - 1));
-          const s = list[idx];
-          if (!s) return null;
-          const spec = mainSort?.[s.name];
-          const rows = (() => {
-            const base = s.rows.slice(0, 100);
-            if (!spec) return base;
-            return [...base].sort((a, b) => {
-              const av = a[spec.col];
-              const bv = b[spec.col];
-              const an = typeof av === "number" ? av : parseFloat(String(av ?? ""));
-              const bn = typeof bv === "number" ? bv : parseFloat(String(bv ?? ""));
-              if (!Number.isNaN(an) && !Number.isNaN(bn)) return (an - bn) * spec.dir;
-              return String(av ?? "").localeCompare(String(bv ?? ""), "zh-CN") * spec.dir;
-            });
-          })();
-          const hl = (highlight ?? "").trim();
-          const hlHits = hl
-            ? rows.map((row, i) => sheetLocate(row, s.headers, i, hl, s.name, Boolean(spec), highlightValue))
-            : [];
-          const hlCount = hlHits.filter((h) => h.hit).length;
+          const { list, idx, s, spec, rows, hl, hlHits, hlCount } = sheetView;
           return (
             <div className="paper-sheet theme-minimal px-2 py-2">
               {list.length > 1 && (
