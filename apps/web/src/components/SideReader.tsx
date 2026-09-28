@@ -471,9 +471,24 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                   )}
                   <span className="max-w-[140px] truncate">{label}</span>
                   {states[key]?.error && (
-                    <span className="rounded bg-rose-400/15 px-1 text-[9.5px] text-rose-300" title="读取失败，可在标签内重试">
-                      !
-                    </span>
+                    <button
+                      type="button"
+                      title="读取失败，点击重试"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        retriedRef.current.delete(key);
+                        setStates((prev) => {
+                          const next = { ...prev };
+                          delete next[key];
+                          return next;
+                        });
+                        setReload((r) => r + 1);
+                        onSelect(i);
+                      }}
+                      className="rounded bg-rose-400/15 px-1 text-[9.5px] text-rose-300 transition-colors hover:bg-rose-400/25"
+                    >
+                      !重试
+                    </button>
                   )}
                   {findTrim && (matchCounts[key] ?? 0) > 0 && (
                     <span

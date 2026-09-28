@@ -368,13 +368,33 @@ export function Sidebar({
 
       <div className="flex items-center justify-between px-5 pb-2 pt-1">
         <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-mist-600">任务历史</span>
-        <button
-          type="button"
-          onClick={onNewTask}
-          className="rounded border border-line px-1.5 py-0.5 text-[11px] text-glow-300 transition-colors hover:border-glow-500 hover:bg-night-800"
-        >
-          新建
-        </button>
+        <span className="flex items-center gap-1">
+          <button
+            type="button"
+            className="action-btn !px-1.5 !py-0.5 !text-[10px]"
+            title="折叠全部分组"
+            onClick={() =>
+              setCollapsed(Object.fromEntries([...GROUP_ORDER.map((g) => [g.id, true]), ["starred", true]]))
+            }
+          >
+            全折
+          </button>
+          <button
+            type="button"
+            className="action-btn !px-1.5 !py-0.5 !text-[10px]"
+            title="展开全部分组"
+            onClick={() => setCollapsed({})}
+          >
+            全展
+          </button>
+          <button
+            type="button"
+            onClick={onNewTask}
+            className="rounded border border-line px-1.5 py-0.5 text-[11px] text-glow-300 transition-colors hover:border-glow-500 hover:bg-night-800"
+          >
+            新建
+          </button>
+        </span>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
