@@ -105,8 +105,14 @@ export function listEvents(taskId: string): AgentEvent[] {
   }));
 }
 
-export function insertFile(input: Omit<BusinessFile, "parseStatus"> & { parseStatus?: BusinessFile["parseStatus"] }): BusinessFile {
-  const file: BusinessFile = { ...input, parseStatus: input.parseStatus ?? "pending" };
+export function insertFile(
+  input: Omit<BusinessFile, "parseStatus" | "createdAt"> & {
+    parseStatus?: BusinessFile["parseStatus"];
+    createdAt?: string;
+  },
+): BusinessFile {
+  const at = input.createdAt ?? nowIso();
+  const file: BusinessFile = { ...input, parseStatus: input.parseStatus ?? "pending", createdAt: at };
   db.prepare(
     `INSERT INTO files (id, task_id, file_name, file_type, storage_path, byte_size, business_category, parse_status, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -119,7 +125,7 @@ export function insertFile(input: Omit<BusinessFile, "parseStatus"> & { parseSta
     file.byteSize,
     file.businessCategory ?? null,
     file.parseStatus,
-    nowIso(),
+    at,
   );
   return file;
 }
@@ -135,6 +141,7 @@ export function listFiles(taskId: string): BusinessFile[] {
     byteSize: Number(row.byte_size),
     businessCategory: (row.business_category as string | null) ?? undefined,
     parseStatus: row.parse_status as BusinessFile["parseStatus"],
+    createdAt: String(row.created_at ?? ""),
   }));
 }
 

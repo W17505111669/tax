@@ -2,7 +2,16 @@
  * 验证脚本：引用链接核验结果的分级（反爬拒绝 ≠ 链接失效）。
  * 运行：pnpm verify:links
  */
-import { linkVerdict, summarizeLinkChecks, VERDICT_HINT, VERDICT_TEXT } from "../../web/src/link-check.ts";
+import {
+  ageHours,
+  ageText,
+  freshness,
+  linkVerdict,
+  STALE_HOURS,
+  summarizeLinkChecks,
+  VERDICT_HINT,
+  VERDICT_TEXT,
+} from "../../web/src/link-check.ts";
 import { db } from "../src/db.ts";
 import { listLinkChecks, saveLinkChecks } from "../src/services/link-checks.ts";
 
@@ -43,6 +52,19 @@ expect(
 );
 expect("汇总空列表", summarizeLinkChecks([]), { total: 0, ok: 0, blocked: 0, dead: 0, unreachable: 0 });
 expect("四类文案齐备", [Object.keys(VERDICT_TEXT).length, Object.keys(VERDICT_HINT).length], [4, 4]);
+
+// 核验时效：以固定 now 计算，保证断言可重复
+const NOW = Date.parse("2026-09-28T12:00:00.000Z");
+expect("1 小时前", ageHours("2026-09-28T11:00:00.000Z", NOW), 1);
+expect("恰好阈值内算新鲜", freshness("2026-09-25T12:00:00.000Z", NOW, STALE_HOURS), "fresh");
+expect("超过阈值算过期", freshness("2026-09-25T11:59:59.000Z", NOW, STALE_HOURS), "stale");
+expect("从未核验算未知", freshness(null, NOW), "unknown");
+expect("时间不可解析算未知", freshness("不是时间", NOW), "unknown");
+expect("晚于当前时间算未知", freshness("2026-09-29T12:00:00.000Z", NOW), "unknown");
+expect("不足 1 小时显示刚刚", ageText("2026-09-28T11:30:00.000Z", NOW), "刚刚");
+expect("不足 1 天显示小时", ageText("2026-09-28T05:00:00.000Z", NOW), "7 小时前");
+expect("超过 1 天显示天数", ageText("2026-09-20T12:00:00.000Z", NOW), "8 天前");
+expect("无核验时间返回空串", ageText(null, NOW), "");
 expect(
   "汇总各类计数相加等于总数",
   (() => {

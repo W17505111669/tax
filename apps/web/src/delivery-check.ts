@@ -4,6 +4,8 @@
  * 纯函数，便于 apps/api/scripts/verify-delivery-check.ts 直接校验。
  */
 
+import { STALE_HOURS } from "./link-check.ts";
+
 export type CheckInput = {
   status: string;
   resultChars: number;
@@ -17,6 +19,8 @@ export type CheckInput = {
   citations: number;
   /** 最近一次链接核验的分级汇总；null 表示尚未核验，此时不做任何判断 */
   linkCheck: { total: number; ok: number; blocked: number; dead: number; unreachable: number } | null;
+  /** 最近一次链接核验距今的小时数；null 表示尚未核验或时间不可解析 */
+  linkCheckAgeHours: number | null;
   /** 结论中识别出的金额处数（金额溯源） */
   amountTotal: number;
   /** 其中在工具结果与客户指令里都找不到出处的处数 */
@@ -101,6 +105,12 @@ export function deliveryCheck(i: CheckInput): CheckResult {
     }
     if (i.linkCheck.total > 0 && i.linkCheck.dead === 0 && i.linkCheck.ok === i.linkCheck.total) {
       items.push({ level: "ok", text: `联网引用最近核验全部可访问（${i.linkCheck.total} 条）` });
+    }
+    if (i.linkCheckAgeHours !== null && i.linkCheckAgeHours > STALE_HOURS) {
+      items.push({
+        level: "info",
+        text: `引用链接核验已超过 ${Math.floor(i.linkCheckAgeHours / 24)} 天，交付前建议重新核验`,
+      });
     }
   }
 

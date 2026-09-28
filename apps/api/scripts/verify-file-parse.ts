@@ -108,6 +108,9 @@ for (const t of listTasks()) {
     checks += 1;
     if (parsed.has(f.fileName)) withSummary += 1;
     else if (f.parseStatus === "parsed") failures.push(`${t.id.slice(0, 8)}/${f.fileName} 状态为已解析但工具结果里没有摘要`);
+    if (!f.createdAt || Number.isNaN(Date.parse(f.createdAt))) {
+      failures.push(`${t.id.slice(0, 8)}/${f.fileName} 缺少可解析的上传时间`);
+    }
   }
 }
 console.log(`[verify] 上传资料=${files} 有解析摘要=${withSummary}`);

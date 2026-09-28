@@ -29,6 +29,7 @@ const base: CheckInput = {
   pendingReview: 0,
   citations: 3,
   linkCheck: null,
+  linkCheckAgeHours: null,
   amountTotal: 12,
   amountUntraced: 0,
 };
@@ -86,6 +87,16 @@ expect(
   deliveryCheck({ ...base, linkCheck: links() }).items.some((x) => x.level === "ok" && x.text.includes("全部可访问")),
   true,
 );
+expect(
+  "核验超过 72 小时给出说明",
+  deliveryCheck({ ...base, linkCheck: links(), linkCheckAgeHours: 96 }).items.some(
+    (x) => x.level === "info" && x.text.includes("已超过 4 天"),
+  ),
+  true,
+);
+expect("核验未过期不给说明", deliveryCheck({ ...base, linkCheck: links(), linkCheckAgeHours: 10 }).infos, 0);
+expect("未核验时不判断时效", deliveryCheck({ ...base, linkCheckAgeHours: 999 }).infos, 0);
+expect("时效说明不影响判定", deliveryCheck({ ...base, linkCheck: links(), linkCheckAgeHours: 96 }).verdict, "可交付");
 expect("多项阻断同时存在", deliveryCheck({ ...base, status: "processing", resultChars: 0 }).blocks, 2);
 expect("失败叠加空结论", deliveryCheck({ ...base, status: "failed", resultChars: 0 }).blocks, 2);
 

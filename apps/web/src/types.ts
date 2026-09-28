@@ -51,6 +51,8 @@ export interface FileInfo {
   byteSize: number;
   businessCategory?: string;
   parseStatus: string;
+  /** 上传时间（ISO） */
+  createdAt?: string;
 }
 
 export type EventKind =

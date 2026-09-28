@@ -22,7 +22,16 @@ import { callStats, callsByRun, durationMs, fmtDuration, mdCell, summarizeArgs }
 import { amountKey, traceAmounts } from "../amount-trace.ts";
 import { reviewSection } from "../review-export.ts";
 import { deliveryCheck, deliverySection, type CheckInput, type CheckResult } from "../delivery-check.ts";
-import { linkVerdict, summarizeLinkChecks, VERDICT_HINT, VERDICT_TEXT, type LinkSummary } from "../link-check.ts";
+import {
+  ageHours,
+  ageText,
+  freshness,
+  linkVerdict,
+  summarizeLinkChecks,
+  VERDICT_HINT,
+  VERDICT_TEXT,
+  type LinkSummary,
+} from "../link-check.ts";
 import {
   parsedByFileName,
   parseStatusText,
@@ -934,6 +943,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     pendingReview: pendingReviews,
     citations: citations.length,
     linkCheck: linkCheckedAt ? linkSummary : null,
+    linkCheckAgeHours: ageHours(linkCheckedAt),
     amountTotal: amountTrace.total,
     amountUntraced: amountPending.length,
   });
@@ -1954,6 +1964,11 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                         {f.businessCategory && (
                           <span className="block truncate text-[10.5px] text-mist-600">
                             分类：{f.businessCategory}
+                          </span>
+                        )}
+                        {f.createdAt && (
+                          <span className="block truncate text-[10.5px] text-mist-600">
+                            上传于 {new Date(f.createdAt).toLocaleString("zh-CN", { hour12: false })}
                           </span>
                         )}
                         {p?.preview && (
@@ -3072,13 +3087,16 @@ function ResultView({
               title="按需核验全部引用链接是否仍可访问（服务端 GET，8 秒超时，不下载正文）"
               onClick={onCheckLinks}
             >
-              {linkBusy ? "核验中…" : linkCheckedAt ? "重新核验链接" : "核验链接"}
+              {linkBusy ? "核验中…" : linkCheckedAt ? `重新核验（${ageText(linkCheckedAt)}）` : "核验链接"}
             </button>
           </div>
           {linkCheckedAt && (
             <p className="mt-1.5 text-[11px] text-mist-600">
               最近核验 {new Date(linkCheckedAt).toLocaleString("zh-CN", { hour12: false })} · 可访问 {linkSummary.ok}/
               {linkSummary.total}
+              {freshness(linkCheckedAt) === "stale" && (
+                <span className="text-amber-300"> · 核验已超过 72 小时，建议重新核验</span>
+              )}
               {linkSummary.dead > 0 && <span className="text-rose-300"> · 失效 {linkSummary.dead}</span>}
               {linkSummary.blocked > 0 && (
                 <span className="text-sky-300"> · 拒绝自动访问 {linkSummary.blocked}</span>

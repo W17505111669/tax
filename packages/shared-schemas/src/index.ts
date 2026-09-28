@@ -44,6 +44,8 @@ export interface BusinessFile {
   byteSize: number;
   businessCategory?: string;
   parseStatus: "pending" | "parsed" | "failed";
+  /** 上传时间（ISO），资料行显示与交付核对用 */
+  createdAt: string;
 }
 
 export interface AuditIssue {

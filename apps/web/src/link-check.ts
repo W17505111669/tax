@@ -40,3 +40,36 @@ export function summarizeLinkChecks(list: LinkCheckLike[]): LinkSummary {
   for (const c of list) out[linkVerdict(c)] += 1;
   return out;
 }
+
+/** 核验时效阈值：超过 72 小时视为过期，交付前建议重新核验 */
+export const STALE_HOURS = 72;
+
+/** 距今小时数；时间缺失、不可解析或晚于当前时间都返回 null，不编造数字 */
+export function ageHours(iso: string | null | undefined, now: number = Date.now()): number | null {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (Number.isNaN(t) || t > now) return null;
+  return (now - t) / 3_600_000;
+}
+
+export type Freshness = "fresh" | "stale" | "unknown";
+
+/** 核验结果的新鲜度：用于决定要不要提示重新核验 */
+export function freshness(
+  iso: string | null | undefined,
+  now: number = Date.now(),
+  thresholdHours: number = STALE_HOURS,
+): Freshness {
+  const h = ageHours(iso, now);
+  if (h === null) return "unknown";
+  return h > thresholdHours ? "stale" : "fresh";
+}
+
+/** 人类可读的「多久以前」 */
+export function ageText(iso: string | null | undefined, now: number = Date.now()): string {
+  const h = ageHours(iso, now);
+  if (h === null) return "";
+  if (h < 1) return "刚刚";
+  if (h < 24) return `${Math.floor(h)} 小时前`;
+  return `${Math.floor(h / 24)} 天前`;
+}
