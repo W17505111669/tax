@@ -63,6 +63,12 @@ if (fs.existsSync(readme)) {
 }
 
 manifest.push("");
+manifest.push("## UI 交互要点");
+manifest.push("");
+manifest.push("- 对话式工作台：图标栏 + 可折叠侧栏、居中对话列、分段页签、引用胶囊与操作行、发光输入框（Ctrl+Enter 提交）。");
+manifest.push("- 键盘：Ctrl+K 聚焦任务搜索；Esc 收起续跑面板/阅读器（焦点归还）；比对视图 ↑/↓ 选差异行、Enter 阅读器双底稿定位。");
+manifest.push("- 阅读器：引用文件/文件生成分组页签（分组记忆）、点阵加载动画、高亮行自动滚至视口中央。");
+manifest.push("");
 manifest.push("## 提交提醒");
 manifest.push("");
 manifest.push("- 运行录屏 MP4（≤500MB、≤8 分钟）需人工录制后放入本目录；");
