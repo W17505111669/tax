@@ -23,7 +23,7 @@ const STATUS_TEXT: Record<string, string> = {
 
 const STATUS_DOT: Record<string, string> = {
   created: "bg-mist-600",
-  processing: "bg-amber-400",
+  processing: "bg-amber-400 animate-pulse",
   waiting_review: "bg-sky-400",
   completed: "bg-jade-400",
   failed: "bg-rose-400",

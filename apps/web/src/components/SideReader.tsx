@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api.ts";
 import type { SheetPreview } from "../types.ts";
 import { MarkdownView } from "./MarkdownView.tsx";
@@ -71,6 +71,7 @@ interface Props {
 export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onClose }: Props) {
   const [states, setStates] = useState<Record<string, ReaderState>>({});
   const { theme } = usePaperTheme();
+  const scrollRef = useRef<HTMLDivElement>(null);
   const active = tabs[activeIndex] ?? null;
   const activeKey = active ? readerKey(active) : "";
   const state = states[activeKey] ?? INITIAL;
@@ -86,6 +87,13 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onClose }:
     setGroup(active.kind === "artifact" ? "gens" : "refs");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeKey]);
+
+  // 表格预览加载完成后，把比对定位的高亮行滚到视口中央
+  useEffect(() => {
+    if (state.loading || state.kind !== "sheets") return;
+    const el = scrollRef.current?.querySelector(".row-hl");
+    el?.scrollIntoView({ block: "center" });
+  }, [state.loading, state.kind, activeKey]);
 
   useEffect(() => {
     if (!active) return;
@@ -284,7 +292,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onClose }:
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         {state.loading && (
           <div className="flex flex-col items-center gap-4 py-14">
             <div className="dot-grid" aria-hidden>
