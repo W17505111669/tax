@@ -67,6 +67,11 @@ const stats = computePlatformStats();
 expect("平台待复核问题合计一致", stats.reviewPendingIssues, totalPending);
 expect("平台复核缺口任务数一致", stats.reviewBacklog.length, reopenable);
 expect(
+  "缺口清单的未复核项合计不超过全平台合计",
+  stats.reviewBacklog.reduce((s, b) => s + b.pending, 0) <= stats.reviewPendingIssues,
+  true,
+);
+expect(
   "平台缺口清单均为完成态且有未复核问题",
   stats.reviewBacklog.every((b) => b.pending > 0 && tasks.some((t) => t.id === b.id && t.status === "completed")),
   true,

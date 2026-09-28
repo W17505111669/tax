@@ -95,6 +95,19 @@ export function AgentOverview({
   if (!agent) return null;
   const Icon = agent.id === "rd-audit" ? IconFlask : IconBuilding;
   const p = stats.platform;
+  // 复核缺口按作品分组：跨作品时一眼看出各自欠账
+  const backlogByAgent = useMemo(() => {
+    const m = new Map<string, PlatformStats["reviewBacklog"]>();
+    for (const b of p?.reviewBacklog ?? []) {
+      const list = m.get(b.agentId);
+      if (list) list.push(b);
+      else m.set(b.agentId, [b]);
+    }
+    return [...m.entries()].sort((a, b2) => b2[1].length - a[1].length);
+  }, [p?.reviewBacklog]);
+  const agentName = (id: string) => agents.find((a) => a.id === id)?.shortName ?? id;
+  // 缺口任务自身的未复核项合计（与「全平台待复核合计」不同：后者还包含待复核态任务）
+  const backlogPending = (p?.reviewBacklog ?? []).reduce((s, b) => s + b.pending, 0);
   const heroValue = p?.tasks ?? stats.tasks;
   const bars = [
     { label: "已完成", value: breakdown.completed },
@@ -597,7 +610,8 @@ export function AgentOverview({
                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[12px] text-amber-200">
                   <span className="font-medium">全平台复核闭环缺口</span>
                   <span className="text-[11.5px] text-amber-200/85">
-                    {stats.platform.reviewBacklog.length} 个任务已标记完成，但仍有 {stats.platform.reviewPendingIssues} 项问题未复核
+                    {stats.platform.reviewBacklog.length} 个已完成任务仍有 {backlogPending} 项问题未复核（全平台待复核合计 {stats.platform.reviewPendingIssues} 项）
+                    {backlogByAgent.length > 1 && `（${backlogByAgent.map(([id, l]) => `${agentName(id)} ${l.length}`).join(" / ")}）`}
                   </span>
                   <span className="text-[11px] text-mist-500">点击任务前往复核页逐项处理</span>
                   {onBatchReopen && (
@@ -631,23 +645,34 @@ export function AgentOverview({
                   )}
                 </div>
                 {batchMsg && <div className="mt-1 text-[11px] text-jade-300">{batchMsg}</div>}
-                <div className="mt-1.5 flex flex-wrap gap-1.5">
-                  {stats.platform.reviewBacklog.slice(0, 8).map((b) => (
-                    <button
-                      key={b.id}
-                      type="button"
-                      className="action-btn !text-[11px]"
-                      onClick={() => onOpenTask(b.id)}
-                      title={`${b.title}（智能体 ${b.agentId}，${b.pending} 项未复核）`}
-                    >
-                      {b.title.length > 16 ? `${b.title.slice(0, 16)}…` : b.title} · {b.pending}
-                    </button>
+                <div className="mt-1.5 space-y-1">
+                  {backlogByAgent.map(([agentId, list]) => (
+                    <div key={agentId} className="flex flex-wrap items-center gap-1.5">
+                      <span
+                        className="w-[72px] shrink-0 truncate text-[10.5px] text-mist-500"
+                        title={`${agentName(agentId)}：${list.length} 个任务，合计 ${list.reduce(
+                          (s, b) => s + b.pending,
+                          0,
+                        )} 项未复核`}
+                      >
+                        {agentName(agentId)}
+                      </span>
+                      {list.slice(0, 6).map((b) => (
+                        <button
+                          key={b.id}
+                          type="button"
+                          className="action-btn !text-[11px]"
+                          onClick={() => onOpenTask(b.id)}
+                          title={`${b.title}（${agentName(agentId)}，${b.pending} 项未复核）`}
+                        >
+                          {b.title.length > 16 ? `${b.title.slice(0, 16)}…` : b.title} · {b.pending}
+                        </button>
+                      ))}
+                      {list.length > 6 && (
+                        <span className="self-center text-[10.5px] text-mist-500">等 {list.length} 个</span>
+                      )}
+                    </div>
                   ))}
-                  {stats.platform.reviewBacklog.length > 8 && (
-                    <span className="self-center text-[11px] text-mist-500">
-                      等 {stats.platform.reviewBacklog.length} 个任务
-                    </span>
-                  )}
                 </div>
               </div>
             ) : (
