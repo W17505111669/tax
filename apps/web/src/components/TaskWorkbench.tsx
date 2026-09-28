@@ -346,6 +346,15 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
 
   const runCount = useMemo(() => timeline.filter((t) => t.kind === "run_started").length, [timeline]);
 
+  // 执行中最近一条 SSE 事件距今秒数（tick 驱动刷新）
+  const lastEventAge = useMemo(() => {
+    if (!running || timeline.length === 0) return null;
+    const last = timeline[timeline.length - 1]?.at;
+    if (!last) return null;
+    void tick;
+    return Math.max(0, Math.round((Date.now() - Date.parse(last)) / 1000));
+  }, [timeline, running, tick]);
+
   const toolTime = useMemo(() => {
     const ended = toolCalls.filter((c) => c.endedAt);
     if (ended.length === 0) return null;
@@ -617,6 +626,17 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
               />
               {connected ? "事件流已连接" : "事件流重连中"}
             </span>
+            {lastEventAge !== null && (
+              <>
+                <span className="text-line">|</span>
+                <span
+                  className={lastEventAge > 30 ? "text-amber-300" : undefined}
+                  title="距最近一条 SSE 事件秒数（>30s 琥珀提示）"
+                >
+                  最近事件 {lastEventAge}s
+                </span>
+              </>
+            )}
             {!connected && (
               <button type="button" className="action-btn" onClick={reconnect} title="手动重连事件流（重放持久化事件）">
                 <IconRefresh className="h-3 w-3" />
