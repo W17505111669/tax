@@ -211,8 +211,19 @@ export function CompareView({ compares, onOpenTarget }: Props) {
 
   if (compares.length === 0) {
     return (
-      <div className="py-10 text-center text-[13px] text-mist-600">
-        暂无比对记录。Agent 调用 compare_workpapers 后，准确率与差异将自动显示在此。
+      <div className="glow-card px-5 py-6">
+        <div className="flex items-center gap-2">
+          <IconAlert className="h-4 w-4 text-glow-400" />
+          <span className="text-[13px] font-medium text-mist-100">暂无比对记录</span>
+        </div>
+        <ol className="mt-3 list-decimal space-y-1.5 pl-5 text-[12px] leading-5 text-mist-500">
+          <li>让 Agent 解析资料并生成系统底稿（generate_workpaper / fill_land_vat_workpaper）；</li>
+          <li>上传或指定人工底稿后调用 compare_workpapers 执行记录级 / 地址级比对；</li>
+          <li>准确率、差异表与趋势图将自动出现在本页，并可联动阅读器高亮定位。</li>
+        </ol>
+        <p className="mt-3 text-[11px] text-mist-600">
+          提示：在新任务指令中写明「请比对系统底稿与人工底稿并输出准确率」即可触发比对闭环。
+        </p>
       </div>
     );
   }
