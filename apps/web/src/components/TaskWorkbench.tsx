@@ -70,6 +70,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
   const [showJump, setShowJump] = useState(false);
+  const lastFocusRef = useRef<HTMLElement | null>(null);
 
   const liveStatus = status === "created" ? task.status : status;
   const meta = STATUS_META[liveStatus] ?? STATUS_META.created!;
@@ -83,6 +84,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
   }, [running]);
 
   const openReader = (target: ReaderTarget) => {
+    lastFocusRef.current = document.activeElement as HTMLElement | null;
     const key = readerKey(target);
     const idx = readerTabs.findIndex((t) => readerKey(t) === key);
     if (idx >= 0) {
@@ -99,6 +101,12 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
     setReaderTabs(next);
     setReaderActive((a) => (a >= index ? Math.max(0, a - 1) : a));
     if (next.length === 0) setReaderOpen(false);
+  };
+
+  // 关闭阅读器时把焦点归还给触发元素（键盘可达性）
+  const closeReader = () => {
+    setReaderOpen(false);
+    lastFocusRef.current?.focus?.();
   };
 
   useEffect(() => {
@@ -273,11 +281,11 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
     const handler = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (resumeOpen) setResumeOpen(false);
-      else if (readerOpen) setReaderOpen(false);
+      else if (readerOpen) closeReader();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [resumeOpen, readerOpen]);
+  }, [resumeOpen, readerOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const download = (name: string, content: string) => {
     const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
@@ -348,7 +356,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
         </button>
         <button
           type="button"
-          onClick={() => setReaderOpen((v) => !v)}
+          onClick={() => (readerOpen ? closeReader() : setReaderOpen(true))}
           title={readerOpen ? "收起侧边阅读器" : "展开侧边阅读器"}
           className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[12.5px] transition-colors ${
             readerOpen
@@ -640,7 +648,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
             activeIndex={readerActive}
             onSelect={setReaderActive}
             onCloseTab={closeTab}
-            onClose={() => setReaderOpen(false)}
+            onClose={closeReader}
           />
         )}
       </div>

@@ -27,7 +27,7 @@ function parseHash(): Route {
 
 export default function App() {
   const [agents, setAgents] = useState<AgentInfo[]>([]);
-  const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
+  const [activeAgentId, setActiveAgentId] = useState<string | null>(() => sessionStorage.getItem("taxai-agent"));
   const [tasks, setTasks] = useState<TaskInfo[]>([]);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [taskDetail, setTaskDetail] = useState<{ task: TaskInfo; files: FileInfo[] } | null>(null);
@@ -37,6 +37,7 @@ export default function App() {
   const [platform, setPlatform] = useState<PlatformStats | null>(null);
   const [wbTab, setWbTab] = useState<WbTab>("timeline");
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [announce, setAnnounce] = useState("");
   const applyingHash = useRef(false);
 
   const refreshTasks = useCallback(async () => {
@@ -91,6 +92,25 @@ export default function App() {
         : "#/";
     if (window.location.hash !== target) window.history.replaceState(null, "", target);
   }, [activeAgentId, activeTaskId, wbTab]);
+
+  // 记住上次选择的智能体，刷新后恢复
+  useEffect(() => {
+    if (activeAgentId) sessionStorage.setItem("taxai-agent", activeAgentId);
+  }, [activeAgentId]);
+
+  // 任务状态变化播报（屏幕阅读器）
+  useEffect(() => {
+    const s = taskDetail?.task.status;
+    if (!s) return;
+    const label: Record<string, string> = {
+      created: "待执行",
+      processing: "执行中",
+      waiting_review: "待复核",
+      completed: "已完成",
+      failed: "已中断",
+    };
+    setAnnounce(`任务状态：${label[s] ?? s}`);
+  }, [taskDetail?.task.status]);
 
   // 深链进入时按任务归属纠正智能体选择
   useEffect(() => {
@@ -186,6 +206,9 @@ export default function App() {
   return (
     <ErrorBoundary>
       <div className="flex h-full">
+      <div aria-live="polite" className="sr-only">
+        {announce}
+      </div>
       <IconRail
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen((v) => !v)}
