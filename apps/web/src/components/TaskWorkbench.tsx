@@ -676,8 +676,20 @@ function TimelineView({
   );
 }
 
-function ToolRow({ name, call }: { name: string; call: { args: unknown; result: unknown; ok: boolean | null } | undefined }) {
+function ToolRow({
+  name,
+  call,
+}: {
+  name: string;
+  call:
+    | { args: unknown; result: unknown; ok: boolean | null; at: string; endedAt: string | null }
+    | undefined;
+}) {
   const isSearch = SEARCH_TOOLS.has(name);
+  const duration =
+    call && call.ok !== null && call.endedAt
+      ? `${Math.max(0, (Date.parse(call.endedAt) - Date.parse(call.at)) / 1000).toFixed(1)}s`
+      : "";
   return (
     <details className="tool-row glow-card">
       <summary className="flex items-center gap-2 px-3.5 py-2">
@@ -688,7 +700,8 @@ function ToolRow({ name, call }: { name: string; call: { args: unknown; result: 
             联网
           </span>
         )}
-        <span className="ml-auto text-[11px]">
+        {duration && <span className="ml-auto font-mono text-[10.5px] text-mist-600">{duration}</span>}
+        <span className={duration ? "text-[11px]" : "ml-auto text-[11px]"}>
           {call?.ok === null || call === undefined ? (
             <span className="inline-flex items-center gap-1 text-amber-300">
               <IconSpinner className="h-3 w-3" />

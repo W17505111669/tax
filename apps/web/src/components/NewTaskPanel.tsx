@@ -145,6 +145,12 @@ export function NewTaskPanel({ agent, busy, error, onSubmit }: Props) {
           id="instruction"
           value={instruction}
           onChange={(e) => setInstruction(e.target.value)}
+          onKeyDown={(e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+              e.preventDefault();
+              submit();
+            }
+          }}
           rows={2}
           placeholder="例如：请核查某项目研发费用归集情况，并测算可加计扣除金额…"
           className="max-h-48 w-full resize-y bg-transparent px-1 text-[13.5px] leading-6 text-mist-100 outline-none placeholder:text-mist-600"
@@ -177,7 +183,7 @@ export function NewTaskPanel({ agent, busy, error, onSubmit }: Props) {
             placeholder="任务名称（自动）"
             className="w-40 rounded-full border border-line bg-night-800 px-2.5 py-1 text-[11.5px] text-mist-300 outline-none placeholder:text-mist-600 focus:glow-ring"
           />
-          <span className="ml-auto text-[11px] text-mist-600">{busy ? "创建中…" : "SSE 实时推送"}</span>
+          <span className="ml-auto text-[11px] text-mist-600">{busy ? "创建中…" : "Ctrl+Enter 提交 · SSE 实时推送"}</span>
           <button
             type="button"
             className="send-btn"

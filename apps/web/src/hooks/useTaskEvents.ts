@@ -18,6 +18,7 @@ export interface ToolCallItem {
   result: unknown;
   ok: boolean | null;
   at: string;
+  endedAt: string | null;
 }
 
 const STATUS_LABEL: Record<EventKind, string> = {
@@ -78,7 +79,14 @@ export function useTaskEvents(taskId: string | null) {
         const payload = event.payload as { toolName?: string; args?: unknown } | undefined;
         setToolCalls((prev) => [
           ...prev,
-          { toolName: payload?.toolName ?? "unknown", args: payload?.args, result: null, ok: null, at: event.at },
+          {
+            toolName: payload?.toolName ?? "unknown",
+            args: payload?.args,
+            result: null,
+            ok: null,
+            at: event.at,
+            endedAt: null,
+          },
         ]);
       }
 
@@ -89,7 +97,7 @@ export function useTaskEvents(taskId: string | null) {
           for (let i = next.length - 1; i >= 0; i -= 1) {
             const item = next[i]!;
             if (item.toolName === (payload?.toolName ?? "") && item.ok === null) {
-              next[i] = { ...item, ok: payload?.ok ?? true, result: payload?.result ?? null };
+              next[i] = { ...item, ok: payload?.ok ?? true, result: payload?.result ?? null, endedAt: event.at };
               break;
             }
           }
