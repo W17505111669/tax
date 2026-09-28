@@ -10,9 +10,22 @@ function ensureMermaid(): void {
   mermaid.initialize({
     startOnLoad: false,
     securityLevel: "strict",
-    theme: "neutral",
+    theme: "dark",
     fontFamily: '"Inter", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif',
     flowchart: { curve: "basis", htmlLabels: true },
+    themeVariables: {
+      darkMode: true,
+      background: "#04070d",
+      primaryColor: "#0d1526",
+      primaryTextColor: "#e6edf7",
+      primaryBorderColor: "#16283f",
+      lineColor: "#22d3ee",
+      textColor: "#b7c6da",
+      mainBkg: "#0d1526",
+      nodeBorder: "#1b2c47",
+      clusterBkg: "rgba(18, 32, 54, 0.6)",
+      edgeLabelBackground: "#060b16",
+    },
   });
   mermaidInitialized = true;
 }

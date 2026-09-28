@@ -4,7 +4,18 @@ import type { AgentInfo, ArtifactInfo, FileInfo, TaskInfo } from "../types.ts";
 import { useTaskEvents } from "../hooks/useTaskEvents.ts";
 import { MarkdownView } from "./MarkdownView.tsx";
 import { SideReader, type ReaderTarget } from "./SideReader.tsx";
-import { IconAlert, IconCheck, IconFile, IconPanel, IconPlay, IconSpinner, IconTool } from "./Icons.tsx";
+import {
+  IconAlert,
+  IconCheck,
+  IconDownload,
+  IconExternal,
+  IconFile,
+  IconPanel,
+  IconPlay,
+  IconPrint,
+  IconSpinner,
+  IconTool,
+} from "./Icons.tsx";
 
 interface Props {
   agent: AgentInfo;
@@ -13,34 +24,53 @@ interface Props {
   onRerun: () => void;
 }
 
+const SEARCH_TOOLS = new Set([
+  "web_search",
+  "search_public_cases",
+  "fetch_content",
+  "fetch_public_document",
+  "get_search_content",
+]);
+
 const STATUS_META: Record<string, { label: string; className: string }> = {
-  created: { label: "待执行", className: "border-ink-200 bg-ink-100 text-ink-600" },
-  processing: { label: "执行中", className: "border-amber-200 bg-amber-50 text-amber-700" },
-  waiting_review: { label: "待复核", className: "border-sky-200 bg-sky-50 text-sky-700" },
-  completed: { label: "已完成", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
-  failed: { label: "执行失败", className: "border-rose-200 bg-rose-50 text-rose-700" },
+  created: { label: "待执行", className: "border-line bg-night-800 text-mist-500" },
+  processing: { label: "执行中", className: "border-amber-400/40 bg-amber-400/10 text-amber-300" },
+  waiting_review: { label: "待复核", className: "border-sky-400/40 bg-sky-400/10 text-sky-300" },
+  completed: { label: "已完成", className: "border-jade-400/40 bg-jade-400/10 text-jade-400" },
+  failed: { label: "已中断", className: "border-rose-400/40 bg-rose-400/10 text-rose-300" },
 };
+
+interface Citation {
+  title: string;
+  url: string;
+}
 
 export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
   const { timeline, toolCalls, status } = useTaskEvents(task.id);
-  const [tab, setTab] = useState<"timeline" | "tools" | "result">("timeline");
+  const [tab, setTab] = useState<"timeline" | "result">("timeline");
   const [readerOpen, setReaderOpen] = useState(false);
   const [readerTarget, setReaderTarget] = useState<ReaderTarget | null>(null);
   const [artifacts, setArtifacts] = useState<ArtifactInfo[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const liveStatus = status === "created" ? task.status : status;
+  const meta = STATUS_META[liveStatus] ?? STATUS_META.created!;
+  const running = liveStatus === "processing";
 
   const openReader = (target: ReaderTarget) => {
     setReaderTarget(target);
     setReaderOpen(true);
   };
 
-  // 产物清单：进入任务与任务结束时刷新
   useEffect(() => {
     let cancelled = false;
     const load = () => {
-      void api.listArtifacts(task.id).then((list) => {
-        if (!cancelled) setArtifacts(list);
-      }).catch(() => undefined);
+      void api
+        .listArtifacts(task.id)
+        .then((list) => {
+          if (!cancelled) setArtifacts(list);
+        })
+        .catch(() => undefined);
     };
     load();
     const timer = setInterval(load, 10000);
@@ -50,26 +80,61 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
     };
   }, [task.id, task.status]);
 
-  const liveStatus = status === "created" ? task.status : status;
-  const meta = STATUS_META[liveStatus] ?? STATUS_META.created!;
-  const running = liveStatus === "processing";
-
   const finalResult = useMemo(() => {
     const last = [...timeline].reverse().find((t) => t.kind === "agent_text" && t.detail);
     return task.result ?? last?.detail ?? "";
   }, [timeline, task.result]);
+
+  const citations = useMemo<Citation[]>(() => {
+    const out: Citation[] = [];
+    for (const call of toolCalls) {
+      if (!SEARCH_TOOLS.has(call.toolName)) continue;
+      const results = (call.result as { results?: Array<{ title?: string; url?: string }> } | null)?.results;
+      if (!results) continue;
+      for (const r of results) {
+        if (r.url && !out.some((c) => c.url === r.url)) out.push({ title: r.title ?? r.url, url: r.url });
+      }
+    }
+    return out.slice(0, 12);
+  }, [toolCalls]);
+
+  // 步骤时间线：提问 → 工具核验 → 联网检索 → 结论生成 → 交付
+  const steps = useMemo(() => {
+    const hasRun = timeline.some((t) => t.kind === "run_started");
+    const toolDone = toolCalls.some((c) => !SEARCH_TOOLS.has(c.toolName) && c.ok !== null);
+    const searchDone = toolCalls.some((c) => SEARCH_TOOLS.has(c.toolName) && c.ok !== null);
+    const concluded = timeline.some((t) => t.kind === "agent_text");
+    const delivered = liveStatus === "completed";
+    const done = [hasRun, toolDone, searchDone, delivered, delivered];
+    const labels = ["提问", "工具核验", "联网检索", "结论生成", "交付"];
+    const activeIdx = running ? done.findIndex((d) => !d) : -1;
+    return labels.map((label, i) => ({
+      label,
+      state: done[i] ? "done" : i === activeIdx ? "active" : concluded && i === 3 && running ? "active" : "pending",
+    }));
+  }, [timeline, toolCalls, liveStatus, running]);
 
   useEffect(() => {
     const el = scrollRef.current;
     if (el && tab === "timeline") el.scrollTop = el.scrollHeight;
   }, [timeline, tab]);
 
+  const download = (name: string, content: string) => {
+    const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex flex-wrap items-center gap-3 border-b border-ink-200 bg-white px-8 py-3.5">
+      <header className="flex flex-wrap items-center gap-3 border-b border-line bg-night-950 px-8 py-3.5">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h2 className="truncate text-[15px] font-semibold text-ink-900">{task.title}</h2>
+            <h2 className="truncate text-[15px] font-semibold text-mist-100">{task.title}</h2>
             <span className={`rounded border px-1.5 py-0.5 text-[11px] font-medium ${meta.className}`}>
               {running ? (
                 <span className="inline-flex items-center gap-1">
@@ -81,13 +146,13 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
               )}
             </span>
           </div>
-          <div className="mt-0.5 flex items-center gap-2 text-[11.5px] text-ink-500">
-            <span style={{ color: agent.accent }}>{agent.shortName}</span>
-            <span className="text-ink-300">|</span>
+          <div className="mt-0.5 flex items-center gap-2 text-[11.5px] text-mist-600">
+            <span className="text-glow-300">{agent.shortName}</span>
+            <span className="text-line">|</span>
             <span>案例 {task.caseId}</span>
-            <span className="text-ink-300">|</span>
+            <span className="text-line">|</span>
             <span>工具调用 {toolCalls.length} 次</span>
-            <span className="text-ink-300">|</span>
+            <span className="text-line">|</span>
             <span>{new Date(task.createdAt).toLocaleString("zh-CN", { hour12: false })}</span>
           </div>
         </div>
@@ -97,8 +162,8 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
           title={readerOpen ? "收起侧边阅读器" : "展开侧边阅读器"}
           className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[12.5px] transition-colors ${
             readerOpen
-              ? "border-ink-400 bg-ink-100 text-ink-900"
-              : "border-ink-200 bg-white text-ink-700 hover:border-ink-300 hover:bg-ink-50"
+              ? "border-glow-500 bg-night-700 text-glow-300"
+              : "border-line bg-night-850 text-mist-300 hover:border-glow-500 hover:text-mist-100"
           }`}
         >
           <IconPanel className="h-3.5 w-3.5" />
@@ -108,21 +173,50 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
           type="button"
           onClick={onRerun}
           disabled={running}
-          className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12.5px] text-ink-700 transition-colors hover:border-ink-300 hover:bg-ink-50 disabled:opacity-40"
+          className="inline-flex items-center gap-1.5 rounded-md border border-line bg-night-850 px-3 py-1.5 text-[12.5px] text-mist-300 transition-colors hover:border-glow-500 hover:text-mist-100 disabled:opacity-40"
         >
           <IconPlay className="h-3 w-3" />
           重新执行
         </button>
       </header>
 
+      <div className="flex items-center gap-0 border-b border-line bg-night-900 px-8 py-3">
+        {steps.map((step, i) => (
+          <div key={step.label} className="flex items-center">
+            {i > 0 && (
+              <div
+                className={`mx-2 h-px w-8 sm:w-14 ${steps[i - 1]!.state === "done" ? "bg-glow-500/60" : "bg-line"}`}
+              />
+            )}
+            <div className="flex items-center gap-2">
+              <span
+                className={`flex h-6 w-6 items-center justify-center rounded-full border text-[10px] font-semibold ${
+                  step.state === "done"
+                    ? "border-glow-500 bg-glow-500/15 text-glow-300"
+                    : step.state === "active"
+                      ? "border-glow-400 text-glow-300 glow-ring animate-pulse"
+                      : "border-line text-mist-600"
+                }`}
+              >
+                {step.state === "done" ? <IconCheck className="h-3 w-3" /> : String(i + 1).padStart(2, "0")}
+              </span>
+              <span
+                className={`text-[12px] ${step.state === "pending" ? "text-mist-600" : "text-mist-100"}`}
+              >
+                {step.label}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+
       <div className="flex min-h-0 flex-1 gap-0">
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex items-center gap-1 border-b border-ink-200 bg-white px-8">
+          <div className="flex items-center gap-1 border-b border-line bg-night-950 px-8">
             {(
               [
-                ["timeline", "执行时间线"],
-                ["tools", `工具调用 (${toolCalls.length})`],
-                ["result", "执行结论"],
+                ["timeline", "执行过程"],
+                ["result", "审查结论"],
               ] as const
             ).map(([key, label]) => (
               <button
@@ -131,8 +225,8 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
                 onClick={() => setTab(key)}
                 className={`-mb-px border-b-2 px-3 py-2.5 text-[12.5px] transition-colors ${
                   tab === key
-                    ? "border-ink-800 font-medium text-ink-900"
-                    : "border-transparent text-ink-500 hover:text-ink-800"
+                    ? "border-glow-400 font-medium text-glow-300"
+                    : "border-transparent text-mist-600 hover:text-mist-100"
                 }`}
               >
                 {label}
@@ -141,27 +235,47 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
           </div>
 
           <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-8 py-5">
-            {tab === "timeline" && <TimelineView items={timeline} accent={agent.accent} onOpenUrl={openReader} />}
-            {tab === "tools" && <ToolView calls={toolCalls} />}
+            {tab === "timeline" && (
+              <TimelineView
+                instruction={task.instruction}
+                items={timeline}
+                toolCalls={toolCalls}
+                onOpenUrl={openReader}
+              />
+            )}
             {tab === "result" && (
-              <ResultView result={finalResult} error={task.error} status={liveStatus} onOpenUrl={openReader} />
+              <ResultView
+                result={finalResult}
+                error={task.error}
+                status={liveStatus}
+                citations={citations}
+                onOpenUrl={openReader}
+                onDownloadReport={() => download(`${task.title}-审查报告.md`, finalResult)}
+                onDownloadCitations={() =>
+                  download(
+                    `${task.title}-引用清单.md`,
+                    citations.map((c, i) => `${i + 1}. ${c.title}\n   ${c.url}`).join("\n") || "（本次任务无联网引用）",
+                  )
+                }
+                onPrint={() => window.print()}
+              />
             )}
           </div>
         </div>
 
         <aside
-          className={`w-[280px] shrink-0 overflow-y-auto border-l border-ink-200 bg-white px-5 py-5 ${
+          className={`w-[280px] shrink-0 overflow-y-auto border-l border-line bg-night-950 px-5 py-5 ${
             readerOpen ? "hidden" : "hidden xl:block"
           }`}
         >
-          <div className="text-[11px] font-medium uppercase tracking-wider text-ink-400">任务指令</div>
-          <p className="mt-1.5 whitespace-pre-wrap rounded-md bg-ink-50 px-3 py-2 text-[12.5px] leading-5 text-ink-700">
+          <div className="kicker">任务指令</div>
+          <p className="mt-1.5 whitespace-pre-wrap rounded-md bg-night-800 px-3 py-2 text-[12.5px] leading-5 text-mist-300">
             {task.instruction}
           </p>
 
-          <div className="mt-5 text-[11px] font-medium uppercase tracking-wider text-ink-400">业务资料</div>
+          <div className="mt-5 kicker">业务资料</div>
           {files.length === 0 ? (
-            <p className="mt-1.5 text-[12px] text-ink-400">本任务未上传资料</p>
+            <p className="mt-1.5 text-[12px] text-mist-600">本任务未上传资料</p>
           ) : (
             <ul className="mt-1.5 space-y-1">
               {files.map((f) => (
@@ -169,13 +283,13 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
                   <button
                     type="button"
                     onClick={() => openReader({ kind: "file", taskId: task.id, fileId: f.id, name: f.fileName })}
-                    className="flex w-full items-start gap-2 rounded border border-ink-100 px-2 py-1.5 text-left transition-colors hover:border-ink-300 hover:bg-ink-50"
+                    className="flex w-full items-start gap-2 rounded border border-line bg-night-850 px-2 py-1.5 text-left transition-colors hover:border-glow-500"
                     title="在侧边阅读器中预览"
                   >
-                    <IconFile className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-400" />
+                    <IconFile className="mt-0.5 h-3.5 w-3.5 shrink-0 text-glow-400" />
                     <span className="min-w-0">
-                      <span className="block truncate text-[12px] text-ink-700">{f.fileName}</span>
-                      <span className="block text-[11px] text-ink-400">
+                      <span className="block truncate text-[12px] text-mist-300">{f.fileName}</span>
+                      <span className="block text-[11px] text-mist-600">
                         {(f.byteSize / 1024).toFixed(1)} KB · {f.parseStatus}
                       </span>
                     </span>
@@ -185,9 +299,9 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
             </ul>
           )}
 
-          <div className="mt-5 text-[11px] font-medium uppercase tracking-wider text-ink-400">生成产物</div>
+          <div className="mt-5 kicker">生成产物</div>
           {artifacts.length === 0 ? (
-            <p className="mt-1.5 text-[12px] text-ink-400">暂无产物（底稿导出后在此预览）</p>
+            <p className="mt-1.5 text-[12px] text-mist-600">暂无产物（底稿导出后在此预览）</p>
           ) : (
             <ul className="mt-1.5 space-y-1">
               {artifacts.map((a) => (
@@ -195,13 +309,13 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
                   <button
                     type="button"
                     onClick={() => openReader({ kind: "artifact", taskId: task.id, name: a.name })}
-                    className="flex w-full items-start gap-2 rounded border border-ink-100 px-2 py-1.5 text-left transition-colors hover:border-ink-300 hover:bg-ink-50"
+                    className="flex w-full items-start gap-2 rounded border border-line bg-night-850 px-2 py-1.5 text-left transition-colors hover:border-glow-500"
                     title="在侧边阅读器中预览"
                   >
-                    <IconFile className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-400" />
+                    <IconFile className="mt-0.5 h-3.5 w-3.5 shrink-0 text-glow-400" />
                     <span className="min-w-0">
-                      <span className="block truncate text-[12px] text-ink-700">{a.name}</span>
-                      <span className="block text-[11px] text-ink-400">{(a.byteSize / 1024).toFixed(1)} KB</span>
+                      <span className="block truncate text-[12px] text-mist-300">{a.name}</span>
+                      <span className="block text-[11px] text-mist-600">{(a.byteSize / 1024).toFixed(1)} KB</span>
                     </span>
                   </button>
                 </li>
@@ -209,10 +323,10 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
             </ul>
           )}
 
-          <div className="mt-5 text-[11px] font-medium uppercase tracking-wider text-ink-400">可用工具</div>
+          <div className="mt-5 kicker">可用工具</div>
           <ul className="mt-1.5 space-y-1">
             {agent.tools.map((t) => (
-              <li key={t.name} className="font-mono text-[11.5px] text-ink-600">
+              <li key={t.name} className="font-mono text-[11.5px] text-mist-500">
                 {t.name}
               </li>
             ))}
@@ -226,119 +340,136 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
 }
 
 function TimelineView({
+  instruction,
   items,
-  accent,
+  toolCalls,
   onOpenUrl,
 }: {
+  instruction: string;
   items: ReturnType<typeof useTaskEvents>["timeline"];
-  accent: string;
+  toolCalls: ReturnType<typeof useTaskEvents>["toolCalls"];
   onOpenUrl: (target: ReaderTarget) => void;
 }) {
+  const counters = useRef<Record<string, number>>({});
+  counters.current = {};
+
   if (items.length === 0) {
-    return <div className="py-10 text-center text-[13px] text-ink-400">等待执行事件…</div>;
+    return <div className="py-10 text-center text-[13px] text-mist-600">等待执行事件…</div>;
   }
+
   return (
-    <ol className="relative space-y-0 border-l border-ink-200 pl-5">
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        <div className="user-bubble max-w-[78%] whitespace-pre-wrap px-4 py-2.5 text-[13px] leading-6">
+          {instruction}
+        </div>
+      </div>
+
       {items.map((item) => {
-        const isTool = item.kind === "tool_start";
+        if (item.kind === "tool_start") {
+          const name = String((item.payload as { toolName?: string } | undefined)?.toolName ?? "");
+          const idx = counters.current[name] ?? 0;
+          counters.current[name] = idx + 1;
+          const call = toolCalls.filter((c) => c.toolName === name)[idx];
+          return <ToolRow key={item.id} name={name} call={call} />;
+        }
+        if (item.kind === "tool_end") return null;
+
         const isFail = item.kind === "run_failed";
         const isDone = item.kind === "run_completed";
         const isText = item.kind === "agent_text";
-        return (
-          <li key={item.id} className="relative pb-4">
-            <span
-              className="absolute -left-[25px] top-1 flex h-3 w-3 items-center justify-center rounded-full border-2 border-white"
-              style={{ backgroundColor: isFail ? "#e11d48" : isDone ? "#059669" : isTool ? accent : "#b6bcc9" }}
-            />
-            <div className="flex flex-wrap items-baseline gap-x-2">
-              <span className="text-[12.5px] font-medium text-ink-800">{item.title}</span>
-              <span className="font-mono text-[11px] text-ink-400">
-                {new Date(item.at).toLocaleTimeString("zh-CN", { hour12: false })}
-              </span>
-              {isTool && item.payload != null && (
-                <span className="inline-flex items-center gap-1 rounded bg-ink-100 px-1.5 py-0.5 font-mono text-[11px] text-ink-600">
-                  <IconTool className="h-3 w-3" />
-                  {String((item.payload as { toolName?: string }).toolName ?? "")}
-                </span>
-              )}
+
+        if (!isText && !isFail && !isDone && item.kind !== "agent_status" && item.kind !== "run_started") {
+          return null;
+        }
+
+        if (item.kind === "agent_status" || item.kind === "run_started") {
+          return (
+            <div key={item.id} className="flex items-center gap-2 text-[11.5px] text-mist-600">
+              <span className="h-1 w-1 rounded-full bg-glow-500" />
+              {item.detail ?? item.title}
             </div>
-            {item.detail && !isText && <p className="mt-1 text-[12.5px] leading-5 text-ink-600">{item.detail}</p>}
+          );
+        }
+
+        return (
+          <div key={item.id} className="glow-card px-4 py-3">
             {isText && (
-              <div className="mt-2 rounded-md border border-ink-100 bg-white px-4 py-3">
-                <MarkdownView
-                  text={item.detail ?? ""}
-                  live={item.streaming}
-                  onOpenUrl={(url) => onOpenUrl({ kind: "url", url })}
-                />
-                {item.streaming && <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-ink-400 align-middle" />}
-              </div>
+              <MarkdownView
+                text={item.detail ?? ""}
+                live={item.streaming}
+                onOpenUrl={(url) => onOpenUrl({ kind: "url", url })}
+              />
+            )}
+            {isText && item.streaming && (
+              <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-glow-400 align-middle" />
             )}
             {isDone && (
-              <span className="mt-1 inline-flex items-center gap-1 text-[12px] text-emerald-600">
+              <span className="inline-flex items-center gap-1 text-[12px] text-jade-400">
                 <IconCheck className="h-3.5 w-3.5" />
                 本次运行已结束
               </span>
             )}
             {isFail && (
-              <span className="mt-1 inline-flex items-center gap-1 text-[12px] text-rose-600">
+              <span className="inline-flex items-center gap-1 text-[12px] text-rose-300">
                 <IconAlert className="h-3.5 w-3.5" />
-                运行异常终止
+                {item.detail ?? "运行异常终止"}
               </span>
             )}
-          </li>
+          </div>
         );
       })}
-    </ol>
+    </div>
   );
 }
 
-function ToolView({ calls }: { calls: ReturnType<typeof useTaskEvents>["toolCalls"] }) {
-  if (calls.length === 0) {
-    return <div className="py-10 text-center text-[13px] text-ink-400">尚无工具调用记录</div>;
-  }
+function ToolRow({ name, call }: { name: string; call: { args: unknown; result: unknown; ok: boolean | null } | undefined }) {
+  const isSearch = SEARCH_TOOLS.has(name);
   return (
-    <ul className="space-y-3">
-      {calls.map((call, i) => (
-        <li key={`${call.toolName}-${i}`} className="rounded-md border border-ink-200 bg-white">
-          <div className="flex items-center gap-2 border-b border-ink-100 px-3.5 py-2">
-            <IconTool className="h-3.5 w-3.5 text-ink-500" />
-            <span className="font-mono text-[12.5px] text-ink-900">{call.toolName}</span>
-            <span className="ml-auto text-[11.5px]">
-              {call.ok === null ? (
-                <span className="inline-flex items-center gap-1 text-amber-600">
-                  <IconSpinner className="h-3 w-3" />
-                  执行中
-                </span>
-              ) : call.ok ? (
-                <span className="inline-flex items-center gap-1 text-emerald-600">
-                  <IconCheck className="h-3 w-3" />
-                  成功
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 text-rose-600">
-                  <IconAlert className="h-3 w-3" />
-                  失败
-                </span>
-              )}
+    <details className="tool-row glow-card">
+      <summary className="flex items-center gap-2 px-3.5 py-2">
+        <span className="chev text-[10px] text-glow-400">▶</span>
+        <IconTool className="h-3.5 w-3.5 text-glow-400" />
+        <span className="font-mono text-[12px] text-mist-100">{name}</span>
+        {isSearch && (
+          <span className="rounded border border-glow-500/40 bg-glow-500/10 px-1.5 py-0.5 text-[10px] text-glow-300">
+            联网
+          </span>
+        )}
+        <span className="ml-auto text-[11px]">
+          {call?.ok === null || call === undefined ? (
+            <span className="inline-flex items-center gap-1 text-amber-300">
+              <IconSpinner className="h-3 w-3" />
+              执行中
             </span>
-          </div>
-          <div className="grid gap-3 px-3.5 py-2.5 md:grid-cols-2">
-            <div>
-              <div className="text-[11px] font-medium uppercase tracking-wider text-ink-400">入参</div>
-              <pre className="mt-1 max-h-52 overflow-auto rounded bg-ink-50 px-2.5 py-2 font-mono text-[11.5px] leading-5 text-ink-700">
-                {JSON.stringify(call.args, null, 2)}
-              </pre>
-            </div>
-            <div>
-              <div className="text-[11px] font-medium uppercase tracking-wider text-ink-400">返回</div>
-              <pre className="mt-1 max-h-52 overflow-auto rounded bg-ink-50 px-2.5 py-2 font-mono text-[11.5px] leading-5 text-ink-700">
-                {call.ok === null ? "—" : JSON.stringify(call.result, null, 2)}
-              </pre>
-            </div>
-          </div>
-        </li>
-      ))}
-    </ul>
+          ) : call.ok ? (
+            <span className="inline-flex items-center gap-1 text-jade-400">
+              <IconCheck className="h-3 w-3" />
+              完成
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 text-rose-300">
+              <IconAlert className="h-3 w-3" />
+              失败
+            </span>
+          )}
+        </span>
+      </summary>
+      <div className="grid gap-3 border-t border-line px-3.5 py-2.5 md:grid-cols-2">
+        <div>
+          <div className="kicker">入参</div>
+          <pre className="mt-1 max-h-52 overflow-auto rounded bg-night-950 px-2.5 py-2 font-mono text-[11.5px] leading-5 text-mist-300">
+            {JSON.stringify(call?.args ?? null, null, 2)}
+          </pre>
+        </div>
+        <div>
+          <div className="kicker">返回</div>
+          <pre className="mt-1 max-h-52 overflow-auto rounded bg-night-950 px-2.5 py-2 font-mono text-[11.5px] leading-5 text-mist-300">
+            {call?.ok === null || call === undefined ? "—" : JSON.stringify(call.result, null, 2)}
+          </pre>
+        </div>
+      </div>
+    </details>
   );
 }
 
@@ -346,16 +477,24 @@ function ResultView({
   result,
   error,
   status,
+  citations,
   onOpenUrl,
+  onDownloadReport,
+  onDownloadCitations,
+  onPrint,
 }: {
   result: string;
   error: string | null;
   status: string;
+  citations: Citation[];
   onOpenUrl: (target: ReaderTarget) => void;
+  onDownloadReport: () => void;
+  onDownloadCitations: () => void;
+  onPrint: () => void;
 }) {
   if (error) {
     return (
-      <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-[13px] text-rose-700">
+      <div className="rounded-md border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-[13px] text-rose-300">
         <div className="font-medium">执行失败</div>
         <div className="mt-1 break-words">{error}</div>
       </div>
@@ -363,14 +502,57 @@ function ResultView({
   }
   if (!result) {
     return (
-      <div className="py-10 text-center text-[13px] text-ink-400">
+      <div className="py-10 text-center text-[13px] text-mist-600">
         {status === "processing" ? "Agent 正在执行…" : "暂无执行结论"}
       </div>
     );
   }
   return (
-    <article className="max-w-4xl rounded-md border border-ink-200 bg-white px-6 py-5">
-      <MarkdownView text={result} onOpenUrl={(url) => onOpenUrl({ kind: "url", url })} />
-    </article>
+    <div className="max-w-4xl space-y-5">
+      <article className="glow-card px-6 py-5">
+        <MarkdownView text={result} onOpenUrl={(url) => onOpenUrl({ kind: "url", url })} />
+      </article>
+
+      {citations.length > 0 && (
+        <div>
+          <div className="kicker">联网引用</div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {citations.map((c) => (
+              <button
+                key={c.url}
+                type="button"
+                onClick={() => onOpenUrl({ kind: "url", url: c.url })}
+                title={c.url}
+                className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-line bg-night-850 px-2.5 py-1 text-[11.5px] text-mist-300 transition-colors hover:border-glow-500 hover:text-glow-300"
+              >
+                <IconExternal className="h-3 w-3 shrink-0 text-glow-400" />
+                <span className="truncate">{c.title}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div>
+        <div className="kicker">交付</div>
+        <div className="mt-2 grid gap-3 sm:grid-cols-3">
+          <button type="button" onClick={onDownloadReport} className="glow-card px-4 py-3 text-left transition-colors hover:border-glow-500">
+            <IconDownload className="h-4 w-4 text-glow-400" />
+            <div className="mt-1.5 text-[13px] font-medium text-mist-100">审查报告</div>
+            <div className="text-[11px] text-mist-600">Markdown · 立即下载</div>
+          </button>
+          <button type="button" onClick={onPrint} className="glow-card px-4 py-3 text-left transition-colors hover:border-glow-500">
+            <IconPrint className="h-4 w-4 text-glow-400" />
+            <div className="mt-1.5 text-[13px] font-medium text-mist-100">打印 / PDF</div>
+            <div className="text-[11px] text-mist-600">浏览器打印导出</div>
+          </button>
+          <button type="button" onClick={onDownloadCitations} className="glow-card px-4 py-3 text-left transition-colors hover:border-glow-500">
+            <IconExternal className="h-4 w-4 text-glow-400" />
+            <div className="mt-1.5 text-[13px] font-medium text-mist-100">引用清单</div>
+            <div className="text-[11px] text-mist-600">{citations.length} 条联网来源</div>
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

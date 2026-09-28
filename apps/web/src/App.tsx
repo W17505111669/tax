@@ -122,11 +122,11 @@ export default function App() {
         onNewTask={() => setActiveTaskId(null)}
       />
 
-      <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-ink-50">
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-night-900">
         {backendDown && (
-          <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-8 py-2.5 text-[12.5px] text-amber-800">
+          <div className="flex items-center gap-2 border-b border-amber-400/40 bg-amber-400/10 px-8 py-2.5 text-[12.5px] text-amber-300">
             <IconAlert className="h-4 w-4 shrink-0" />
-            无法连接后端服务。请在项目根目录执行 <code className="mx-1 rounded bg-amber-100 px-1.5 py-0.5 font-mono">pnpm dev</code>
+            无法连接后端服务。请在项目根目录执行 <code className="mx-1 rounded bg-night-800 px-1.5 py-0.5 font-mono">pnpm dev</code>
             启动 API 与前端。
           </div>
         )}
@@ -138,6 +138,10 @@ export default function App() {
             <AgentOverview
               agents={agents}
               activeAgentId={activeAgent.id}
+              stats={{
+                tasks: visibleTasks.length,
+                completed: visibleTasks.filter((t) => t.status === "completed").length,
+              }}
               onSelect={(id) => {
                 setActiveAgentId(id);
                 setActiveTaskId(null);
@@ -146,7 +150,7 @@ export default function App() {
             <NewTaskPanel agent={activeAgent} busy={creating} error={error} onSubmit={handleCreate} />
           </div>
         ) : (
-          <div className="flex flex-1 items-center justify-center text-[13px] text-ink-400">正在加载智能体配置…</div>
+          <div className="flex flex-1 items-center justify-center text-[13px] text-mist-600">正在加载智能体配置…</div>
         )}
       </main>
     </div>
