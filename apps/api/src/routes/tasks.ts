@@ -16,6 +16,7 @@ import {
   selectReopenTargets,
 } from "../services/issues.ts";
 import { listAmountChecks, setAmountCheck } from "../services/amount-checks.ts";
+import { checkLink, listLinkChecks, saveLinkChecks } from "../services/link-checks.ts";
 import {
   appendEvent,
   createTask,
@@ -277,6 +278,30 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     const label = body.key.split("|")[1] ?? body.key;
     appendEvent(id, "agent_status", checked ? `金额已人工核对：${label}` : `撤销金额核对：${label}`);
     return { check, checks: listAmountChecks(id) };
+  });
+
+  /** 已持久化的引用链接核验结果（刷新页面不丢） */
+  app.get("/api/tasks/:id/link-checks", async (req) => {
+    const { id } = req.params as { id: string };
+    const results = listLinkChecks(id);
+    const checkedAt = results.reduce((m, r) => (r.checkedAt && r.checkedAt > m ? r.checkedAt : m), "");
+    return { results, checkedAt: checkedAt || null };
+  });
+
+  /** 触发引用链接核验并落库（最多 30 条；服务端 GET、8 秒超时、不下载正文、拦截内网地址） */
+  app.post("/api/tasks/:id/check-links", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as { urls?: string[] };
+    const urls = Array.isArray(body.urls) ? body.urls.filter((u) => typeof u === "string").slice(0, 30) : [];
+    if (urls.length === 0) return reply.code(400).send({ error: "需要 urls（1-30 条）" });
+    const results = await Promise.all(urls.map((u) => checkLink(u)));
+    const checkedAt = saveLinkChecks(id, results);
+    appendEvent(
+      id,
+      "agent_status",
+      `引用链接核验：${results.filter((r) => r.ok).length}/${results.length} 条返回 2xx/3xx`,
+    );
+    return { checkedAt, total: results.length, ok: results.filter((r) => r.ok).length, results: listLinkChecks(id) };
   });
 
   /** 底稿比对记录：从工具调用历史中提取 compare_workpapers 的结构化结果，供前端比对视图使用。 */

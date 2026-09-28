@@ -54,14 +54,20 @@ export const api = {
 
   readUrl: (url: string) => request<ReaderResult>(`/api/reader?url=${encodeURIComponent(url)}`),
 
-  checkLinks: (urls: string[]) =>
+  /** 触发链接核验并落库；返回该任务已持久化的全部核验结果 */
+  checkLinks: (taskId: string, urls: string[]) =>
     request<{ checkedAt: string; total: number; ok: number; results: import("./types.ts").LinkCheck[] }>(
-      `/api/reader/check-links`,
+      `/api/tasks/${taskId}/check-links`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ urls }),
       },
+    ),
+
+  listLinkChecks: (taskId: string) =>
+    request<{ results: import("./types.ts").LinkCheck[]; checkedAt: string | null }>(
+      `/api/tasks/${taskId}/link-checks`,
     ),
 
   listArtifacts: (taskId: string) =>

@@ -74,6 +74,18 @@ db.exec(`
     created_at TEXT NOT NULL,
     PRIMARY KEY (task_id, amount_key)
   );
+
+  CREATE TABLE IF NOT EXISTS link_checks (
+    task_id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    ok INTEGER NOT NULL,
+    status INTEGER,
+    final_url TEXT,
+    ms INTEGER,
+    error TEXT,
+    checked_at TEXT NOT NULL,
+    PRIMARY KEY (task_id, url)
+  );
 `);
 
 export function nowIso(): string {

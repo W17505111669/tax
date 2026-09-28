@@ -388,11 +388,23 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       .catch(() => undefined);
   };
 
-  // 切换任务时清空上一个任务的核验结果
+  // 切换任务时载入已持久化的核验结果（刷新页面不丢），并清掉进行中的状态
   useEffect(() => {
+    let cancelled = false;
     setLinkChecks({});
     setLinkCheckedAt(null);
     setLinkBusy(false);
+    void api
+      .listLinkChecks(task.id)
+      .then((res) => {
+        if (cancelled) return;
+        setLinkChecks(Object.fromEntries(res.results.map((r) => [r.url, r])));
+        setLinkCheckedAt(res.checkedAt);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
   }, [task.id]);
 
   /** 核验引用链接可达性：GET + 8 秒超时，只取状态不下载正文（URL 由调用方传入，避免依赖顺序） */
@@ -401,7 +413,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     if (unique.length === 0 || linkBusy) return;
     setLinkBusy(true);
     void api
-      .checkLinks(unique)
+      .checkLinks(task.id, unique)
       .then((res) => {
         setLinkChecks(Object.fromEntries(res.results.map((r) => [r.url, r])));
         setLinkCheckedAt(res.checkedAt);

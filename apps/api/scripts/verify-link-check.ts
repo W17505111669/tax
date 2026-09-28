@@ -3,6 +3,8 @@
  * 运行：pnpm verify:links
  */
 import { linkVerdict, summarizeLinkChecks, VERDICT_HINT, VERDICT_TEXT } from "../../web/src/link-check.ts";
+import { db } from "../src/db.ts";
+import { listLinkChecks, saveLinkChecks } from "../src/services/link-checks.ts";
 
 const failures: string[] = [];
 let checks = 0;
@@ -54,6 +56,37 @@ expect(
   })(),
   true,
 );
+
+// 持久化往返：写入 → 读取 → 同 URL 覆盖更新；用合成任务 id，结束即清理
+const TMP = "verify-link-checks-tmp";
+try {
+  db.prepare(`DELETE FROM link_checks WHERE task_id = ?`).run(TMP);
+  saveLinkChecks(TMP, [
+    { url: "https://a.example/x", ok: true, status: 200, finalUrl: "https://a.example/x", ms: 12 },
+    { url: "https://b.example/y", ok: false, status: 403, finalUrl: "https://b.example/y", ms: 30 },
+  ]);
+  expect(
+    "写入后可读取",
+    listLinkChecks(TMP).map((r) => [r.url, r.status, r.ok]),
+    [
+      ["https://a.example/x", 200, true],
+      ["https://b.example/y", 403, false],
+    ],
+  );
+  saveLinkChecks(TMP, [{ url: "https://a.example/x", ok: false, status: 404, finalUrl: "https://a.example/x", ms: 8 }]);
+  expect(
+    "同 URL 覆盖更新且不产生重复行",
+    listLinkChecks(TMP).map((r) => [r.url, r.status]),
+    [
+      ["https://a.example/x", 404],
+      ["https://b.example/y", 403],
+    ],
+  );
+  expect("记录带核验时间", typeof listLinkChecks(TMP)[0]?.checkedAt, "string");
+  expect("错误信息可空", listLinkChecks(TMP).every((r) => r.error === undefined), true);
+} finally {
+  db.prepare(`DELETE FROM link_checks WHERE task_id = ?`).run(TMP);
+}
 
 console.log(`[verify] 链接核验分级检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {

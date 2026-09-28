@@ -106,6 +106,8 @@ export interface LinkCheck {
   finalUrl: string;
   ms: number;
   error?: string;
+  /** 核验时间（服务端持久化，刷新后可恢复） */
+  checkedAt?: string;
 }
 
 export interface SheetPreview {
