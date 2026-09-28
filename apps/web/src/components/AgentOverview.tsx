@@ -60,6 +60,8 @@ export function AgentOverview({ agents, activeAgentId, stats, breakdown, created
   const weekNow = days.slice(7).reduce((a, b) => a + b, 0);
   const weekPrev = days.slice(0, 7).reduce((a, b) => a + b, 0);
   const weekDelta = weekNow - weekPrev;
+  const perTool = p?.perTool ?? [];
+  const toolCount = (name: string) => perTool.find((t) => t.name === name)?.calls ?? 0;
   const chips = [
     {
       label:
@@ -207,7 +209,17 @@ export function AgentOverview({ agents, activeAgentId, stats, breakdown, created
             <ul className="mt-2.5 space-y-2">
               {agent.tools.map((tool) => (
                 <li key={tool.name} className="glow-card px-3 py-2">
-                  <div className="font-mono text-[11.5px] text-glow-300">{tool.name}</div>
+                  <div className="flex items-center gap-2">
+                    <span className="min-w-0 truncate font-mono text-[11.5px] text-glow-300">{tool.name}</span>
+                    {toolCount(tool.name) > 0 && (
+                      <span
+                        className="ml-auto shrink-0 rounded border border-glow-500/35 bg-glow-500/10 px-1.5 py-0.5 font-mono text-[10px] text-glow-300"
+                        title={`历史调用 ${toolCount(tool.name)} 次`}
+                      >
+                        {toolCount(tool.name)} 次
+                      </span>
+                    )}
+                  </div>
                   <div className="mt-0.5 text-[12px] text-mist-500">{tool.label}</div>
                 </li>
               ))}

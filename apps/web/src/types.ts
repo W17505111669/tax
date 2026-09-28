@@ -162,6 +162,7 @@ export interface PlatformStats {
     toolOk: number;
     artifacts: number;
   }>;
+  perTool: Array<{ name: string; calls: number; ok: number }>;
 }
 
 export interface TaskIssue {

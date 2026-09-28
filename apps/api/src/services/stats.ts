@@ -23,6 +23,7 @@ export interface PlatformStats {
   ocrRuns: number;
   ocrAvgConfidence: number | null;
   perAgent: AgentStats[];
+  perTool: Array<{ name: string; calls: number; ok: number }>;
 }
 
 /** 平台级应用效果统计：全部来自数据库真实运行记录。 */
@@ -34,6 +35,7 @@ export function computePlatformStats(): PlatformStats {
   }>;
 
   const perAgentMap = new Map<string, AgentStats>();
+  const perToolMap = new Map<string, { name: string; calls: number; ok: number }>();
   let toolCalls = 0;
   let toolOk = 0;
   let artifacts = 0;
@@ -59,6 +61,15 @@ export function computePlatformStats(): PlatformStats {
     const okCount = calls.filter((c) => c.ok === 1).length;
     agent.toolOk += okCount;
     toolOk += okCount;
+    for (const call of calls) {
+      let bucket = perToolMap.get(call.tool_name);
+      if (!bucket) {
+        bucket = { name: call.tool_name, calls: 0, ok: 0 };
+        perToolMap.set(call.tool_name, bucket);
+      }
+      bucket.calls += 1;
+      if (call.ok === 1) bucket.ok += 1;
+    }
 
     const dir = path.join(dirs.outputs, task.id);
     if (fs.existsSync(dir)) {
@@ -108,5 +119,6 @@ export function computePlatformStats(): PlatformStats {
     ocrRuns,
     ocrAvgConfidence: ocrRuns > 0 ? Math.round((ocrConfSum / ocrRuns) * 100) / 100 : null,
     perAgent: [...perAgentMap.values()],
+    perTool: [...perToolMap.values()].sort((a, b) => b.calls - a.calls),
   };
 }
