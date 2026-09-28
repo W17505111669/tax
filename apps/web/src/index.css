@@ -290,6 +290,11 @@ details.tool-row .chev {
   box-shadow: inset 0 0 0 1px #f59e0b;
 }
 
+/* 定位命中的「当前处」：在多命中时与其余命中行区分 */
+.hl-current,
+.hl-current > td {
+  background: #fecaca !important;
+}
 .print-only {
   display: none;
 }

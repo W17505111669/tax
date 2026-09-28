@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState, type Ref, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type Ref, type ReactNode } from "react";
 import { api } from "../api.ts";
 import type { SheetPreview } from "../types.ts";
 import { MarkdownView } from "./MarkdownView.tsx";
 import { ThemeSwitch } from "./ThemeSwitch.tsx";
 import { usePaperTheme } from "../hooks/usePaperTheme.ts";
 import { IconAlert, IconDownload, IconExternal, IconFile, IconRefresh, IconSpinner, IconX } from "./Icons.tsx";
-import { sheetLocate } from "../sheet-locate.ts";
+import { locateSheet, sheetLocate } from "../sheet-locate.ts";
 
 export type ReaderTarget =
   | { kind: "url"; url: string }
@@ -155,22 +155,9 @@ function MiniPane({
     const s = list[idx];
     if (!s) return null;
     const spec = mainSort?.[s.name];
-    const base = s.rows.slice(0, 100);
-    const rows = !spec
-      ? base
-      : [...base].sort((a, b) => {
-          const av = a[spec.col];
-          const bv = b[spec.col];
-          const an = typeof av === "number" ? av : parseFloat(String(av ?? ""));
-          const bn = typeof bv === "number" ? bv : parseFloat(String(bv ?? ""));
-          if (!Number.isNaN(an) && !Number.isNaN(bn)) return (an - bn) * spec.dir;
-          return String(av ?? "").localeCompare(String(bv ?? ""), "zh-CN") * spec.dir;
-        });
     const hl = (highlight ?? "").trim();
-    const hlHits = hl
-      ? rows.map((row, i) => sheetLocate(row, s.headers, i, hl, s.name, Boolean(spec), highlightValue))
-      : [];
-    return { list, idx, s, spec, rows, hl, hlHits, hlCount: hlHits.filter((h) => h.hit).length };
+    const located = locateSheet(s, spec, hl, highlightValue);
+    return { list, idx, s, spec, rows: located.rows, hl, hlHits: located.hits, hlCount: located.count };
   })();
 
   // 定位关键字变化时，副栏自动切到首个命中的工作表（多表底稿不用手工翻）
@@ -602,11 +589,30 @@ export function SideReader({
   // 表格预览加载完成后，把比对定位的高亮行滚到视口中央
   const activeHl = active && "highlight" in active ? (active.highlight ?? "") : "";
   const activeHlValue = active && "highlightValue" in active ? active.highlightValue : undefined;
+  // 跨工作表的命中总数与当前序号：按渲染顺序编号，与 DOM 上的 data-hlrow 一一对应
+  const hitTotal = useMemo(() => {
+    if (state.kind !== "sheets" || activeHl.trim() === "") return 0;
+    return (state.sheets ?? []).reduce(
+      (n, s) => n + locateSheet(s, sort[`${activeKey}:${s.name}`], activeHl, activeHlValue).count,
+      0,
+    );
+  }, [state.kind, state.sheets, activeHl, activeHlValue, sort, activeKey]);
+  const [hitIdx, setHitIdx] = useState(0);
+  const gotoHit = (delta: number) => {
+    if (hitTotal === 0) return;
+    setHitIdx((prev) => (((prev + delta) % hitTotal) + hitTotal) % hitTotal);
+  };
+
+  // 加载完成或切换命中处时：滚到视口中央，并用玫红底标出「当前处」
   useEffect(() => {
     if (state.loading || state.kind !== "sheets") return;
-    const el = scrollRef.current?.querySelector(".row-hl");
-    el?.scrollIntoView({ block: "center" });
-  }, [state.loading, state.kind, activeKey, activeHl, activeHlValue, state.sheets]);
+    const rows = scrollRef.current?.querySelectorAll("[data-hlrow]") ?? [];
+    if (rows.length === 0) return;
+    const idx = Math.min(Math.max(0, hitIdx), rows.length - 1);
+    (rows[idx] as HTMLElement | undefined)?.scrollIntoView({ block: "center" });
+    rows.forEach((r, i) => r.classList.toggle("hl-current", i === idx));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.loading, state.kind, activeKey, activeHl, activeHlValue, state.sheets, hitTotal, hitIdx]);
 
   // 切换标签时重置缩放
   useEffect(() => {
@@ -833,6 +839,22 @@ export function SideReader({
               >
                 同步滚动
               </button>
+            )}
+            {state.kind === "sheets" && hitTotal > 0 && (
+              <span className="flex items-center gap-0.5 rounded border border-line bg-night-850 px-1 py-0.5">
+                <button type="button" className="action-btn !px-1" title="上一处命中" onClick={() => gotoHit(-1)}>
+                  ‹
+                </button>
+                <span
+                  className="min-w-[46px] text-center font-mono text-[10.5px] text-mist-400"
+                  title={`「${activeHl}」在本文件共命中 ${hitTotal} 行（跨工作表按显示顺序编号），当前第 ${hitIdx + 1} 处以玫红底标出`}
+                >
+                  {hitIdx + 1}/{hitTotal}
+                </span>
+                <button type="button" className="action-btn !px-1" title="下一处命中" onClick={() => gotoHit(1)}>
+                  ›
+                </button>
+              </span>
             )}
             {tabs.length > 1 && (
               <button
@@ -1317,23 +1339,11 @@ export function SideReader({
                 {(() => {
                   const sortKey = `${activeKey}:${s.name}`;
                   const st = sort[sortKey];
-                  const rows = (() => {
-                    const base = s.rows.slice(0, 100);
-                    if (!st) return base;
-                    return [...base].sort((a, b) => {
-                      const av = a[st.col];
-                      const bv = b[st.col];
-                      const an = typeof av === "number" ? av : parseFloat(String(av ?? ""));
-                      const bn = typeof bv === "number" ? bv : parseFloat(String(bv ?? ""));
-                      if (!Number.isNaN(an) && !Number.isNaN(bn)) return (an - bn) * st.dir;
-                      return String(av ?? "").localeCompare(String(bv ?? ""), "zh-CN") * st.dir;
-                    });
-                  })();
                   const hl = activeHl.trim();
-                  const hlHits = hl
-                    ? rows.map((row, i) => sheetLocate(row, s.headers, i, hl, s.name, Boolean(st), activeHlValue))
-                    : [];
-                  const hlCount = hlHits.filter((h) => h.hit).length;
+                  const located = locateSheet(s, st, hl, activeHlValue);
+                  const rows = located.rows;
+                  const hlHits = located.hits;
+                  const hlCount = located.count;
                   return (
                     <>
                 <div className="mb-1.5 flex items-baseline gap-2">
@@ -1431,7 +1441,11 @@ export function SideReader({
                       {rows.map((row, i) => {
                         const hits = hlHits[i] ?? { hit: false, cols: [] as string[] };
                         return (
-                          <tr key={i} className={hits.hit ? "row-hl" : undefined}>
+                          <tr
+                            key={i}
+                            data-hlrow={hits.hit ? "" : undefined}
+                            className={hits.hit ? "row-hl" : undefined}
+                          >
                             {showRowNum && (
                               <td
                                 className={`border border-gray-200 px-2 py-1 text-right font-mono text-[10.5px] text-gray-400 ${

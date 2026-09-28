@@ -3,7 +3,14 @@
  * 数据形态取自真实比对结果：工作表「归集比对」，差异地址「直接投入/金额（元）」。
  * 运行：pnpm verify:locate
  */
-import { colLettersToIndex, sameValue, sheetLocate, type LocateRow } from "../../web/src/sheet-locate.ts";
+import {
+  colLettersToIndex,
+  locateSheet,
+  sameValue,
+  sheetLocate,
+  visibleRows,
+  type LocateRow,
+} from "../../web/src/sheet-locate.ts";
 
 const headers = ["费用类别", "金额（元）"];
 const rows: [LocateRow, LocateRow] = [
@@ -121,6 +128,54 @@ expect("双栏-B 侧误用 A 值则不命中", sheetLocate(rowB, headers, 0, "�
   hit: false,
   cols: [],
 });
+
+// 7) 取行与排序口径：主栏渲染、副栏渲染与命中计数三处共用同一实现
+const many: LocateRow[] = Array.from({ length: 120 }, (_, i) => ({ 费用类别: `项${i}`, "金额（元）": i }));
+expect("取行上限 100", visibleRows(many, null).length, 100);
+expect("无排序保持原序", visibleRows(many, null)[0]?.["费用类别"], "项0");
+expect(
+  "数值列升序",
+  visibleRows(rows, { col: "金额（元）", dir: 1 }).map((r) => r["金额（元）"]),
+  [420000, 860000],
+);
+expect(
+  "文本列降序按 zh-CN",
+  visibleRows(rows, { col: "费用类别", dir: -1 }).map((r) => r["费用类别"]),
+  ["直接投入", "人员人工"],
+);
+expect(
+  "排序不改动入参数组",
+  rows.map((r) => r["费用类别"]),
+  ["人员人工", "直接投入"],
+);
+
+const sheetObj = { name: sheet, headers, rows };
+expect("locateSheet 命中数", locateSheet(sheetObj, null, "直接投入/金额（元）", 420000).count, 1);
+expect("locateSheet 无关键字时不计算命中", locateSheet(sheetObj, null, "", null).count, 0);
+expect("locateSheet 行序与命中一一对应", locateSheet(sheetObj, null, "直接投入", null).hits.map((h) => h.hit), [
+  false,
+  true,
+]);
+expect(
+  "locateSheet 排序状态下 A1 定位不生效",
+  locateSheet(sheetObj, { col: "金额（元）", dir: 1 }, "B3", null).count,
+  0,
+);
+expect(
+  "locateSheet 文本关键字可多命中",
+  locateSheet(
+    { name: "s", headers: ["名称"], rows: [{ 名称: "发票A" }, { 名称: "发票B" }, { 名称: "合同" }] },
+    null,
+    "发票",
+    null,
+  ).count,
+  2,
+);
+expect(
+  "locateSheet 取行上限一致",
+  locateSheet({ name: "多行", headers: ["费用类别", "金额（元）"], rows: many }, null, "", null).rows.length,
+  100,
+);
 
 console.log(`[verify] 表格定位检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {

@@ -105,3 +105,44 @@ export function sheetLocate(
 
   return recKey ? { hit, cols: keyCols } : { hit, cols: textCols };
 }
+
+export type SortSpec = { col: string; dir: 1 | -1 };
+
+/** 渲染取行上限：主栏与副栏一致，超出部分提示回主表操作 */
+export const SHEET_ROW_LIMIT = 100;
+
+/** 排序：两侧都能解析成数值时按数值比较，否则按 zh-CN 本地化比较；无排序状态时原样返回 */
+export function sortRows(rows: LocateRow[], spec?: SortSpec | null): LocateRow[] {
+  if (!spec) return rows;
+  return [...rows].sort((a, b) => {
+    const av = a[spec.col];
+    const bv = b[spec.col];
+    const an = typeof av === "number" ? av : parseFloat(String(av ?? ""));
+    const bn = typeof bv === "number" ? bv : parseFloat(String(bv ?? ""));
+    if (!Number.isNaN(an) && !Number.isNaN(bn)) return (an - bn) * spec.dir;
+    return String(av ?? "").localeCompare(String(bv ?? ""), "zh-CN") * spec.dir;
+  });
+}
+
+/** 主栏与副栏共用的取行口径：前 SHEET_ROW_LIMIT 行 + 排序 */
+export function visibleRows(rows: LocateRow[], spec?: SortSpec | null): LocateRow[] {
+  return sortRows(rows.slice(0, SHEET_ROW_LIMIT), spec);
+}
+
+/**
+ * 一张工作表的定位结果：渲染行、逐行命中与命中数。
+ * 主栏渲染、副栏渲染与「命中总数 / 上下跳转」都走这里，避免三处口径漂移。
+ */
+export function locateSheet(
+  sheet: { name: string; headers: string[]; rows: LocateRow[] },
+  spec: SortSpec | null | undefined,
+  q: string,
+  expect?: string | number | null,
+): { rows: LocateRow[]; hits: LocateResult[]; count: number } {
+  const rows = visibleRows(sheet.rows, spec);
+  const needle = q.trim();
+  const hits = needle
+    ? rows.map((row, i) => sheetLocate(row, sheet.headers, i, needle, sheet.name, Boolean(spec), expect))
+    : [];
+  return { rows, hits, count: hits.filter((h) => h.hit).length };
+}
