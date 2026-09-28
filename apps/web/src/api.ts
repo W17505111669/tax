@@ -89,6 +89,17 @@ export const api = {
   reopenReview: (taskId: string) =>
     request<{ status: string; pending: number }>(`/api/tasks/${taskId}/reopen-review`, { method: "POST" }),
 
+  reopenReviewBatch: (ids?: string[]) =>
+    request<{
+      total: number;
+      reopened: Array<{ id: string; title: string; pending: number }>;
+      skipped: Array<{ id: string; reason: string }>;
+    }>(`/api/tasks/reopen-review-batch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    }),
+
   artifactContentUrl: (taskId: string, name: string) =>
     `/api/tasks/${taskId}/artifacts/${encodeURIComponent(name)}/content`,
 };

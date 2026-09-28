@@ -11,7 +11,9 @@ import {
   listReviews,
   needsReopenReview,
   pendingReviewIssues,
+  pendingReviewCount,
   saveReview,
+  selectReopenTargets,
 } from "../services/issues.ts";
 import {
   appendEvent,
@@ -229,6 +231,33 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     setTaskStatus(id, "waiting_review");
     appendEvent(id, "agent_status", `复核重新打开：${pending} 项问题待税务师复核`);
     return { status: "waiting_review", pending };
+  });
+
+  /**
+   * 批量重开复核：把「已完成但仍有待复核问题」的任务改回 waiting_review。
+   * body.ids 缺省时处理全部符合条件的任务；不符合条件的任务在 skipped 中说明原因。
+   */
+  app.post("/api/tasks/reopen-review-batch", async (req) => {
+    const body = (req.body ?? {}) as { ids?: string[] };
+    const wanted = Array.isArray(body.ids) && body.ids.length > 0 ? new Set(body.ids) : null;
+    const scoped = listTasks()
+      .filter((t) => !wanted || wanted.has(t.id))
+      .map((t) => ({ id: t.id, title: t.title, status: t.status as string, pending: pendingReviewCount(t.id) }));
+    const targets = new Set(selectReopenTargets(scoped));
+    const reopened: Array<{ id: string; title: string; pending: number }> = [];
+    const skipped: Array<{ id: string; reason: string }> = [];
+    for (const t of scoped) {
+      if (targets.has(t.id)) {
+        setTaskStatus(t.id, "waiting_review");
+        appendEvent(t.id, "agent_status", `复核重新打开：${t.pending} 项问题待税务师复核（批量处理）`);
+        reopened.push({ id: t.id, title: t.title, pending: t.pending });
+        continue;
+      }
+      if (wanted) {
+        skipped.push({ id: t.id, reason: t.pending === 0 ? "没有待复核问题" : `当前状态 ${t.status} 无需重开` });
+      }
+    }
+    return { total: reopened.length, reopened, skipped };
   });
 
   /** 底稿比对记录：从工具调用历史中提取 compare_workpapers 的结构化结果，供前端比对视图使用。 */

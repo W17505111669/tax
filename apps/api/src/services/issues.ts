@@ -122,6 +122,11 @@ export function needsReopenReview(status: string, pending: number): boolean {
   return status === "completed" && pending > 0;
 }
 
+/** 批量重开复核的目标筛选：只挑「已完成且仍有待复核问题」的任务 id */
+export function selectReopenTargets(tasks: Array<{ id: string; status: string; pending: number }>): string[] {
+  return tasks.filter((t) => needsReopenReview(t.status, t.pending)).map((t) => t.id);
+}
+
 /** 待复核数量缓存：列表接口要为每个任务算一次，按工具调用/复核记录的变化签名失效 */
 const pendingCache = new Map<string, { sig: string; pending: number }>();
 

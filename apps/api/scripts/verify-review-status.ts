@@ -4,7 +4,12 @@
  * 统计「已完成但仍有待复核问题」的任务数（前端在复核页给出「转为待复核」补救入口）。
  * 运行：pnpm verify:review
  */
-import { needsReopenReview, pendingReviewCount, pendingReviewIssues } from "../src/services/issues.ts";
+import {
+  needsReopenReview,
+  pendingReviewCount,
+  pendingReviewIssues,
+  selectReopenTargets,
+} from "../src/services/issues.ts";
 import { listTasks } from "../src/services/task-store.ts";
 import { computePlatformStats } from "../src/services/stats.ts";
 
@@ -65,6 +70,25 @@ expect(
   "平台缺口清单均为完成态且有未复核问题",
   stats.reviewBacklog.every((b) => b.pending > 0 && tasks.some((t) => t.id === b.id && t.status === "completed")),
   true,
+);
+
+// 4) 批量重开复核的目标筛选
+expect(
+  "批量筛选-只挑完成态且有未复核问题",
+  selectReopenTargets([
+    { id: "a", status: "completed", pending: 2 },
+    { id: "b", status: "completed", pending: 0 },
+    { id: "c", status: "waiting_review", pending: 3 },
+    { id: "d", status: "processing", pending: 1 },
+    { id: "e", status: "failed", pending: 4 },
+  ]),
+  ["a"],
+);
+expect("批量筛选-空输入", selectReopenTargets([]), []);
+expect(
+  "批量筛选-全平台口径与缺口清单一致",
+  selectReopenTargets(tasks.map((t) => ({ id: t.id, status: t.status, pending: pendingReviewCount(t.id) }))).length,
+  stats.reviewBacklog.length,
 );
 
 console.log(

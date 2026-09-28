@@ -139,24 +139,27 @@ export default function App() {
     if (task && task.agentId !== activeAgentId) setActiveAgentId(task.agentId);
   }, [activeTaskId, tasks, activeAgentId]);
 
-  // 平台应用效果看板：挂载与周期刷新
-  useEffect(() => {
-    let cancelled = false;
-    const load = () => {
-      void api
-        .getStats()
-        .then((s) => {
-          if (!cancelled) setPlatform(s);
-        })
-        .catch(() => undefined);
-    };
-    load();
-    const timer = setInterval(load, 15000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
+  // 平台应用效果看板：挂载与周期刷新；批量操作后可立即刷新
+  const refreshPlatform = useCallback(async () => {
+    try {
+      setPlatform(await api.getStats());
+    } catch {
+      // 看板拉取失败不打断主流程，下一轮周期刷新会重试
+    }
   }, []);
+
+  useEffect(() => {
+    void refreshPlatform();
+    const timer = setInterval(() => void refreshPlatform(), 15000);
+    return () => clearInterval(timer);
+  }, [refreshPlatform]);
+
+  /** 概览页「批量转为待复核」：返回成功转换的任务数 */
+  const handleBatchReopen = async (ids: string[]): Promise<number> => {
+    const res = await api.reopenReviewBatch(ids);
+    await Promise.all([refreshTasks(), refreshPlatform()]);
+    return res.total;
+  };
 
   // 任务详情加载 + 运行期间轮询，保证状态与结果以持久化数据为准
   useEffect(() => {
@@ -325,6 +328,7 @@ export default function App() {
                 if (t) setActiveAgentId(t.agentId);
                 setActiveTaskId(id);
               }}
+              onBatchReopen={handleBatchReopen}
               perAgentCreatedAts={Object.fromEntries(
                 agents.map((a) => [a.id, tasks.filter((t) => t.agentId === a.id).map((t) => t.createdAt)]),
               )}

@@ -73,6 +73,8 @@ interface Props {
   onSelect: (id: string) => void;
   onOpenTask: (id: string) => void;
   onShowAll: () => void;
+  /** 批量把「已完成但仍有未复核问题」的任务改回待复核，返回成功数量 */
+  onBatchReopen?: (ids: string[]) => Promise<number>;
 }
 
 export function AgentOverview({
@@ -85,6 +87,7 @@ export function AgentOverview({
   onSelect,
   onOpenTask,
   onShowAll,
+  onBatchReopen,
   lastAt,
   perAgentCreatedAts,
 }: Props) {
@@ -127,6 +130,9 @@ export function AgentOverview({
   const [toolSort, setToolSort] = useState(false);
   const [capsOpen, setCapsOpen] = useState(false);
   const [weekDeltas, setWeekDeltas] = useState<Record<string, number>>({});
+  const [batchArmed, setBatchArmed] = useState(false);
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [batchMsg, setBatchMsg] = useState("");
 
   // 平台指标周环比：每日快照入 localStorage，与 7 天前（或最近可得）快照对比
   useEffect(() => {
@@ -593,8 +599,38 @@ export function AgentOverview({
                   <span className="text-[11.5px] text-amber-200/85">
                     {stats.platform.reviewBacklog.length} 个任务已标记完成，但仍有 {stats.platform.reviewPendingIssues} 项问题未复核
                   </span>
-                  <span className="text-[11px] text-mist-500">点击任务前往复核页，可一键「转为待复核」</span>
+                  <span className="text-[11px] text-mist-500">点击任务前往复核页逐项处理</span>
+                  {onBatchReopen && (
+                    <button
+                      type="button"
+                      className="action-btn ml-auto !text-[11px] disabled:cursor-not-allowed disabled:opacity-40"
+                      disabled={batchBusy}
+                      title="把下列已完成但仍有未复核问题的任务批量改回待复核状态，每个任务都会写入状态事件留痕"
+                      onClick={() => {
+                        if (batchBusy) return;
+                        if (!batchArmed) {
+                          setBatchArmed(true);
+                          setBatchMsg("");
+                          window.setTimeout(() => setBatchArmed(false), 3000);
+                          return;
+                        }
+                        setBatchArmed(false);
+                        setBatchBusy(true);
+                        void onBatchReopen((stats.platform?.reviewBacklog ?? []).map((b) => b.id))
+                          .then((n) => setBatchMsg(`已把 ${n} 个任务转为待复核，状态事件已留痕`))
+                          .catch(() => setBatchMsg("批量转换失败，请到各任务复核页逐个处理"))
+                          .finally(() => setBatchBusy(false));
+                      }}
+                    >
+                      {batchBusy
+                        ? "处理中…"
+                        : batchArmed
+                          ? `再点一次确认（${stats.platform.reviewBacklog.length} 个）`
+                          : "批量转为待复核"}
+                    </button>
+                  )}
                 </div>
+                {batchMsg && <div className="mt-1 text-[11px] text-jade-300">{batchMsg}</div>}
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
                   {stats.platform.reviewBacklog.slice(0, 8).map((b) => (
                     <button
