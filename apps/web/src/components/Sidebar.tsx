@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentInfo, TaskInfo } from "../types.ts";
-import { IconBuilding, IconCopy, IconFlask, IconInfo, IconPanel, IconPlus, IconRefresh, IconX } from "./Icons.tsx";
+import {
+  IconBuilding,
+  IconCopy,
+  IconExternal,
+  IconFlask,
+  IconInfo,
+  IconPanel,
+  IconPlus,
+  IconRefresh,
+  IconX,
+} from "./Icons.tsx";
 import { loadTags, saveTags } from "../tags.ts";
 
 interface Props {
@@ -313,6 +323,18 @@ export function Sidebar({
     }
   };
 
+  const toggleStarTask = (id: string) => {
+    try {
+      const list = new Set(JSON.parse(localStorage.getItem("taxai-starred") ?? "[]") as string[]);
+      if (list.has(id)) list.delete(id);
+      else list.add(id);
+      localStorage.setItem("taxai-starred", JSON.stringify([...list]));
+      setStarNonce((n) => n + 1);
+    } catch {
+      /* 忽略存储不可用 */
+    }
+  };
+
   const renderTaskRow = (task: TaskInfo) => {
     const active = task.id === activeTaskId;
     const hl = (text: string) => {
@@ -418,17 +440,45 @@ export function Sidebar({
             </span>
           )}
         </button>
-        <button
-          type="button"
-          title="复制任务 ID"
-          onClick={(e) => {
-            e.stopPropagation();
-            void navigator.clipboard?.writeText(task.id).catch(() => undefined);
-          }}
-          className="absolute right-1.5 top-2 rounded p-1 text-mist-600 opacity-0 transition-opacity hover:text-glow-300 group-hover:opacity-100"
-        >
-          <IconCopy className="h-3 w-3" />
-        </button>
+        <span className="absolute right-1 top-1.5 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+          <button
+            type="button"
+            title="复制任务 ID"
+            onClick={(e) => {
+              e.stopPropagation();
+              void navigator.clipboard?.writeText(task.id).catch(() => undefined);
+            }}
+            className="rounded p-1 text-mist-600 hover:text-glow-300"
+          >
+            <IconCopy className="h-3 w-3" />
+          </button>
+          <button
+            type="button"
+            title="复制结果页深链"
+            onClick={(e) => {
+              e.stopPropagation();
+              void navigator.clipboard
+                ?.writeText(
+                  `${window.location.origin}${window.location.pathname}#/agent/${task.agentId}/task/${task.id}/tab/result`,
+                )
+                .catch(() => undefined);
+            }}
+            className="rounded p-1 text-mist-600 hover:text-glow-300"
+          >
+            <IconExternal className="h-3 w-3" />
+          </button>
+          <button
+            type="button"
+            title={starred.has(task.id) ? "取消收藏" : "收藏"}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleStarTask(task.id);
+            }}
+            className={`rounded p-1 hover:text-amber-300 ${starred.has(task.id) ? "text-amber-300" : "text-mist-600"}`}
+          >
+            {starred.has(task.id) ? "★" : "☆"}
+          </button>
+        </span>
       </div>
     );
   };
