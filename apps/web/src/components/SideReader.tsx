@@ -75,6 +75,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   const scrollRef = useRef<HTMLDivElement>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [reload, setReload] = useState(0);
+  const [zoom, setZoom] = useState(1);
   const active = tabs[activeIndex] ?? null;
   const activeKey = active ? readerKey(active) : "";
   const state = states[activeKey] ?? INITIAL;
@@ -103,6 +104,11 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
     const el = scrollRef.current?.querySelector(".row-hl");
     el?.scrollIntoView({ block: "center" });
   }, [state.loading, state.kind, activeKey]);
+
+  // 切换标签时重置缩放
+  useEffect(() => {
+    setZoom(1);
+  }, [activeKey]);
 
   useEffect(() => {
     if (!active) return;
@@ -310,6 +316,22 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
         </div>
       )}
 
+      {!state.loading && !state.error && (state.kind === "image" || state.kind === "pdf") && (
+        <div className="flex items-center gap-1 border-b border-line px-4 py-1.5">
+          <span className="kicker mr-1">缩放</span>
+          <button type="button" className="action-btn" onClick={() => setZoom((z) => Math.max(0.5, z - 0.25))} title="缩小">
+            −
+          </button>
+          <span className="min-w-[42px] text-center font-mono text-[11px] text-mist-300">{Math.round(zoom * 100)}%</span>
+          <button type="button" className="action-btn" onClick={() => setZoom((z) => Math.min(3, z + 0.25))} title="放大">
+            ＋
+          </button>
+          <button type="button" className="action-btn" onClick={() => setZoom(1)} title="重置缩放">
+            重置
+          </button>
+        </div>
+      )}
+
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         {state.loading && (
           <div className="flex flex-col items-center gap-4 py-14">
@@ -371,10 +393,20 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
           </div>
         )}
         {!state.loading && !state.error && state.kind === "image" && (
-          <img src={state.src} alt={state.title} className="mx-auto max-w-full rounded-md border border-line" />
+          <img
+            src={state.src}
+            alt={state.title}
+            style={{ width: `${zoom * 100}%` }}
+            className="mx-auto max-w-none rounded-md border border-line"
+          />
         )}
         {!state.loading && !state.error && state.kind === "pdf" && (
-          <iframe src={state.src} title={state.title} className="h-[70vh] w-full rounded-md border border-line bg-white" />
+          <iframe
+            src={state.src}
+            title={state.title}
+            style={{ height: `${70 * zoom}vh` }}
+            className="w-full rounded-md border border-line bg-white"
+          />
         )}
         {!state.loading && !state.error && state.kind === "binary" && (
           <div className="glow-card px-4 py-6 text-center">

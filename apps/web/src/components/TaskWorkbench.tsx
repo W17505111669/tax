@@ -908,6 +908,20 @@ function ToolRow({
       return "";
     }
   })();
+  // 失败时提取错误原因一行摘要（error/message/detail 或原文首行）
+  const errorPreview = (() => {
+    if (!call || call.ok !== false || typeof call.result !== "string") return "";
+    const clip = (v: string) => (v.length > 48 ? `${v.slice(0, 48)}…` : v);
+    try {
+      const r = JSON.parse(call.result) as Record<string, unknown>;
+      const v = r?.error ?? r?.message ?? r?.detail;
+      if (typeof v === "string" && v.length > 0) return clip(v);
+      return "";
+    } catch {
+      const first = (call.result.split("\n")[0] ?? "").trim();
+      return first ? clip(first) : "";
+    }
+  })();
   return (
     <details className="tool-row glow-card">
       <summary className="flex items-center gap-2 px-3.5 py-2">
@@ -938,6 +952,11 @@ function ToolRow({
             </span>
           )}
         </span>
+        {errorPreview && (
+          <span className="max-w-[160px] truncate text-[10.5px] text-rose-300/90" title={errorPreview}>
+            {errorPreview}
+          </span>
+        )}
         {resultPreview && (
           <span className="max-w-[140px] truncate text-[10.5px] text-jade-400/80" title={resultPreview}>
             {resultPreview}
