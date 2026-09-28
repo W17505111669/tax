@@ -386,7 +386,18 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                   )}
                   <span className="max-w-[140px] truncate">{label}</span>
                   {findTrim && (matchCounts[key] ?? 0) > 0 && (
-                    <span className="rounded bg-amber-400/15 px-1 text-[9.5px] text-amber-300">{matchCounts[key]}</span>
+                    <span
+                      role="button"
+                      title="跳到该标签首处命中"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelect(i);
+                        setFindIdx(0);
+                      }}
+                      className="cursor-pointer rounded bg-amber-400/15 px-1 text-[9.5px] text-amber-300"
+                    >
+                      {matchCounts[key]}
+                    </span>
                   )}
                 </button>
                 )}

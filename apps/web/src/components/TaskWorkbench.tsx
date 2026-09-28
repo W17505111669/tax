@@ -489,6 +489,14 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
           </div>
           <div className="mt-0.5 flex items-center gap-2 text-[11.5px] text-mist-600">
             <span className="text-glow-300">{agent.shortName}</span>
+            {agent.model && (
+              <span
+                className="rounded border border-line bg-night-850 px-1.5 py-0.5 font-mono text-[10px] text-mist-500"
+                title="运行模型（网关配置）"
+              >
+                {agent.model}
+              </span>
+            )}
             <span className="text-line">|</span>
             <button
               type="button"

@@ -1,4 +1,4 @@
-import { ToolRegistry } from "@tax/agent-core";
+import { loadRuntimeConfig, ToolRegistry } from "@tax/agent-core";
 import type { TaxAgentConfig } from "@tax/agent-core";
 import type { AgentId } from "@tax/shared-schemas";
 import rdAuditAgent from "@tax/agent-rd-audit";
@@ -35,5 +35,6 @@ export function listAgents() {
     tools: a.tools.map((t) => ({ name: t.name, label: t.label, description: t.description })),
     samplePrompts: a.samplePrompts,
     recommendedCards: a.recommendedCards ?? [],
+    model: loadRuntimeConfig().modelId,
   }));
 }

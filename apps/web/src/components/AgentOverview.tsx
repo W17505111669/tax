@@ -154,6 +154,22 @@ export function AgentOverview({
     downloadBlob(new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" }), `platform-stats-${stamp}.md`);
   };
 
+  // 核心指标复制为 TSV，便于粘贴进表格软件
+  const copyTsv = () => {
+    if (!p) return;
+    const rate = p.toolCalls > 0 ? Math.round((p.toolOk / p.toolCalls) * 10000) / 100 : "—";
+    const lines = [
+      "指标\t数值",
+      `累计任务\t${p.tasks}`,
+      `已完成\t${p.completed}`,
+      `工具成功率\t${rate}%`,
+      `底稿产物\t${p.artifacts}`,
+      `记录级比对准确率\t${p.compareAccuracy ?? "—"}%`,
+      `OCR 平均置信度\t${p.ocrAvgConfidence ?? "—"}%`,
+    ];
+    void navigator.clipboard?.writeText(lines.join("\n")).catch(() => undefined);
+  };
+
   // 键盘 ←/→ 切换作品（输入框内不触发）
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -325,6 +341,9 @@ export function AgentOverview({
                 </button>
                 <button type="button" className="action-btn" onClick={() => exportStats("json")} title="导出 JSON 原始数据">
                   导出 JSON
+                </button>
+                <button type="button" className="action-btn" onClick={copyTsv} title="复制核心指标为 TSV">
+                  复制表格
                 </button>
               </span>
             </div>

@@ -13,6 +13,8 @@ export interface AgentInfo {
   description: string;
   capabilities: string[];
   accent: string;
+  /** 运行模型标识（来自网关配置） */
+  model?: string;
   tools: AgentToolInfo[];
   samplePrompts: string[];
   recommendedCards?: Array<{ label: string; hint: string; prompt: string }>;
