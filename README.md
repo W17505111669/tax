@@ -25,6 +25,7 @@ pnpm verify:docs     # Phase 2：Excel/CSV 解析与 Excel 底稿生成确定性
 pnpm verify:template # Phase 3：模板检查与保留式填列确定性验证
 pnpm verify:policy   # Phase 4：政策快照与加计比例规则确定性验证
 pnpm verify:compare  # 底稿比对：记录级/地址级逐格差异与准确率
+pnpm verify:ocr      # OCR 适配器：中文+数字识别验证
 pnpm report:test     # 生成测试报告（实时跑验证矩阵 + 汇总真实任务台账与准确率）
 pnpm verify:agents   # Phase 1：两个 Agent 的系统提示词与工具集相互独立
 pnpm -r typecheck    # 全仓类型检查
@@ -72,7 +73,7 @@ docs/                    架构、竞赛材料、测试记录
 | 续跑接口（会话历史恢复） | 已完成 |
 | 研发政策快照库与比例规则 | 已完成 |
 | PDF 文本提取（无文本层提示 OCR） | 已完成 |
-| OCR 扫描件识别 | 待开发 |
+| OCR 扫描件识别（tesseract.js 本地引擎） | 已完成 |
 | 合同发票账簿解析与底稿填列 | 正在开发（Phase 3） |
 | 研发资料解析与政策检索 | 待开发（Phase 4） |
 | 真实案例测试与录屏 | 待开发（Phase 5-6） |

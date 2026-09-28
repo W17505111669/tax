@@ -10,6 +10,7 @@
     "@tax/agent-core": "workspace:*",
     "@tax/shared-schemas": "workspace:*",
     "exceljs": "^4.4.0",
+    "tesseract.js": "^7.0.0",
     "typebox": "1.3.27",
     "unpdf": "^1.6.2"
   },
@@ -20,6 +21,7 @@
     "verify:docs": "tsx scripts/verify-docs.ts",
     "verify:template": "tsx scripts/verify-template.ts",
     "verify:compare": "tsx scripts/verify-compare.ts",
+    "verify:ocr": "tsx scripts/verify-ocr.ts",
     "typecheck": "tsc -p tsconfig.json"
   }
 }

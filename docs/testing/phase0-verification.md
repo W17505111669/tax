@@ -241,6 +241,32 @@ web_search:True → check_rd_expenses:True → web_search:True → fetch_content
 Agent 未重新调用工具，直接答「**直接投入费用差异为 40,000.00 元**」并引用上一轮 `check_rd_expenses` 的返回原文，
 证明会话历史真实恢复而非重开新会话。
 
+## OCR 适配器（2026-09-28）
+
+`packages/document-tools/src/ocr.ts`：可替换 OCR 适配器，默认本地引擎 tesseract.js（chi_sim+eng），语言包预置于 `data/ocr-tessdata`（tessdata_fast 4.1.0，jsdelivr 镜像下载），缓存目录可用 `TAXAI_OCR_CACHE` 覆盖；脚本场景须调用 `shutdownOcr()` 释放 worker 子进程。
+
+`parse_uploaded_files` 对 png/jpg/jpeg/bmp 自动走 OCR，返回 `ocrProvider` 与 `ocrConfidence`；PDF 无文本层仍提示需 OCR 或转图片。
+
+`pnpm verify:ocr` 实际输出：
+
+```
+[verify] provider=tesseract.js(chi_sim+eng) confidence=93%
+[verify] text="研发费用辅助账\n人员人工 860000 元\n直接投入 420000 元"
+[verify] chinese=true number860000=true confidenceOk=true
+
+[PASS] OCR 适配器可识别中文与数字。
+```
+
+端到端实测（任务「OCR 扫描件解析验证」）：上传扫描件图片后 `parse_uploaded_files:True`，返回 provider=tesseract.js(chi_sim+eng)、conf=93、文本与样张一致；Agent 据此整理出表格结论，任务 completed。
+
+新环境部署语言包（约 6.5MB）：
+
+```bash
+mkdir -p data/ocr-tessdata
+curl -L -o data/ocr-tessdata/chi_sim.traineddata https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata_fast@4.1.0/chi_sim.traineddata
+curl -L -o data/ocr-tessdata/eng.traineddata https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata_fast@4.1.0/eng.traineddata
+```
+
 ## Phase 4：研发政策快照库与比例规则（2026-09-28）
 
 新增 `agents/rd-audit/knowledge/rd-policies.json`（10 条版本化政策快照：119 号、97 号、40 号、99 号、2021 年 6/13/28 号、2022 年 16 号、2023 年 7/44 号）与 `search_rd_policy` 工具：

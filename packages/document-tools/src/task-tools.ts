@@ -3,6 +3,7 @@ import { Type } from "typebox";
 import type { ToolDefinition } from "@tax/agent-core";
 import type { BusinessFile } from "@tax/shared-schemas";
 import { parseCsvText, parseExcelFile, type ParsedDocument } from "./excel-parser.ts";
+import { ocrImage } from "./ocr.ts";
 import { parsePdfFile } from "./pdf-parser.ts";
 import { generateWorkpaper, type WorkpaperSheet } from "./excel-export.ts";
 import { createCompareTools } from "./compare-tools.ts";
@@ -39,6 +40,20 @@ export async function parseOne(file: BusinessFile): Promise<ParsedDocument> {
     if (ext === "txt" || ext === "md") {
       const text = await fs.readFile(file.storagePath, "utf8");
       return { fileName: file.fileName, fileType: ext, ok: true, textPreview: text.slice(0, 4000) };
+    }
+    if (ext === "png" || ext === "jpg" || ext === "jpeg" || ext === "bmp") {
+      const buffer = new Uint8Array(await fs.readFile(file.storagePath));
+      const ocr = await ocrImage(buffer);
+      const doc: ParsedDocument = {
+        fileName: file.fileName,
+        fileType: ext,
+        ok: true,
+        textPreview: ocr.text.slice(0, 4000),
+        ocrProvider: ocr.provider,
+        ocrConfidence: Math.round(ocr.confidence),
+      };
+      if (ocr.text.trim() === "") doc.error = "OCR 未识别到文字（可能为空白图或清晰度不足）";
+      return doc;
     }
     return { fileName: file.fileName, fileType: ext, ok: false, error: `暂不支持解析 .${ext} 文件` };
   } catch (err) {
@@ -90,6 +105,9 @@ export function createTaskDocumentTools(ctx: TaskDocumentContext): ToolDefinitio
         }
         if (doc.pages !== undefined) {
           lines.push(`- ${doc.fileName}：PDF 共 ${doc.pages} 页${doc.error ? `（${doc.error}）` : ""}`);
+        }
+        if (doc.ocrProvider) {
+          lines.push(`- ${doc.fileName}：OCR 识别（${doc.ocrProvider}，置信度 ${doc.ocrConfidence}%）`);
         }
         if (doc.textPreview) lines.push(`  文本摘录：${doc.textPreview.slice(0, 800)}`);
       }

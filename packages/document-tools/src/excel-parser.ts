@@ -15,6 +15,8 @@ export interface ParsedDocument {
   sheets?: ParsedSheet[];
   pages?: number;
   textPreview?: string;
+  ocrProvider?: string;
+  ocrConfidence?: number;
 }
 
 function cellText(value: unknown): string {
