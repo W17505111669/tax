@@ -171,13 +171,13 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
     }
   };
 
-  const openCompareTarget = (ref: { kind: "upload" | "artifact"; name: string }) => {
+  const openCompareTarget = (ref: { kind: "upload" | "artifact"; name: string; highlight?: string }) => {
     if (ref.kind === "artifact") {
-      openReader({ kind: "artifact", taskId: task.id, name: ref.name });
+      openReader({ kind: "artifact", taskId: task.id, name: ref.name, highlight: ref.highlight });
       return;
     }
     const file = files.find((f) => f.fileName === ref.name);
-    if (file) openReader({ kind: "file", taskId: task.id, fileId: file.id, name: file.fileName });
+    if (file) openReader({ kind: "file", taskId: task.id, fileId: file.id, name: file.fileName, highlight: ref.highlight });
   };
 
   const finalResult = useMemo(() => {

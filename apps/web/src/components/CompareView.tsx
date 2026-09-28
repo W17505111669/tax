@@ -1,5 +1,5 @@
 import type { CompareRecord, CompareRef } from "../types.ts";
-import { IconAlert, IconCheck } from "./Icons.tsx";
+import { IconAlert, IconCheck, IconDownload } from "./Icons.tsx";
 
 const KIND_META = {
   mismatch: { label: "差异", cls: "border-rose-400/40 bg-rose-400/10 text-rose-300" },
@@ -20,6 +20,43 @@ interface Props {
 }
 
 export function CompareView({ compares, onOpenTarget }: Props) {
+  const exportReport = (rec: CompareRecord) => {
+    const t = rec.result.totals;
+    const lines = [
+      "# 底稿比对报告",
+      "",
+      `- 时间：${rec.at ?? "—"}`,
+      `- 模式：${rec.result.sheets[0]?.mode === "address" ? "地址级" : "记录级"}`,
+      `- 系统底稿 (A)：${rec.result.a?.name ?? "—"}`,
+      `- 人工底稿 (B)：${rec.result.b?.name ?? "—"}`,
+      `- 总准确率：${t.accuracyPercent}%（比对 ${t.compared}：一致 ${t.matched}、差异 ${t.mismatched}、仅A ${t.onlyA}、仅B ${t.onlyB}）`,
+      "",
+    ];
+    for (const s of rec.result.sheets) {
+      lines.push(`## 工作表「${s.sheetA}」 准确率 ${s.accuracyPercent}%`);
+      lines.push("");
+      lines.push("| 类型 | 位置 | 系统底稿 (A) | 人工底稿 (B) |");
+      lines.push("| --- | --- | --- | --- |");
+      for (const d of s.diffs) {
+        lines.push(`| ${d.kind === "mismatch" ? "差异" : d.kind === "only_a" ? "仅系统" : "仅人工"} | ${d.address} | ${d.a ?? "∅"} | ${d.b ?? "∅"} |`);
+      }
+      lines.push("");
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `底稿比对报告-${(rec.at ?? "").slice(0, 10)}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const openBoth = (rec: CompareRecord, addr: string) => {
+    const key = addr.includes("/") && !/^[A-Za-z]{1,3}\d+$/i.test(addr) ? addr.slice(0, addr.indexOf("/")) : undefined;
+    if (rec.result.a) onOpenTarget({ ...rec.result.a, highlight: key });
+    if (rec.result.b) onOpenTarget({ ...rec.result.b, highlight: key });
+  };
+
   if (compares.length === 0) {
     return (
       <div className="py-10 text-center text-[13px] text-mist-600">
@@ -42,6 +79,14 @@ export function CompareView({ compares, onOpenTarget }: Props) {
                 {rec.result.sheets[0]?.mode === "address" ? "地址模式" : "记录级模式"}
               </span>
               <span className="ml-auto flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => exportReport(rec)}
+                  className="rounded border border-line bg-night-800 px-2 py-0.5 text-[11px] text-mist-300 transition-colors hover:border-glow-500 hover:text-glow-300"
+                >
+                  <IconDownload className="mr-1 inline h-3 w-3" />
+                  导出比对报告
+                </button>
                 {rec.result.a && (
                   <button
                     type="button"
@@ -114,11 +159,16 @@ export function CompareView({ compares, onOpenTarget }: Props) {
                         </tr>
                       </thead>
                       <tbody>
-                        {s.diffs.map((d, i) => {
-                          const meta = KIND_META[d.kind];
-                          return (
-                            <tr key={`${d.address}-${i}`}>
-                              <td className="border border-line px-2.5 py-1.5">
+                      {s.diffs.map((d, i) => {
+                        const meta = KIND_META[d.kind];
+                        return (
+                          <tr
+                            key={`${d.address}-${i}`}
+                            onClick={() => openBoth(rec, d.address)}
+                            title="点击同时在阅读器中打开两份底稿并定位该行"
+                            className="cursor-pointer transition-colors hover:bg-night-700"
+                          >
+                            <td className="border border-line px-2.5 py-1.5">
                                 <span className={`rounded border px-1.5 py-0.5 text-[10.5px] ${meta.cls}`}>
                                   {meta.label}
                                 </span>

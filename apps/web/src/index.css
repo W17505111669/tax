@@ -110,6 +110,11 @@ details.tool-row .chev {
   transition: transform 0.15s ease;
 }
 
+.row-hl,
+.row-hl > td {
+  background: #fef3c7 !important;
+}
+
 /* ===== Markdown 阅读器（深色） ===== */
 .md-body {
   font-size: 13.5px;

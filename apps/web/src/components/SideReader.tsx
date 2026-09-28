@@ -8,8 +8,8 @@ import { IconAlert, IconExternal, IconFile, IconSpinner, IconX } from "./Icons.t
 
 export type ReaderTarget =
   | { kind: "url"; url: string }
-  | { kind: "file"; taskId: string; fileId: string; name: string }
-  | { kind: "artifact"; taskId: string; name: string };
+  | { kind: "file"; taskId: string; fileId: string; name: string; highlight?: string }
+  | { kind: "artifact"; taskId: string; name: string; highlight?: string };
 
 export function readerKey(target: ReaderTarget): string {
   if (target.kind === "url") return `url:${target.url}`;
@@ -313,6 +313,11 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onClose }:
                 <div className="mb-1.5 flex items-baseline gap-2">
                   <span className="text-[13px] font-semibold text-gray-900">{s.name}</span>
                   <span className="text-[11px] text-gray-500">{s.rowCount} 行</span>
+                  {active && "highlight" in active && active.highlight && (
+                    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10.5px] text-amber-700">
+                      定位：{active.highlight}
+                    </span>
+                  )}
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full border-collapse text-[11.5px]">
@@ -330,7 +335,17 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onClose }:
                     </thead>
                     <tbody>
                       {s.rows.slice(0, 100).map((row, i) => (
-                        <tr key={i}>
+                        <tr
+                          key={i}
+                          className={
+                            active &&
+                            "highlight" in active &&
+                            active.highlight &&
+                            String(row[s.headers[0] ?? ""]) === active.highlight
+                              ? "row-hl"
+                              : undefined
+                          }
+                        >
                           {s.headers.map((h) => (
                             <td key={h} className="border border-gray-200 px-2 py-1 align-top text-gray-700">
                               {row[h] === null || row[h] === undefined ? "" : String(row[h])}

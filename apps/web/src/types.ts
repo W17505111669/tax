@@ -140,6 +140,7 @@ export interface CompareRecord {
 export interface CompareRef {
   kind: "upload" | "artifact";
   name: string;
+  highlight?: string;
 }
 
 export interface PlatformStats {
