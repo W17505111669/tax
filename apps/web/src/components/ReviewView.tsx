@@ -180,6 +180,7 @@ export function ReviewView({ issues, reviews, pending, onReview }: Props) {
                 placeholder="复核意见（可选）"
                 className="min-w-[200px] flex-1 rounded-md border border-line bg-night-850 px-2.5 py-1.5 text-[12px] text-mist-100 outline-none focus:glow-ring"
               />
+              <span className="shrink-0 font-mono text-[10px] text-mist-600">{commentValue.length} 字</span>
               <button
                 type="button"
                 onClick={() => onReview(issue.id, "confirm", commentValue)}

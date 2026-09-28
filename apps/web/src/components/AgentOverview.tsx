@@ -114,6 +114,7 @@ export function AgentOverview({
   const weekDelta = weekNow - weekPrev;
   const [sparkHover, setSparkHover] = useState<number | null>(null);
   const [toolSort, setToolSort] = useState(false);
+  const [capsOpen, setCapsOpen] = useState(false);
   const sparkDate = (idx: number) => {
     const d = new Date();
     d.setDate(d.getDate() - (13 - idx));
@@ -439,7 +440,7 @@ export function AgentOverview({
           <div>
             <div className="kicker">核心业务能力</div>
             <ul className="mt-2.5 grid gap-x-6 gap-y-1.5 sm:grid-cols-2">
-              {agent.capabilities.map((c) => (
+              {(capsOpen ? agent.capabilities : agent.capabilities.slice(0, 8)).map((c) => (
                 <li key={c} className="flex items-start gap-2 text-[13px] text-mist-300">
                   {(() => {
                     const I = capIcon(c);
@@ -449,6 +450,11 @@ export function AgentOverview({
                 </li>
               ))}
             </ul>
+            {agent.capabilities.length > 8 && (
+              <button type="button" className="action-btn mt-1.5" onClick={() => setCapsOpen((v) => !v)}>
+                {capsOpen ? "收起" : `展开全部 ${agent.capabilities.length} 项`}
+              </button>
+            )}
           </div>
 
           <div className="hidden lg:block">
