@@ -39,6 +39,11 @@ const VERIFY_SCRIPTS: Array<{ name: string; cmd: string; scope: string }> = [
     cmd: "pnpm verify:runart",
     scope: "运行时间窗推导与产物归属（导出「本次运行产物清单」的依据）",
   },
+  {
+    name: "verify:artsrc",
+    cmd: "pnpm verify:artsrc",
+    scope: "产物溯源（生成产物与工具调用的确定性对应）",
+  },
 ];
 
 function runVerify(cmd: string): { pass: boolean; output: string } {

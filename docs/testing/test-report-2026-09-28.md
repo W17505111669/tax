@@ -27,6 +27,7 @@
 | `pnpm verify:review` | 人工复核状态一致性（完成态遗留待复核问题的补救判定） | PASS |
 | `pnpm verify:tlcalls` | 时间线工具调用配对（callId 精确匹配 + 同名序号兜底） | PASS |
 | `pnpm verify:runart` | 运行时间窗推导与产物归属（导出「本次运行产物清单」的依据） | PASS |
+| `pnpm verify:artsrc` | 产物溯源（生成产物与工具调用的确定性对应） | PASS |
 
 ## 三、真实任务台账
 

@@ -13,6 +13,7 @@
     "verify:tlcalls": "tsx scripts/verify-timeline-calls.ts",
     "verify:review": "tsx scripts/verify-review-status.ts",
     "verify:runart": "tsx scripts/verify-run-artifacts.ts",
+    "verify:artsrc": "tsx scripts/verify-artifact-sources.ts",
     "case:run": "tsx scripts/run-case.ts"
   },
   "dependencies": {

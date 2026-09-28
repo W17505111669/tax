@@ -101,7 +101,8 @@ const scenes: Array<{
     task: pick((t) => t.tools.has("parse_uploaded_files") && t.tools.has("generate_workpaper") && t.hasExcelFile, "上传资料"),
     tab: "timeline",
     talk: "上传 Excel 辅助账 → parse_uploaded_files 结构化 → generate_workpaper 生成底稿 → 产物栏预览。",
-    expect: "工具链四连（含耗时）、生成产物列表、阅读器「文件生成」分组与 Excel 表格预览。",
+    expect:
+      "工具链四连（含耗时）、生成产物列表（每份产物标出大小与「由哪个工具在何时生成」，点「定位」跳到时间线对应调用）、阅读器「文件生成」分组与 Excel 表格预览。",
     seconds: 50,
   },
   {

@@ -8,6 +8,7 @@ import { readerKey, SideReader, type ReaderTarget } from "./SideReader.tsx";
 import { loadTags, saveTags } from "../tags.ts";
 import { matchToolCalls } from "../timeline-calls.ts";
 import { artifactsOfRun, artifactTable, fmtBytes, runWindows, unattributedArtifacts } from "../run-artifacts.ts";
+import { artifactSources } from "../artifact-sources.ts";
 import { CompareView } from "./CompareView.tsx";
 import { ThemeSwitch } from "./ThemeSwitch.tsx";
 import { ReviewView } from "./ReviewView.tsx";
@@ -510,6 +511,24 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     const last = [...timeline].reverse().find((t) => t.kind === "run_started");
     return last ? new Date(last.at).toLocaleString("zh-CN", { hour12: false }) : "";
   }, [timeline]);
+
+  // 产物溯源：每份产物对应到真正生成它的工具调用（按结果里的 fileName/path 基名匹配）
+  const artSrc = useMemo(
+    () => artifactSources(artifacts.map((a) => a.name), toolCalls),
+    [artifacts, toolCalls],
+  );
+
+  /** 切到时间线并滚动到指定 callId 的工具调用事件 */
+  const locateCall = (callId: string) => {
+    const item = timeline.find(
+      (t) => t.kind === "tool_start" && (t.payload as { callId?: string } | undefined)?.callId === callId,
+    );
+    onTabChange("timeline");
+    if (!item) return;
+    window.setTimeout(() => {
+      document.querySelector(`[data-tlid="${item.id}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+    }, 80);
+  };
 
   const toc = useMemo(
     () =>
@@ -1400,22 +1419,43 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
             <p className="mt-1.5 text-[12px] text-mist-600">暂无产物（底稿导出后在此预览）</p>
           ) : (
             <ul className="mt-1.5 space-y-1">
-              {artifacts.map((a) => (
-                <li key={a.name}>
-                  <button
-                    type="button"
-                    onClick={() => openReader({ kind: "artifact", taskId: task.id, name: a.name })}
-                    className="flex w-full items-start gap-2 rounded border border-line bg-night-850 px-2 py-1.5 text-left transition-colors hover:border-glow-500"
-                    title="在侧边阅读器中预览"
-                  >
-                    <IconFile className="mt-0.5 h-3.5 w-3.5 shrink-0 text-glow-400" />
-                    <span className="min-w-0">
-                      <span className="block truncate text-[12px] text-mist-300">{a.name}</span>
-                      <span className="block text-[11px] text-mist-600">{(a.byteSize / 1024).toFixed(1)} KB</span>
-                    </span>
-                  </button>
-                </li>
-              ))}
+              {artifacts.map((a) => {
+                const src = artSrc.get(a.name);
+                const srcAt = src ? new Date(src.at).toLocaleString("zh-CN", { hour12: false }) : "";
+                return (
+                  <li key={a.name} className="flex items-stretch gap-1">
+                    <button
+                      type="button"
+                      onClick={() => openReader({ kind: "artifact", taskId: task.id, name: a.name })}
+                      className="flex min-w-0 flex-1 items-start gap-2 rounded border border-line bg-night-850 px-2 py-1.5 text-left transition-colors hover:border-glow-500"
+                      title="在侧边阅读器中预览"
+                    >
+                      <IconFile className="mt-0.5 h-3.5 w-3.5 shrink-0 text-glow-400" />
+                      <span className="min-w-0">
+                        <span className="block truncate text-[12px] text-mist-300">{a.name}</span>
+                        <span className="block truncate text-[11px] text-mist-600">
+                          {fmtBytes(a.byteSize)}
+                          {src
+                            ? src.role === "producer"
+                              ? ` · 由 ${src.toolName} 生成于 ${srcAt}`
+                              : ` · 被 ${src.toolName} 引用（${srcAt}），非该调用生成`
+                            : " · 来源未识别"}
+                        </span>
+                      </span>
+                    </button>
+                    {src && (
+                      <button
+                        type="button"
+                        className="action-btn shrink-0"
+                        title={`在时间线中定位${src.role === "producer" ? "生成" : "引用"}它的 ${src.toolName} 调用`}
+                        onClick={() => locateCall(src.id)}
+                      >
+                        定位
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
 
