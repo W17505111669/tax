@@ -725,6 +725,26 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                   >
                     行号
                   </button>
+                  <button
+                    type="button"
+                    className="action-btn !text-gray-600 hover:!text-gray-900"
+                    title="复制当前表 TSV（含排序与行号状态）"
+                    onClick={() => {
+                      const esc = (v: unknown) => {
+                        const s = v === null || v === undefined ? "" : String(v);
+                        return /[\t\n]/.test(s) ? s.replace(/[\t\n]/g, " ") : s;
+                      };
+                      const lines = [
+                        (showRowNum ? ["#"] : []).concat(s.headers).join("\t"),
+                        ...rows.map((row, i) =>
+                          (showRowNum ? [String(i + 1)] : []).concat(s.headers.map((h) => esc(row[h]))).join("\t"),
+                        ),
+                      ];
+                      void navigator.clipboard?.writeText(lines.join("\n")).catch(() => undefined);
+                    }}
+                  >
+                    复制 TSV
+                  </button>
                   {active && "highlight" in active && active.highlight && (
                     <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10.5px] text-amber-700">
                       定位：{active.highlight}

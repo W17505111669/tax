@@ -40,6 +40,15 @@ const GROUP_ORDER: Array<{ id: string; label: string }> = [
   { id: "created", label: "待执行" },
 ];
 
+function relTime(iso: string): string {
+  const m = Math.floor((Date.now() - Date.parse(iso)) / 60000);
+  if (m < 1) return "刚刚";
+  if (m < 60) return `${m} 分钟前`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} 小时前`;
+  return `${Math.floor(h / 24)} 天前`;
+}
+
 const STATUS_FILTERS: Array<{ id: StatusFilter; label: string }> = [
   { id: "all", label: "全部" },
   { id: "processing", label: "执行中" },
@@ -215,7 +224,9 @@ export function Sidebar({
                             ↻{task.runCount}
                           </span>
                         )}
-            <span className="truncate">· {new Date(task.createdAt).toLocaleString("zh-CN", { hour12: false })}</span>
+            <span className="truncate">
+              · {new Date(task.createdAt).toLocaleString("zh-CN", { hour12: false })}（{relTime(task.createdAt)}）
+            </span>
           </span>
           {task.status === "processing" && (
             <span className="mt-1.5 block h-1 w-full overflow-hidden rounded-full bg-night-700">

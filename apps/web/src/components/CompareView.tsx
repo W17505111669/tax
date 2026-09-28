@@ -51,6 +51,11 @@ export function CompareView({ compares, onOpenTarget }: Props) {
     const handler = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || flat.length === 0) return;
+      if (e.key === "Home" || e.key === "End") {
+        e.preventDefault();
+        setSel(e.key === "Home" ? 0 : flat.length - 1);
+        return;
+      }
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
         setSel((prev) =>
