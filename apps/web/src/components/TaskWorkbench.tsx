@@ -275,6 +275,19 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
     [finalResult],
   );
 
+  const summary = useMemo(() => {
+    if (!finalResult) return null;
+    const firstPara =
+      finalResult.split(/\n{2,}/).find((s) => s.trim() && !s.startsWith("#") && !s.startsWith("|") && !s.startsWith("```")) ??
+      "";
+    return {
+      firstPara: firstPara.trim().slice(0, 220),
+      tables: (finalResult.match(/^\| ?---/gm) ?? []).length,
+      mermaids: (finalResult.match(/```mermaid/g) ?? []).length,
+      heads: (finalResult.match(/^#{2,4} /gm) ?? []).length,
+    };
+  }, [finalResult]);
+
   const steps = useMemo(() => {
     const hasRun = timeline.some((t) => t.kind === "run_started");
     const toolDone = toolCalls.some((c) => !SEARCH_TOOLS.has(c.toolName) && c.ok !== null);
@@ -610,6 +623,17 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
                     ))}
                   </ul>
                 </div>
+                {summary && summary.firstPara && (
+                  <div className="mb-4 glow-card px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="kicker">结论要点</span>
+                      <span className="shrink-0 text-[10.5px] text-mist-600">
+                        {summary.heads} 节 · {summary.tables} 表 · {summary.mermaids} 图
+                      </span>
+                    </div>
+                    <p className="mt-1.5 text-[12.5px] leading-6 text-mist-300">{summary.firstPara}…</p>
+                  </div>
+                )}
               <ResultView
                 result={finalResult}
                 error={task.error}
@@ -772,12 +796,17 @@ function TimelineView({
       </div>
 
       {items.map((item) => {
+        const cls = runSeq > 1 ? "ml-3 border-l-2 border-line/70 pl-3" : "";
         if (item.kind === "tool_start") {
           const name = String((item.payload as { toolName?: string } | undefined)?.toolName ?? "");
           const idx = counters.current[name] ?? 0;
           counters.current[name] = idx + 1;
           const call = toolCalls.filter((c) => c.toolName === name)[idx];
-          return <ToolRow key={item.id} name={name} call={call} />;
+          return (
+            <div key={item.id} className={cls}>
+              <ToolRow name={name} call={call} />
+            </div>
+          );
         }
         if (item.kind === "tool_end") return null;
 
@@ -803,7 +832,7 @@ function TimelineView({
             }
           }
           return (
-            <div key={item.id} className="flex items-center gap-2 text-[11.5px] text-mist-600">
+            <div key={item.id} className={`flex items-center gap-2 text-[11.5px] text-mist-600 ${cls}`}>
               <span className="h-1 w-1 rounded-full bg-glow-500" />
               {item.detail ?? item.title}
             </div>
@@ -811,7 +840,7 @@ function TimelineView({
         }
 
         return (
-          <div key={item.id} className="glow-card px-4 py-3">
+          <div key={item.id} className={`glow-card px-4 py-3 ${cls}`}>
             {isText && (
               <MarkdownView
                 text={item.detail ?? ""}
