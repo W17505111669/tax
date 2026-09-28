@@ -210,6 +210,24 @@ export function Sidebar({
     if (revealNonce > 0) setCollapsed({});
   }, [revealNonce]);
 
+  // Ctrl+Shift+↑ 全折 / Ctrl+Shift+↓ 全展
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (!e.ctrlKey || !e.shiftKey) return;
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setCollapsed(Object.fromEntries([...GROUP_ORDER.map((g) => [g.id, true]), ["starred", true]]));
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setCollapsed({});
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
   // 收藏集合（与工作台星标共享 localStorage）
   const [starNonce, setStarNonce] = useState(0);
   const starred = useMemo(() => {

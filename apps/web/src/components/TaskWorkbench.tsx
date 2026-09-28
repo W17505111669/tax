@@ -1165,6 +1165,18 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                       .join("\n\n") || "% 本次任务无联网引用\n",
                   )
                 }
+                onCopyBibtex={() =>
+                  void navigator.clipboard
+                    ?.writeText(
+                      citations
+                        .map(
+                          (c, i) =>
+                            `@misc{ref${i + 1},\n  title = {${c.title.replace(/[{}]/g, "")}},\n  howpublished = {\\url{${c.url}}},\n  note = { Accessed: ${new Date().toISOString().slice(0, 10)} }\n}`,
+                        )
+                        .join("\n\n") || "% 本次任务无联网引用\n",
+                    )
+                    .catch(() => undefined)
+                }
                 onPrint={() => window.print()}
                 fs={fs}
                 onFs={setFs}
@@ -2120,6 +2132,7 @@ function ResultView({
   onDownloadReport,
   onDownloadCitations,
   onDownloadBibtex,
+  onCopyBibtex,
   onPrint,
   fs,
   onFs,
@@ -2133,6 +2146,7 @@ function ResultView({
   onDownloadReport: () => void;
   onDownloadCitations: () => void;
   onDownloadBibtex: () => void;
+  onCopyBibtex: () => void;
   onPrint: () => void;
   fs: "sm" | "md" | "lg";
   onFs: (v: "sm" | "md" | "lg") => void;
@@ -2285,6 +2299,11 @@ function ResultView({
             <IconExternal className="h-4 w-4 text-glow-400" />
             <div className="mt-1.5 text-[13px] font-medium text-mist-100">BibTeX 引用</div>
             <div className="text-[11px] text-mist-600">{citations.length} 条 @misc 条目</div>
+          </button>
+          <button type="button" onClick={onCopyBibtex} className="glow-card px-4 py-3 text-left transition-colors hover:border-glow-500">
+            <IconCopy className="h-4 w-4 text-glow-400" />
+            <div className="mt-1.5 text-[13px] font-medium text-mist-100">复制 BibTeX</div>
+            <div className="text-[11px] text-mist-600">剪贴板 · @misc 条目</div>
           </button>
         </div>
       </div>
