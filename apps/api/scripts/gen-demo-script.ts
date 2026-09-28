@@ -76,7 +76,7 @@ const scenes: Array<{
     tab: "timeline",
     link: "http://127.0.0.1:5173/#/agent/rd-audit",
     talk: "双智能体定位、共享底座、KPI 与平台应用效果实时数据（任务数/工具成功率/比对准确率）。",
-    expect: "首页 hero、两排 KPI 卡、工具清单。",
+    expect: "图标栏 + 可折叠会话侧栏、首页大数字 hero 与状态条形图、平台效果带、工具清单、底部发光输入框（Ctrl+Enter 提交）。",
     seconds: 40,
   },
   {
@@ -84,7 +84,7 @@ const scenes: Array<{
     task: pick((t) => t.agentId === "rd-audit" && t.tools.has("calculate_rd_adjustment") && t.tools.has("check_rd_expenses")),
     tab: "result",
     talk: "Agent 调用核查与测算工具；强调金额全部由 TypeScript 工具以整数分计算，模型零口算。",
-    expect: "执行时间线工具折叠行、审查结论 Markdown 表格与 mermaid 图。",
+    expect: "居中对话列与分段页签、执行时间线工具折叠行（含耗时）、引用来源胶囊与复制/重新生成操作行、审查结论 Markdown 表格与 mermaid 图。",
     seconds: 50,
   },
   {
@@ -100,7 +100,7 @@ const scenes: Array<{
     task: pick((t) => t.tools.has("parse_uploaded_files") && t.tools.has("generate_workpaper") && t.hasExcelFile, "上传资料"),
     tab: "timeline",
     talk: "上传 Excel 辅助账 → parse_uploaded_files 结构化 → generate_workpaper 生成底稿 → 产物栏预览。",
-    expect: "工具链四连、生成产物列表、阅读器 Excel 表格预览。",
+    expect: "工具链四连（含耗时）、生成产物列表、阅读器「文件生成」分组与 Excel 表格预览。",
     seconds: 50,
   },
   {
@@ -124,7 +124,7 @@ const scenes: Array<{
     task: pick((t) => t.tools.has("compare_workpapers")),
     tab: "compare",
     talk: "记录级比对输出准确率；点击差异行同时打开两份底稿并高亮定位；导出比对报告。",
-    expect: "比对 KPI 卡、差异表、阅读器双标签 + 琥珀高亮行。",
+    expect: "比对 KPI 卡、差异表（↑/↓ 选择、Enter 定位）、阅读器双标签 + 琥珀高亮行自动滚入视口。",
     seconds: 50,
   },
   {
@@ -148,7 +148,7 @@ const scenes: Array<{
     task: pick((t) => t.tools.has("search_public_cases"), "缺失资料"),
     tab: "result",
     talk: "结论引用 chips 点击进阅读模式；切换四套纸张版式；打印导出 PDF。",
-    expect: "侧边阅读器白纸预览、版式切换器、打印样式。",
+    expect: "侧边阅读器「引用文件 / 文件生成」分组页签、点阵加载动画、白纸预览、版式切换器、打印样式与目录页。",
     seconds: 45,
   },
 ];
