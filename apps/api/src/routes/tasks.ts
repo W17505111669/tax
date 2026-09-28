@@ -3,6 +3,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { CreateTaskInputSchema } from "@tax/shared-schemas";
+import { parseOne } from "@tax/document-tools";
 import { allowedExtensions, dirs, maxUploadBytes } from "../config.ts";
 import { getAgent } from "../agents.ts";
 import { eventBus, isRunning, runTask } from "../services/agent-runner.ts";
@@ -26,6 +27,7 @@ import {
   listFiles,
   listTasks,
   listToolCalls,
+  setFileParseStatus,
   setTaskStatus,
 } from "../services/task-store.ts";
 
@@ -302,6 +304,33 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
       `引用链接核验：${results.filter((r) => r.ok).length}/${results.length} 条返回 2xx/3xx`,
     );
     return { checkedAt, total: results.length, ok: results.filter((r) => r.ok).length, results: listLinkChecks(id) };
+  });
+
+  /**
+   * 重新解析单份上传资料：状态卡在待解析或解析失败时的补救入口，不必重跑整个任务。
+   * 复用智能体工具同一个 parseOne，因此解析口径与运行期完全一致。
+   */
+  app.post("/api/tasks/:id/files/:fileId/reparse", async (req, reply) => {
+    const { id, fileId } = req.params as { id: string; fileId: string };
+    const file = listFiles(id).find((f) => f.id === fileId);
+    if (!file) return reply.code(404).send({ error: "资料不存在" });
+    try {
+      const doc = await parseOne(file);
+      setFileParseStatus(fileId, doc.ok ? "parsed" : "failed");
+      appendEvent(
+        id,
+        "agent_status",
+        doc.ok
+          ? `资料已重新解析：${file.fileName}${doc.error ? `（提示：${doc.error}）` : ""}`
+          : `资料重新解析未成功：${file.fileName}`,
+      );
+      return { ok: doc.ok, warning: doc.error ?? null, doc };
+    } catch (err) {
+      setFileParseStatus(fileId, "failed");
+      const message = err instanceof Error ? err.message : String(err);
+      appendEvent(id, "agent_status", `资料重新解析失败：${file.fileName}（${message}）`);
+      return { ok: false, warning: message, doc: null };
+    }
   });
 
   /** 底稿比对记录：从工具调用历史中提取 compare_workpapers 的结构化结果，供前端比对视图使用。 */

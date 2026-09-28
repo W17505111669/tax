@@ -23,7 +23,13 @@ import { amountKey, traceAmounts } from "../amount-trace.ts";
 import { reviewSection } from "../review-export.ts";
 import { deliveryCheck, deliverySection, type CheckInput, type CheckResult } from "../delivery-check.ts";
 import { linkVerdict, summarizeLinkChecks, VERDICT_HINT, VERDICT_TEXT, type LinkSummary } from "../link-check.ts";
-import { parsedByFileName, parseStatusText } from "../file-parse.ts";
+import {
+  parsedByFileName,
+  parseStatusText,
+  summarizeParsed,
+  type ParsedDoc,
+  type ParseSummary,
+} from "../file-parse.ts";
 import { CompareView } from "./CompareView.tsx";
 import { ThemeSwitch } from "./ThemeSwitch.tsx";
 import { ReviewView } from "./ReviewView.tsx";
@@ -816,6 +822,31 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     () => parsedByFileName(toolCalls.map((c) => ({ toolName: c.toolName, result: c.result }))),
     [toolCalls],
   );
+
+  // 「重新解析」的本地结果：立刻反映到资料行，App 的轮询随后会用服务端状态覆盖
+  const [reparse, setReparse] = useState<
+    Record<string, { busy?: boolean; status?: string; summary?: ParseSummary; warning?: string | null }>
+  >({});
+  const reparseFile = (fileId: string) => {
+    if (reparse[fileId]?.busy) return;
+    setReparse((prev) => ({ ...prev, [fileId]: { ...prev[fileId], busy: true } }));
+    void api
+      .reparseFile(task.id, fileId)
+      .then((res) => {
+        setReparse((prev) => ({
+          ...prev,
+          [fileId]: {
+            busy: false,
+            status: res.ok ? "parsed" : "failed",
+            summary: res.doc ? summarizeParsed(res.doc as ParsedDoc) : undefined,
+            warning: res.warning,
+          },
+        }));
+      })
+      .catch(() =>
+        setReparse((prev) => ({ ...prev, [fileId]: { busy: false, warning: "重新解析请求失败，请稍后再试" } })),
+      );
+  };
 
   // 交付自检输入：结论字数、产物与溯源、工具调用结果、待复核与联网引用
   const deliveryInput = (): CheckInput => ({
@@ -1756,7 +1787,10 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
           ) : (
             <ul className="mt-1.5 space-y-1">
               {files.map((f) => {
-                const p = fileParsed.get(f.fileName);
+                const local = reparse[f.id];
+                const p = local?.summary ?? fileParsed.get(f.fileName);
+                const status = local?.status ?? f.parseStatus;
+                const warning = local?.warning ?? p?.warning ?? "";
                 const detail =
                   p?.kind === "sheets"
                     ? `${p.sheetCount} 个工作表 · ${p.rowCount} 行 · 最多 ${p.columnCount} 列`
@@ -1768,11 +1802,11 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                         ? "已解析"
                         : "尚无解析结果";
                 return (
-                  <li key={f.id}>
+                  <li key={f.id} className="flex items-stretch gap-1">
                     <button
                       type="button"
                       onClick={() => openReader({ kind: "file", taskId: task.id, fileId: f.id, name: f.fileName })}
-                      className="flex w-full items-start gap-2 rounded border border-line bg-night-850 px-2 py-1.5 text-left transition-colors hover:border-glow-500"
+                      className="flex min-w-0 flex-1 items-start gap-2 rounded border border-line bg-night-850 px-2 py-1.5 text-left transition-colors hover:border-glow-500"
                       title={`在侧边阅读器中预览\n解析：${detail}${p?.preview ? `\n摘录：${p.preview}` : ""}`}
                     >
                       <IconFile className="mt-0.5 h-3.5 w-3.5 shrink-0 text-glow-400" />
@@ -1782,17 +1816,22 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                           {fmtBytes(f.byteSize)} ·{" "}
                           <span
                             className={
-                              f.parseStatus === "failed"
+                              status === "failed"
                                 ? "text-rose-300"
-                                : f.parseStatus === "parsed"
+                                : status === "parsed"
                                   ? "text-jade-300"
                                   : "text-mist-500"
                             }
                           >
-                            {parseStatusText(f.parseStatus)}
+                            {parseStatusText(status)}
                           </span>
                           {p ? ` · ${detail}` : ""}
                         </span>
+                        {warning && (
+                          <span className="block truncate text-[10.5px] text-amber-300" title={warning}>
+                            提示：{warning}
+                          </span>
+                        )}
                         {f.businessCategory && (
                           <span className="block truncate text-[10.5px] text-mist-600">
                             分类：{f.businessCategory}
@@ -1802,6 +1841,15 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                           <span className="block truncate text-[10.5px] text-mist-600">摘录：{p.preview}</span>
                         )}
                       </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="action-btn shrink-0 disabled:cursor-not-allowed disabled:opacity-40"
+                      disabled={local?.busy === true}
+                      title="重新解析这份资料（与智能体工具同一套 parseOne 逻辑），用于状态卡在待解析或解析失败时"
+                      onClick={() => reparseFile(f.id)}
+                    >
+                      {local?.busy ? "解析中…" : "重新解析"}
                     </button>
                   </li>
                 );

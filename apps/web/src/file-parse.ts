@@ -15,6 +15,9 @@ export type ParsedDoc = {
   ocrProvider?: string;
   ocrConfidence?: number;
   sheets?: ParsedSheet[];
+  /** 解析成功但需要注意的情况，例如 PDF 无文本层、OCR 未识别到文字 */
+  error?: string;
+  pages?: number;
 };
 
 export type ParseSummary = {
@@ -27,6 +30,9 @@ export type ParseSummary = {
   ocrConfidence: number | null;
   ocrProvider: string;
   preview: string;
+  /** 解析提示（PDF 无文本层 / OCR 空白等），为空表示没有需要说明的情况 */
+  warning: string;
+  pages: number | null;
 };
 
 export const PARSE_STATUS_TEXT: Record<string, string> = {
@@ -58,6 +64,8 @@ export function summarizeParsed(doc: ParsedDoc): ParseSummary {
     ocrConfidence: typeof doc.ocrConfidence === "number" ? doc.ocrConfidence : null,
     ocrProvider: doc.ocrProvider ?? "",
     preview: (doc.textPreview ?? "").replace(/\s+/g, " ").trim().slice(0, 80),
+    warning: doc.error ?? "",
+    pages: typeof doc.pages === "number" ? doc.pages : null,
   };
 }
 

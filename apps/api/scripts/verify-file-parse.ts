@@ -64,6 +64,15 @@ expect("解析失败标记", summarizeParsed({ fileName: "x.pdf", ok: false }).o
 expect("空结果归为 other", summarizeParsed({ fileName: "x.bin" }).kind, "other");
 expect("缺文件名时为空串", summarizeParsed({}).fileName, "");
 
+// 4b) 解析提示与页数（PDF 无文本层 / OCR 空白等情况要在资料栏可见）
+expect(
+  "解析提示被保留",
+  summarizeParsed({ fileName: "a.pdf", ok: true, pages: 3, error: "PDF 无文本层，需 OCR 后才能解析" }).warning,
+  "PDF 无文本层，需 OCR 后才能解析",
+);
+expect("页数被保留", summarizeParsed({ fileName: "a.pdf", pages: 3 }).pages, 3);
+expect("无提示时为空串", summarizeParsed({ fileName: "a.xlsx", sheets: [] }).warning, "");
+expect("无页数时为 null", summarizeParsed({ fileName: "a.xlsx", sheets: [] }).pages, null);
 // 5) 按文件名汇总：只认 parse_uploaded_files，同名以后一次为准
 const map = parsedByFileName([
   { toolName: "generate_workpaper", result: { parsed: [{ fileName: "不该被采纳.xlsx" }] } },

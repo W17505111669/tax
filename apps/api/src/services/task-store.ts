@@ -168,6 +168,11 @@ export function markFilesParsed(taskId: string): void {
   db.prepare(`UPDATE files SET parse_status = 'parsed' WHERE task_id = ? AND parse_status = 'pending'`).run(taskId);
 }
 
+/** 单份资料的解析状态（「重新解析」入口用，不影响同任务的其他资料） */
+export function setFileParseStatus(fileId: string, status: BusinessFile["parseStatus"]): void {
+  db.prepare(`UPDATE files SET parse_status = ? WHERE id = ?`).run(status, fileId);
+}
+
 /** 取本任务某工具最近一次成功执行的结果 details。 */
 export function latestToolResult(taskId: string, toolName: string): unknown | null {
   const row = db

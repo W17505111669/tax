@@ -70,6 +70,13 @@ export const api = {
       `/api/tasks/${taskId}/link-checks`,
     ),
 
+  /** 重新解析单份上传资料（状态卡在待解析或解析失败时的补救入口） */
+  reparseFile: (taskId: string, fileId: string) =>
+    request<{ ok: boolean; warning: string | null; doc: unknown }>(
+      `/api/tasks/${taskId}/files/${fileId}/reparse`,
+      { method: "POST" },
+    ),
+
   listArtifacts: (taskId: string) =>
     request<{ artifacts: ArtifactInfo[] }>(`/api/tasks/${taskId}/artifacts`).then((r) => r.artifacts),
 
