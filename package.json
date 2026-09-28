@@ -18,6 +18,7 @@
     "gen:materials": "pnpm --filter @tax/api exec tsx scripts/gen-materials.ts",
     "case:run": "pnpm --filter @tax/api case:run",
     "demo:script": "pnpm --filter @tax/api exec tsx scripts/gen-demo-script.ts",
+    "gen:ppt": "pnpm --filter @tax/api exec tsx scripts/gen-ppt-outline.ts",
     "verify:agents": "pnpm --filter @tax/api verify:agents",
     "typecheck": "pnpm -r typecheck"
   },
