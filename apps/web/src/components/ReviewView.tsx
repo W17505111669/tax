@@ -15,6 +15,8 @@ function typeTone(type: string): string {
   return "border-amber-400/40 bg-amber-400/10 text-amber-300";
 }
 
+const REVIEW_RING = 2 * Math.PI * 12;
+
 const QUICK_COMMENTS = ["确认列入底稿", "无需处理", "需重新测算", "待客户补充资料"];
 
 const COMMENT_TEMPLATES = [
@@ -71,7 +73,27 @@ export function ReviewView({ issues, reviews, pending, onReview }: Props) {
             <IconCheck className="h-4 w-4 text-jade-400" />
             复核完成
           </>
-      )}
+        )}
+        {issues.length > 0 && (
+          <span className="ml-auto flex items-center gap-2" title={`已复核 ${reviewMap.size}/${issues.length}`}>
+            <svg viewBox="0 0 32 32" className="h-6 w-6" aria-hidden>
+              <circle cx="16" cy="16" r="12" fill="none" stroke="#1b2c47" strokeWidth="5" />
+              <circle
+                cx="16"
+                cy="16"
+                r="12"
+                fill="none"
+                stroke="#34d399"
+                strokeWidth="5"
+                strokeDasharray={`${(reviewMap.size / issues.length) * REVIEW_RING} ${REVIEW_RING}`}
+                transform="rotate(-90 16 16)"
+              />
+            </svg>
+            <span className="font-mono text-[10.5px] text-mist-400">
+              {reviewMap.size}/{issues.length}
+            </span>
+          </span>
+        )}
       </div>
 
       {pending > 0 && (
