@@ -84,6 +84,21 @@ export function AgentOverview({ agents, activeAgentId, stats, breakdown, created
   };
   const perTool = p?.perTool ?? [];
   const toolCount = (name: string) => perTool.find((t) => t.name === name)?.calls ?? 0;
+
+  // 键盘 ←/→ 切换作品（输入框内不触发）
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      if (agents.length < 2) return;
+      const idx = agents.findIndex((a) => a.id === activeAgentId);
+      const next = e.key === "ArrowRight" ? Math.min(agents.length - 1, idx + 1) : Math.max(0, idx - 1);
+      if (next !== idx && next >= 0) onSelect(agents[next]!.id);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [agents, activeAgentId, onSelect]);
   const chips = [
     {
       label:
@@ -299,7 +314,7 @@ export function AgentOverview({ agents, activeAgentId, stats, breakdown, created
 
       {agents.length > 1 && (
         <div className="flex items-center gap-2 border-t border-line px-8 py-2.5">
-          <span className="text-[12px] text-mist-600">切换作品：</span>
+          <span className="text-[12px] text-mist-600">切换作品（←/→）：</span>
           {agents.map((a) => (
             <button
               key={a.id}

@@ -453,14 +453,14 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                     </span>
                   )}
                 </div>
-                <div className="overflow-x-auto">
+                <div className="max-h-[62vh] overflow-auto">
                   <table className="w-full border-collapse text-[11.5px]">
                     <thead>
                       <tr>
                         {s.headers.map((h) => (
                           <th
                             key={h}
-                            className="border border-gray-300 bg-gray-100 px-2 py-1 text-left font-semibold text-gray-800"
+                            className="sticky top-0 z-10 border border-gray-300 bg-gray-100 px-2 py-1 text-left font-semibold text-gray-800"
                           >
                             {h}
                           </th>
