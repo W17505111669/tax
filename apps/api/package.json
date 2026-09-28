@@ -14,6 +14,7 @@
     "verify:review": "tsx scripts/verify-review-status.ts",
     "verify:runart": "tsx scripts/verify-run-artifacts.ts",
     "verify:artsrc": "tsx scripts/verify-artifact-sources.ts",
+    "verify:rtools": "tsx scripts/verify-run-tools.ts",
     "case:run": "tsx scripts/run-case.ts"
   },
   "dependencies": {

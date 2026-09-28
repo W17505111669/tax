@@ -9,6 +9,7 @@ import { loadTags, saveTags } from "../tags.ts";
 import { matchToolCalls } from "../timeline-calls.ts";
 import { artifactsOfRun, artifactTable, fmtBytes, runWindows, unattributedArtifacts } from "../run-artifacts.ts";
 import { artifactSources } from "../artifact-sources.ts";
+import { callStats, callsByRun, durationMs, fmtDuration, summarizeArgs } from "../run-tools.ts";
 import { CompareView } from "./CompareView.tsx";
 import { ThemeSwitch } from "./ThemeSwitch.tsx";
 import { ReviewView } from "./ReviewView.tsx";
@@ -640,6 +641,36 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   const doneCount = steps.filter((s) => s.state === "done").length;
 
   // 整页 MD 包行（下载与复制共用）
+  // 交付包里的工具调用清单：按运行分组，含结果、耗时与入参摘要（表格单元格已做竖线/换行安全化）
+  const toolCallSection = (): string[] => {
+    if (toolCalls.length === 0) return ["（本次任务没有工具调用记录）"];
+    const grouped = callsByRun(toolCalls, runWins);
+    const st = callStats(toolCalls);
+    const lines: string[] = [
+      `- 合计 ${st.total} 次调用：成功 ${st.ok} · 失败 ${st.failed} · 执行中 ${st.running} · 平均耗时 ${fmtDuration(st.avgMs)}`,
+      "",
+    ];
+    for (const k of [...grouped.keys()].sort((a, b) => a - b)) {
+      const list = grouped.get(k) ?? [];
+      const w = runWins.find((x) => x.run === k);
+      lines.push(
+        k === 0 ? "### 运行窗口之外" : `### 第 ${k} 次运行（${w?.start ?? "?"} ~ ${w?.end ?? "未结束"}）`,
+        "",
+        "| # | 工具 | 结果 | 耗时 | 开始时间 | 入参摘要 |",
+        "| --- | --- | --- | --- | --- | --- |",
+      );
+      list.forEach((c, i) => {
+        lines.push(
+          `| ${i + 1} | ${c.toolName} | ${c.ok === null ? "执行中" : c.ok ? "成功" : "失败"} | ${fmtDuration(
+            durationMs(c.at, c.endedAt),
+          )} | ${c.at} | ${summarizeArgs(c.args)} |`,
+        );
+      });
+      lines.push("");
+    }
+    return lines;
+  };
+
   const bundleLines = () => [
     `# ${task.title}`,
     "",
@@ -677,6 +708,10 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
           }),
         ]
       : ["（本次任务无生成产物）"]),
+    "",
+    "## 工具调用清单（按运行分组）",
+    "",
+    ...toolCallSection(),
     "",
   ];
 
