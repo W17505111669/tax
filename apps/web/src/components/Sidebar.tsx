@@ -342,6 +342,17 @@ export function Sidebar({
             ★ {starred.size}
           </span>
         </div>
+        <span
+          className="mt-2 block h-1 w-full overflow-hidden rounded-full bg-night-700"
+          title={`已完成 ${tasks.filter((t) => t.status === "completed").length}/${tasks.length}`}
+        >
+          <span
+            className="bar-fill block h-full"
+            style={{
+              width: `${tasks.length ? (tasks.filter((t) => t.status === "completed").length / tasks.length) * 100 : 0}%`,
+            }}
+          />
+        </span>
       </div>
 
       <nav className="px-3 py-3">

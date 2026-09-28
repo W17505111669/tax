@@ -82,6 +82,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   const [zoom, setZoom] = useState(1);
   const [rot, setRot] = useState(0);
   const [showRowNum, setShowRowNum] = useState(false);
+  const [freezeFirst, setFreezeFirst] = useState(false);
   const [pinned, setPinned] = useState<Set<string>>(new Set());
   const [armedKey, setArmedKey] = useState<string | null>(null);
   const [showLines, setShowLines] = useState(false);
@@ -849,6 +850,15 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                   >
                     复制 TSV
                   </button>
+                  <button
+                    type="button"
+                    className="action-btn !text-gray-600 hover:!text-gray-900"
+                    data-on={freezeFirst}
+                    onClick={() => setFreezeFirst((v) => !v)}
+                    title="冻结首列（横向滚动时常驻）"
+                  >
+                    冻首列
+                  </button>
                   {active && "highlight" in active && active.highlight && (
                     <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10.5px] text-amber-700">
                       定位：{active.highlight}
@@ -860,11 +870,15 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                     <thead>
                       <tr>
                         {showRowNum && (
-                          <th className="sticky top-0 z-10 border border-gray-300 bg-gray-100 px-2 py-1 text-left font-semibold text-gray-800">
+                          <th
+                            className={`sticky top-0 z-10 border border-gray-300 bg-gray-100 px-2 py-1 text-left font-semibold text-gray-800 ${
+                              freezeFirst ? "left-0 z-30" : ""
+                            }`}
+                          >
                             #
                           </th>
                         )}
-                        {s.headers.map((h) => (
+                        {s.headers.map((h, hi) => (
                           <th
                             key={h}
                             onClick={() =>
@@ -875,7 +889,9 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                               })
                             }
                             title="点击排序（再点反向）"
-                            className="sticky top-0 z-10 cursor-pointer select-none border border-gray-300 bg-gray-100 px-2 py-1 text-left font-semibold text-gray-800 hover:bg-gray-200"
+                            className={`sticky top-0 z-10 cursor-pointer select-none border border-gray-300 bg-gray-100 px-2 py-1 text-left font-semibold text-gray-800 hover:bg-gray-200 ${
+                              freezeFirst && hi === 0 && !showRowNum ? "left-0 z-30" : ""
+                            }`}
                           >
                             {h}
                             {st?.col === h && <span className="ml-0.5 text-gray-500">{st.dir === 1 ? "↑" : "↓"}</span>}
@@ -897,12 +913,21 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                           }
                           >
                             {showRowNum && (
-                              <td className="border border-gray-200 px-2 py-1 text-right font-mono text-[10.5px] text-gray-400">
+                              <td
+                                className={`border border-gray-200 px-2 py-1 text-right font-mono text-[10.5px] text-gray-400 ${
+                                  freezeFirst ? "sticky left-0 z-20 bg-inherit" : ""
+                                }`}
+                              >
                                 {i + 1}
                               </td>
                             )}
-                            {s.headers.map((h) => (
-                            <td key={h} className="border border-gray-200 px-2 py-1 align-top text-gray-700">
+                            {s.headers.map((h, hi) => (
+                              <td
+                                key={h}
+                                className={`border border-gray-200 px-2 py-1 align-top text-gray-700 ${
+                                  freezeFirst && hi === 0 && !showRowNum ? "sticky left-0 z-20 bg-inherit" : ""
+                                }`}
+                              >
                               {row[h] === null || row[h] === undefined ? "" : String(row[h])}
                             </td>
                           ))}
