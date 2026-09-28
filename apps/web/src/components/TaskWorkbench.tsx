@@ -797,11 +797,21 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
                     {new Date().toLocaleString("zh-CN", { hour12: false })}
                   </div>
                 </div>
-                <div className="print-only mb-4">
-                  <div className="text-[12px] font-semibold text-gray-900">目录</div>
-                  <ul className="mt-1 list-decimal pl-5 text-[11px] leading-5 text-gray-700">
-                    {toc.map((h) => (
-                      <li key={h}>{h}</li>
+                <div className="glow-card mb-4 px-4 py-3">
+                  <div className="text-[12px] font-semibold text-mist-100 print:text-gray-900">目录</div>
+                  <ul className="mt-1 list-decimal pl-5 text-[11px] leading-5 text-mist-400 print:text-gray-700">
+                    {toc.map((h, i) => (
+                      <li key={h}>
+                        <button
+                          type="button"
+                          className="underline decoration-transparent underline-offset-2 transition-colors hover:text-glow-300 hover:decoration-glow-400 print:hover:text-gray-700"
+                          onClick={() =>
+                            document.getElementById(`sec-${i}`)?.scrollIntoView({ block: "start", behavior: "smooth" })
+                          }
+                        >
+                          {h}
+                        </button>
+                      </li>
                     ))}
                   </ul>
                 </div>
@@ -1398,7 +1408,7 @@ function ResultView({
   return (
     <div className="max-w-4xl space-y-5">
       <article className="glow-card px-6 py-5">
-        <MarkdownView text={result} onOpenUrl={(url) => onOpenUrl({ kind: "url", url })} />
+        <MarkdownView text={result} onOpenUrl={(url) => onOpenUrl({ kind: "url", url })} headingIds />
       </article>
 
       <div className="flex items-center gap-1">

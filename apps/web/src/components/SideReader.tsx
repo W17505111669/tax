@@ -482,7 +482,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
-                    setFindIdx((v) => v + 1);
+                    setFindIdx((v) => (e.shiftKey ? v - 1 : v + 1));
                   }
                 }}
                 placeholder="页内搜索…"

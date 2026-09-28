@@ -102,9 +102,11 @@ interface Props {
   className?: string;
   /** 点击外部链接时回调（用于侧边阅读器），不设置则保持默认跳转。 */
   onOpenUrl?: (url: string) => void;
+  /** 为 h2/h3 生成 sec-N 锚点 id（供目录跳转）。 */
+  headingIds?: boolean;
 }
 
-export function MarkdownView({ text, live = false, className = "", onOpenUrl }: Props) {
+export function MarkdownView({ text, live = false, className = "", onOpenUrl, headingIds = false }: Props) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -114,6 +116,11 @@ export function MarkdownView({ text, live = false, className = "", onOpenUrl }: 
     const timer = window.setTimeout(() => {
       if (cancelled) return;
       renderMarkdown(el, text, live);
+      if (headingIds && !live) {
+        el.querySelectorAll("h2, h3").forEach((h, i) => {
+          h.id = `sec-${i}`;
+        });
+      }
     }, live ? 90 : 0);
     return () => {
       cancelled = true;
