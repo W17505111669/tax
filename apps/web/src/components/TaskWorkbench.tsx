@@ -982,10 +982,13 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
             onSelect={setReaderActive}
             onCloseTab={closeTab}
             onReorder={reorderTabs}
-            onCloseAll={() => {
-              setReaderTabs([]);
-              setReaderActive(0);
-              setReaderOpen(false);
+            onCloseAll={(keep) => {
+              const next = readerTabs.filter((t) => keep.includes(readerKey(t)));
+              const activeKeyNow = readerTabs[readerActive] ? readerKey(readerTabs[readerActive]!) : "";
+              const idx = next.findIndex((t) => readerKey(t) === activeKeyNow);
+              setReaderTabs(next);
+              setReaderActive(idx >= 0 ? idx : 0);
+              if (next.length === 0) setReaderOpen(false);
             }}
             onClose={closeReader}
           />

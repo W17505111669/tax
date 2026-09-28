@@ -67,7 +67,7 @@ interface Props {
   onSelect: (index: number) => void;
   onCloseTab: (index: number) => void;
   onReorder: (from: number, to: number) => void;
-  onCloseAll: () => void;
+  onCloseAll: (keepKeys: string[]) => void;
   onClose: () => void;
 }
 
@@ -81,6 +81,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   const [zoom, setZoom] = useState(1);
   const [rot, setRot] = useState(0);
   const [showRowNum, setShowRowNum] = useState(false);
+  const [pinned, setPinned] = useState<Set<string>>(new Set());
   const [showLines, setShowLines] = useState(false);
   const [aliases, setAliases] = useState<Record<string, string>>(() => {
     try {
@@ -350,7 +351,12 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
           </div>
           <div className="ml-auto flex items-center gap-1">
             {tabs.length > 1 && (
-              <button type="button" className="action-btn" onClick={onCloseAll} title="关闭全部标签">
+              <button
+                type="button"
+                className="action-btn"
+                onClick={() => onCloseAll([...pinned])}
+                title="关闭全部标签（保留已固定）"
+              >
                 关闭全部
               </button>
             )}
@@ -443,12 +449,34 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                 )}
                 <button
                   type="button"
+                  title={pinned.has(key) ? "取消固定" : "固定标签（关闭全部时保留）"}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPinned((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(key)) next.delete(key);
+                      else next.add(key);
+                      return next;
+                    });
+                  }}
+                  className={`rounded p-0.5 text-[10px] transition-opacity ${
+                    pinned.has(key)
+                      ? "text-glow-300 opacity-100"
+                      : "text-mist-600 opacity-0 hover:text-mist-100 group-hover:opacity-100"
+                  }`}
+                >
+                  ⚑
+                </button>
+                {!pinned.has(key) && (
+                <button
+                  type="button"
                   onClick={() => onCloseTab(i)}
                   title="关闭标签"
                   className="rounded p-0.5 text-mist-600 opacity-0 transition-opacity hover:text-rose-300 group-hover:opacity-100"
                 >
                   <IconX className="h-3 w-3" />
                 </button>
+                )}
               </div>
             );
           })}
