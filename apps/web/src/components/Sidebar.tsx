@@ -524,6 +524,13 @@ export function Sidebar({
               <button
                 type="button"
                 onClick={() => setCollapsed((prev) => ({ ...prev, [g.id]: !closed }))}
+                title={
+                  list.length
+                    ? `最早 ${new Date(Math.min(...list.map((t) => Date.parse(t.createdAt)))).toLocaleString("zh-CN", {
+                        hour12: false,
+                      })} · 最晚 ${new Date(Math.max(...list.map((t) => Date.parse(t.createdAt)))).toLocaleString("zh-CN", { hour12: false })}`
+                    : undefined
+                }
                 className="flex w-full items-center gap-1.5 px-2 py-1 text-[10.5px] font-medium uppercase tracking-[0.14em] text-mist-600 transition-colors hover:text-mist-300"
               >
                 <span className={`chev text-[9px] ${closed ? "" : "rotate-90"}`}>▶</span>

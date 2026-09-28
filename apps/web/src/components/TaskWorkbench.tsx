@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { marked } from "marked";
 import { api } from "../api.ts";
 import type { AgentInfo, ArtifactInfo, CompareRecord, FileInfo, ReviewRecord, TaskInfo, TaskIssue } from "../types.ts";
 import { useTaskEvents } from "../hooks/useTaskEvents.ts";
@@ -1633,6 +1634,17 @@ function ResultView({
         >
           <IconCopy className="h-3.5 w-3.5" />
           复制纯文本
+        </button>
+        <button
+          type="button"
+          className="action-btn"
+          title="复制渲染后的 HTML 片段"
+          onClick={() =>
+            void navigator.clipboard?.writeText(marked.parse(result, { async: false }) as string).catch(() => undefined)
+          }
+        >
+          <IconCopy className="h-3.5 w-3.5" />
+          复制 HTML
         </button>
         <button type="button" className="action-btn" onClick={onPrint}>
           <IconPrint className="h-3.5 w-3.5" />
