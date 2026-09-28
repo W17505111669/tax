@@ -5,6 +5,7 @@
  */
 import { deliveryCheck, deliverySection, type CheckInput } from "../../web/src/delivery-check.ts";
 import type { LinkSummary } from "../../web/src/link-check.ts";
+import type { GradeSummary } from "../../web/src/citation-grade.ts";
 import { pendingReviewIssues } from "../src/services/issues.ts";
 import { listTasks, getTask } from "../src/services/task-store.ts";
 
@@ -28,6 +29,7 @@ const base: CheckInput = {
   toolRunning: 0,
   pendingReview: 0,
   citations: 3,
+  citationGrades: { total: 3, official: 2, professional: 1, weak: 0 },
   linkCheck: null,
   linkCheckAgeHours: null,
   amountTotal: 12,
@@ -138,6 +140,47 @@ expect(
 );
 expect("多项阻断同时存在", deliveryCheck({ ...base, status: "processing", resultChars: 0 }).blocks, 2);
 expect("失败叠加空结论", deliveryCheck({ ...base, status: "failed", resultChars: 0 }).blocks, 2);
+
+// 引用证据力分级：门户首页 / 百科词条 / 检索页不能替代政策原文
+const grades = (over: Partial<GradeSummary> = {}): GradeSummary => ({
+  total: 3,
+  official: 2,
+  professional: 1,
+  weak: 0,
+  ...over,
+});
+expect(
+  "官方原文引用给出正向条目",
+  deliveryCheck(base).items.some((x) => x.level === "ok" && x.text.includes("2 条联网引用来自政府")),
+  true,
+);
+expect(
+  "存在弱证据引用 → 提醒",
+  deliveryCheck({ ...base, citationGrades: grades({ official: 1, professional: 0, weak: 2 }) }).verdict,
+  "谨慎交付",
+);
+expect(
+  "弱证据提示含条数与替换建议",
+  deliveryCheck({ ...base, citationGrades: grades({ official: 1, professional: 0, weak: 2 }) }).items.some(
+    (x) => x.level === "warn" && x.text.includes("2 条联网引用指向门户首页") && x.text.includes("替换"),
+  ),
+  true,
+);
+expect(
+  "全是专业来源时不降级",
+  deliveryCheck({ ...base, citationGrades: grades({ official: 0, professional: 3, weak: 0 }) }).verdict,
+  "可交付",
+);
+expect(
+  "无联网引用时不产生分级条目",
+  deliveryCheck({ ...base, citations: 0, citationGrades: null }).items.some((x) => x.text.includes("证据力")),
+  false,
+);
+expect(
+  "弱证据提醒计入 warns 而非 info",
+  deliveryCheck({ ...base, citationGrades: grades({ official: 0, professional: 0, weak: 3 }) }).warns,
+  1,
+);
 
 const sec = deliverySection({ ...base, pendingReview: 5 });
 expect("自检节首行给出结论", sec[0]?.startsWith("- 结论：不建议直接交付"), true);

@@ -39,6 +39,8 @@
 | `pnpm verify:fresh` | 交付包新鲜度（上次打包后的变更识别与提示文案） | PASS |
 | `pnpm verify:stats` | 平台统计口径（比对准确率双口径 / 工具 / 任务 / 产物计数） | PASS |
 | `pnpm verify:policytrace` | 政策文号溯源（提取 / 归一化 / 有出处-无法核验-待确认三级口径） | PASS |
+| `pnpm verify:websearch` | 联网检索可信度（词元切分 / 相关度门槛 / 入口页过滤 / 验证页识别 / 历史数据回放） | PASS |
+| `pnpm verify:citegrade` | 联网引用证据力分级（官方原文 / 专业来源 / 首页百科检索页 + 两套实现口径交叉核对） | PASS |
 | `pnpm verify:upload` | 上传预检规则（扩展名 / 大小 / 空文件 / 批量分组 / 提示文案） | PASS |
 
 ## 三、真实任务台账

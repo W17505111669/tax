@@ -69,6 +69,9 @@ importers:
       '@tax/agent-rd-audit':
         specifier: workspace:*
         version: link:../../agents/rd-audit
+      '@tax/business-tools':
+        specifier: workspace:*
+        version: link:../../packages/business-tools
       '@tax/document-tools':
         specifier: workspace:*
         version: link:../../packages/document-tools

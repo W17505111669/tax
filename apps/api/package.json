@@ -25,6 +25,8 @@
     "verify:fresh": "tsx scripts/verify-bundle-freshness.ts",
     "verify:manifest": "tsx scripts/verify-manifest.ts",
     "verify:policytrace": "tsx scripts/verify-policy-trace.ts",
+    "verify:websearch": "tsx scripts/verify-web-search.ts",
+    "verify:citegrade": "tsx scripts/verify-citation-grade.ts",
     "verify:upload": "tsx scripts/verify-upload-policy.ts",
     "case:run": "tsx scripts/run-case.ts"
   },
@@ -35,6 +37,7 @@
     "@tax/agent-core": "workspace:*",
     "@tax/agent-land-vat": "workspace:*",
     "@tax/agent-rd-audit": "workspace:*",
+    "@tax/business-tools": "workspace:*",
     "@tax/document-tools": "workspace:*",
     "@tax/shared-schemas": "workspace:*",
     "fastify": "^5.3.3",

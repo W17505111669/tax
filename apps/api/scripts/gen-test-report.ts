@@ -101,6 +101,16 @@ const VERIFY_SCRIPTS: Array<{ name: string; cmd: string; scope: string }> = [
     scope: "政策文号溯源（提取 / 归一化 / 有出处-无法核验-待确认三级口径）",
   },
   {
+    name: "verify:websearch",
+    cmd: "pnpm verify:websearch",
+    scope: "联网检索可信度（词元切分 / 相关度门槛 / 入口页过滤 / 验证页识别 / 历史数据回放）",
+  },
+  {
+    name: "verify:citegrade",
+    cmd: "pnpm verify:citegrade",
+    scope: "联网引用证据力分级（官方原文 / 专业来源 / 首页百科检索页 + 两套实现口径交叉核对）",
+  },
+  {
     name: "verify:upload",
     cmd: "pnpm verify:upload",
     scope: "上传预检规则（扩展名 / 大小 / 空文件 / 批量分组 / 提示文案）",

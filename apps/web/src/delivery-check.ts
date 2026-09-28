@@ -5,6 +5,7 @@
  */
 
 import { STALE_HOURS } from "./link-check.ts";
+import type { GradeSummary } from "./citation-grade.ts";
 
 export type CheckInput = {
   status: string;
@@ -17,6 +18,8 @@ export type CheckInput = {
   toolRunning: number;
   pendingReview: number;
   citations: number;
+  /** 联网引用的证据力分级汇总；null 表示本次任务没有联网引用 */
+  citationGrades: GradeSummary | null;
   /** 最近一次链接核验的分级汇总；null 表示尚未核验，此时不做任何判断 */
   linkCheck: { total: number; ok: number; blocked: number; dead: number; unreachable: number } | null;
   /** 最近一次链接核验距今的小时数；null 表示尚未核验或时间不可解析 */
@@ -122,6 +125,21 @@ export function deliveryCheck(i: CheckInput): CheckResult {
 
   if (i.citations > 0) items.push({ level: "ok", text: `联网引用 ${i.citations} 条` });
   else items.push({ level: "warn", text: "无联网引用，涉及政策依据的结论请确认是否已完成在线核验" });
+
+  if (i.citationGrades) {
+    if (i.citationGrades.weak > 0) {
+      items.push({
+        level: "warn",
+        text: `${i.citationGrades.weak} 条联网引用指向门户首页、百科词条或检索结果页，证据力不足，交付前请替换为政策原文的具体文件页`,
+      });
+    }
+    if (i.citationGrades.official > 0) {
+      items.push({
+        level: "ok",
+        text: `${i.citationGrades.official} 条联网引用来自政府或税务机关站点的具体文件页`,
+      });
+    }
+  }
 
   if (i.linkCheck) {
     if (i.linkCheck.dead > 0) {

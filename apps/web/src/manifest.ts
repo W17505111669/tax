@@ -38,7 +38,17 @@ export type ManifestInput = {
     run: number | null;
   }>;
   tools: { total: number; ok: number; failed: number; running: number; avgMs: number | null };
-  citations: Array<{ title: string; url: string; verdict: string; status: number | null }>;
+  citations: Array<{
+    title: string;
+    url: string;
+    verdict: string;
+    status: number | null;
+    /** 证据力分级：official 官方原文 / professional 专业来源 / weak 门户首页、百科或检索页 */
+    grade: string;
+    gradeReason: string;
+  }>;
+  /** 联网引用证据力分级汇总；本次任务没有联网引用时为 null */
+  citationGrades: { total: number; official: number; professional: number; weak: number } | null;
   linkCheck: { summary: LinkSummary | null; checkedAt: string | null };
   amounts: { total: number; traced: number; fromInput: number; pending: number; acked: number };
   review: { issues: number; done: number; pending: number; notRequired: number };
@@ -88,6 +98,20 @@ export function manifestIssues(m: BundleManifest): string[] {
   if (s) {
     if (s.total !== s.ok + s.blocked + s.dead + s.unreachable) out.push("链接核验四类之和不等于总数");
     if (s.total > m.citations.length) out.push("链接核验条数多于引用条数");
+  }
+
+  const g = m.citationGrades;
+  if (g) {
+    if (g.total !== g.official + g.professional + g.weak) out.push("引用证据力分级四类之和不等于总数");
+    if (g.total !== m.citations.length) out.push("引用证据力分级总数与引用条数不符");
+  } else if (m.citations.length > 0) {
+    out.push("有联网引用却缺少证据力分级汇总");
+  }
+  for (const c of m.citations) {
+    if (!c.grade) out.push(`引用 ${c.url.slice(0, 60)} 缺少证据力分级`);
+    if (c.grade !== "official" && c.grade !== "professional" && c.grade !== "weak") {
+      out.push(`引用 ${c.url.slice(0, 60)} 的证据力分级取值非法：${c.grade}`);
+    }
   }
 
   for (const f of m.files) {

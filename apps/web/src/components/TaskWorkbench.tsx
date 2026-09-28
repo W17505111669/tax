@@ -43,6 +43,7 @@ import {
 } from "../file-parse.ts";
 import { buildManifest } from "../manifest.ts";
 import { traceDocRefs } from "../policy-trace.ts";
+import { gradeCitation, GRADE_HINT, GRADE_TEXT, summarizeGrades } from "../citation-grade.ts";
 import { bundleFreshness, freshnessText, type BundleFreshness, type ChangeStamp } from "../bundle-freshness.ts";
 import { reviewCounts } from "../review-export.ts";
 import {
@@ -100,6 +101,9 @@ const STATUS_META: Record<string, { label: string; className: string }> = {
 interface Citation {
   title: string;
   url: string;
+  /** 证据力分级：官方原文 / 专业来源 / 证据力弱（门户首页、百科词条、检索页） */
+  grade: import("../citation-grade.ts").CitationGrade;
+  gradeReason: string;
 }
 
 const STEP_RING = 2 * Math.PI * 12;
@@ -571,11 +575,17 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       const results = (call.result as { results?: Array<{ title?: string; url?: string }> } | null)?.results;
       if (!results) continue;
       for (const r of results) {
-        if (r.url && !out.some((c) => c.url === r.url)) out.push({ title: r.title ?? r.url, url: r.url });
+        if (!r.url || out.some((c) => c.url === r.url)) continue;
+        const title = r.title ?? r.url;
+        const g = gradeCitation(r.url, title);
+        out.push({ title, url: r.url, grade: g.grade, gradeReason: g.reason });
       }
     }
     return out.slice(0, 12);
   }, [toolCalls]);
+
+  // 引用证据力汇总：交付自检、整页 MD 与交付包清单共用同一口径
+  const citationGrades = useMemo(() => summarizeGrades(citations), [citations]);
 
   // 步骤时间线：提问 → 工具核验 → 联网检索 → 结论生成 → 交付
   const totalDuration = useMemo(() => {
@@ -959,6 +969,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     toolRunning: toolCalls.filter((c) => c.ok === null).length,
     pendingReview: pendingReviews,
     citations: citations.length,
+    citationGrades: citations.length > 0 ? citationGrades : null,
     linkCheck: linkCheckedAt ? linkSummary : null,
     linkCheckAgeHours: ageHours(linkCheckedAt),
     amountTotal: amountTrace.total,
@@ -982,6 +993,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       toolCalls,
       pendingReviews,
       citations,
+      citationGrades,
       linkSummary,
       linkCheckedAt,
       files,
@@ -1044,7 +1056,18 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     "",
     "## 联网引用",
     "",
-    ...(citations.length > 0 ? citations.map((c, i) => `${i + 1}. ${c.title}\n   ${c.url}`) : ["（本次任务无联网引用）"]),
+    ...(citations.length > 0
+      ? [
+          `- 证据力分级：官方原文 ${citationGrades.official} 条 · 专业来源 ${citationGrades.professional} 条 · 证据力弱 ${citationGrades.weak} 条`,
+          ...(citationGrades.weak > 0
+            ? ["- 证据力弱的引用指向门户首页、百科词条或检索结果页，不能替代政策原文，交付前请替换为具体文件页"]
+            : []),
+          "",
+          ...citations.map(
+            (c, i) => `${i + 1}. ${c.title}\n   ${c.url}\n   证据力：${GRADE_TEXT[c.grade]}（${c.gradeReason}）`,
+          ),
+        ]
+      : ["（本次任务无联网引用）"]),
     "",
     ...(linkCheckedAt
       ? [
@@ -1192,8 +1215,16 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       tools: { total: st.total, ok: st.ok, failed: st.failed, running: st.running, avgMs: st.avgMs },
       citations: citations.map((c) => {
         const chk = linkChecks[c.url];
-        return { title: c.title, url: c.url, verdict: chk ? linkVerdict(chk) : "unchecked", status: chk?.status ?? null };
+        return {
+          title: c.title,
+          url: c.url,
+          verdict: chk ? linkVerdict(chk) : "unchecked",
+          status: chk?.status ?? null,
+          grade: c.grade,
+          gradeReason: c.gradeReason,
+        };
       }),
+      citationGrades: citations.length > 0 ? citationGrades : null,
       linkCheck: { summary: linkCheckedAt ? linkSummary : null, checkedAt: linkCheckedAt },
       amounts: {
         total: amountTrace.total,
@@ -2879,8 +2910,12 @@ function TimelineView({
                         key={c.url}
                         type="button"
                         onClick={() => onOpenUrl({ kind: "url", url: c.url })}
-                        title={c.url}
-                        className="inline-flex max-w-[260px] items-center gap-1.5 rounded-full border border-glow-500/40 bg-glow-500/10 px-2.5 py-0.5 text-[11px] text-glow-300 transition-colors hover:border-glow-400"
+                        title={`${c.url}\n证据力：${GRADE_TEXT[c.grade]} · ${c.gradeReason}`}
+                        className={`inline-flex max-w-[260px] items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] transition-colors ${
+                          c.grade === "weak"
+                            ? "border-amber-400/45 bg-amber-400/10 text-amber-200 hover:border-amber-400"
+                            : "border-glow-500/40 bg-glow-500/10 text-glow-300 hover:border-glow-400"
+                        }`}
                       >
                         <IconExternal className="h-3 w-3 shrink-0" />
                         <span className="truncate">{c.title}</span>
@@ -3146,6 +3181,8 @@ function ResultView({
   linkSummary: LinkSummary;
   onCheckLinks: () => void;
 }) {
+  // 引用证据力汇总（与整页 MD、交付自检同一口径）
+  const grades = summarizeGrades(citations);
   if (error) {
     return (
       <div className="rounded-md border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-[13px] text-rose-300">
@@ -3278,7 +3315,11 @@ function ResultView({
               title="复制引用清单（编号+标题+URL）"
               onClick={() =>
                 void navigator.clipboard
-                  ?.writeText(citations.map((c, i) => `${i + 1}. ${c.title}\n   ${c.url}`).join("\n"))
+                  ?.writeText(
+                    citations
+                      .map((c, i) => `${i + 1}. ${c.title}\n   ${c.url}\n   证据力：${GRADE_TEXT[c.grade]}`)
+                      .join("\n"),
+                  )
                   .catch(() => undefined)
               }
             >
@@ -3295,6 +3336,17 @@ function ResultView({
               {linkBusy ? "核验中…" : linkCheckedAt ? `重新核验（${ageText(linkCheckedAt)}）` : "核验链接"}
             </button>
           </div>
+          <p className="mt-1.5 text-[11px] text-mist-600">
+            证据力：官方原文 {grades.official} · 专业来源 {grades.professional}
+            {grades.weak > 0 ? (
+              <span className="text-amber-300" title={GRADE_HINT.weak}>
+                {" "}
+                · 证据力弱 {grades.weak}（门户首页 / 百科词条 / 检索页，交付前请替换为政策原文）
+              </span>
+            ) : (
+              <span className="text-jade-300"> · 无门户首页或百科类引用</span>
+            )}
+          </p>
           {linkCheckedAt && (
             <p className="mt-1.5 text-[11px] text-mist-600">
               最近核验 {new Date(linkCheckedAt).toLocaleString("zh-CN", { hour12: false })} · 可访问 {linkSummary.ok}/
@@ -3314,28 +3366,45 @@ function ResultView({
             {citations.map((c) => {
               const chk = linkChecks[c.url];
               const verdict = chk ? linkVerdict(chk) : null;
+              const weak = c.grade === "weak";
               return (
                 <button
                   key={c.url}
                   type="button"
                   onClick={() => onOpenUrl({ kind: "url", url: c.url })}
-                  title={
+                  title={`${c.url}\n证据力：${GRADE_TEXT[c.grade]} · ${c.gradeReason}${
+                    weak ? `\n${GRADE_HINT.weak}` : ""
+                  }${
                     chk && verdict
-                      ? `${c.url}\n核验：${
+                      ? `\n核验：${
                           verdict === "ok"
                             ? `可访问 HTTP ${chk.status}`
                             : `${VERDICT_TEXT[verdict]}（${chk.status ?? chk.error ?? "无响应"}）· ${VERDICT_HINT[verdict]}`
                         } · ${chk.ms} ms`
-                      : c.url
-                  }
+                      : ""
+                  }`}
                   className={`inline-flex max-w-full items-center gap-1.5 rounded-full border bg-night-850 px-2.5 py-1 text-[11.5px] transition-colors ${
                     verdict === "dead"
                       ? "border-rose-400/50 text-rose-200 hover:border-rose-400"
-                      : "border-line text-mist-300 hover:border-glow-500 hover:text-glow-300"
+                      : weak
+                        ? "border-amber-400/45 text-amber-100 hover:border-amber-400"
+                        : "border-line text-mist-300 hover:border-glow-500 hover:text-glow-300"
                   }`}
                 >
-                  <IconExternal className="h-3 w-3 shrink-0 text-glow-400" />
+                  <IconExternal className={`h-3 w-3 shrink-0 ${weak ? "text-amber-400" : "text-glow-400"}`} />
                   <span className="truncate">{c.title}</span>
+                  <span
+                    className={`shrink-0 rounded px-1 text-[9.5px] ${
+                      c.grade === "official"
+                        ? "bg-jade-400/15 text-jade-300"
+                        : c.grade === "professional"
+                          ? "bg-sky-400/15 text-sky-300"
+                          : "bg-amber-400/15 text-amber-300"
+                    }`}
+                    title={`${GRADE_TEXT[c.grade]}：${c.gradeReason}`}
+                  >
+                    {GRADE_TEXT[c.grade]}
+                  </span>
                   {chk && verdict && (
                     <span
                       className={`shrink-0 rounded px-1 font-mono text-[9.5px] ${

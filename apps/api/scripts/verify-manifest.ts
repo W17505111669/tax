@@ -12,6 +12,7 @@ import { traceAmounts, amountKey } from "../../web/src/amount-trace.ts";
 import { parseDetail, parsedByFileName } from "../../web/src/file-parse.ts";
 import { reviewCounts } from "../../web/src/review-export.ts";
 import { traceDocRefs } from "../../web/src/policy-trace.ts";
+import { gradeCitation, summarizeGrades } from "../../web/src/citation-grade.ts";
 import { db } from "../src/db.ts";
 import { dirs } from "../src/config.ts";
 import { listAmountChecks } from "../src/services/amount-checks.ts";
@@ -28,6 +29,34 @@ function expect(name: string, actual: unknown, want: unknown): void {
   if (a !== w) failures.push(`${name}: 实际 ${a}，期望 ${w}`);
 }
 
+const SEARCH_TOOLS = new Set([
+  "web_search",
+  "search_public_cases",
+  "fetch_content",
+  "fetch_public_document",
+  "get_search_content",
+]);
+
+type ManifestCitation = ManifestInput["citations"][number];
+
+/** 与前端同一口径地从工具结果里收集联网引用并分级（最多 12 条，去重） */
+function citationsOf(calls: Array<{ toolName: string; result: unknown }>): ManifestCitation[] {
+  const out: ManifestCitation[] = [];
+  for (const c of calls) {
+    if (!SEARCH_TOOLS.has(c.toolName)) continue;
+    const results = (c.result as { results?: Array<{ title?: string; url?: string }> } | null)?.results;
+    if (!results) continue;
+    for (const r of results) {
+      if (!r.url || out.some((x) => x.url === r.url)) continue;
+      const title = r.title ?? r.url;
+      const g = gradeCitation(r.url, title);
+      out.push({ title, url: r.url, verdict: "unchecked", status: null, grade: g.grade, gradeReason: g.reason });
+      if (out.length >= 12) return out;
+    }
+  }
+  return out;
+}
+
 const delivery = deliveryCheck({
   status: "completed",
   resultChars: 1200,
@@ -38,6 +67,7 @@ const delivery = deliveryCheck({
   toolRunning: 0,
   pendingReview: 0,
   citations: 2,
+  citationGrades: { total: 2, official: 1, professional: 1, weak: 0 },
   linkCheck: { total: 2, ok: 1, blocked: 1, dead: 0, unreachable: 0 },
   linkCheckAgeHours: 1,
   amountTotal: 10,
@@ -84,9 +114,24 @@ const base: ManifestInput = {
   ],
   tools: { total: 4, ok: 4, failed: 0, running: 0, avgMs: 30 },
   citations: [
-    { title: "政策", url: "https://x.gov.cn/a", verdict: "ok", status: 200 },
-    { title: "案例", url: "https://y.cn/b", verdict: "blocked", status: 403 },
+    {
+      title: "政策",
+      url: "https://x.gov.cn/a/b.html",
+      verdict: "ok",
+      status: 200,
+      grade: "official",
+      gradeReason: "政府/税务机关站点的具体文件页",
+    },
+    {
+      title: "案例",
+      url: "https://y.cn/b",
+      verdict: "blocked",
+      status: 403,
+      grade: "professional",
+      gradeReason: "专业机构或社区的具体文章页",
+    },
   ],
+  citationGrades: { total: 2, official: 1, professional: 1, weak: 0 },
   linkCheck: {
     summary: { total: 2, ok: 1, blocked: 1, dead: 0, unreachable: 0 },
     checkedAt: "2026-09-28T03:00:00.000Z",
@@ -123,9 +168,52 @@ expect(
   true,
 );
 expect("缺任务 ID 会发现", manifestIssues({ ...m, task: { ...m.task, id: "" } }).length > 0, true);
+expect(
+  "引用分级四类之和不符会发现",
+  manifestIssues({ ...m, citationGrades: { total: 2, official: 2, professional: 1, weak: 0 } }).some((s) =>
+    s.includes("证据力分级四类之和"),
+  ),
+  true,
+);
+expect(
+  "分级总数与引用条数不符会发现",
+  manifestIssues({ ...m, citationGrades: { total: 5, official: 1, professional: 1, weak: 3 } }).some((s) =>
+    s.includes("分级总数与引用条数不符"),
+  ),
+  true,
+);
+expect(
+  "有引用却缺分级汇总会发现",
+  manifestIssues({ ...m, citationGrades: null }).some((s) => s.includes("缺少证据力分级汇总")),
+  true,
+);
+expect(
+  "引用缺分级会发现",
+  manifestIssues({ ...m, citations: [{ ...m.citations[0]!, grade: "" }] }).some((s) => s.includes("缺少证据力分级")),
+  true,
+);
+expect(
+  "分级取值非法会发现",
+  manifestIssues({ ...m, citations: [{ ...m.citations[0]!, grade: "maybe" }] }).some((s) =>
+    s.includes("证据力分级取值非法"),
+  ),
+  true,
+);
+expect(
+  "无引用时分级汇总为 null 不算分级问题",
+  manifestIssues({
+    ...m,
+    citations: [],
+    citationGrades: null,
+    linkCheck: { summary: null, checkedAt: null },
+  }).some((s) => s.includes("证据力")),
+  false,
+);
 
 // 真实任务走查：用数据库与产物目录组装清单，必须自洽
 let built = 0;
+const gradeTotals = { total: 0, official: 0, professional: 0, weak: 0 };
+let tasksWithCitations = 0;
 for (const t of listTasks()) {
   checks += 1;
   const detail = getTask(t.id);
@@ -177,6 +265,13 @@ for (const t of listTasks()) {
   );
   const toolOk = calls.filter((c) => c.ok === true).length;
   const toolFailed = calls.filter((c) => c.ok === false).length;
+  const cites = citationsOf(calls);
+  const grades = summarizeGrades(cites);
+  gradeTotals.total += grades.total;
+  gradeTotals.official += grades.official;
+  gradeTotals.professional += grades.professional;
+  gradeTotals.weak += grades.weak;
+  if (grades.total > 0) tasksWithCitations += 1;
   const input: ManifestInput = {
     task: {
       id: t.id,
@@ -196,7 +291,8 @@ for (const t of listTasks()) {
       toolFailed,
       toolRunning: calls.filter((c) => c.ok === null).length,
       pendingReview: pendingReviewIssues(t.id).length,
-      citations: 0,
+      citations: cites.length,
+      citationGrades: cites.length > 0 ? grades : null,
       linkCheck: null,
       linkCheckAgeHours: null,
       amountTotal: amounts.total,
@@ -236,7 +332,8 @@ for (const t of listTasks()) {
       running: calls.filter((c) => c.ok === null).length,
       avgMs: null,
     },
-    citations: [],
+    citations: cites,
+    citationGrades: cites.length > 0 ? grades : null,
     linkCheck: { summary: null, checkedAt: null },
     amounts: {
       total: amounts.total,
@@ -253,7 +350,9 @@ for (const t of listTasks()) {
   if (issues.length > 0) failures.push(`${t.id.slice(0, 8)} 清单不自洽：${issues.join("；")}`);
 }
 
-console.log(`[verify] 清单检查项=${checks} 真实任务=${built} 失败=${failures.length}`);
+console.log(
+  `[verify] 清单检查项=${checks} 真实任务=${built} 失败=${failures.length} · 引用分级：${tasksWithCitations} 个任务共 ${gradeTotals.total} 条（官方 ${gradeTotals.official} · 专业 ${gradeTotals.professional} · 证据力弱 ${gradeTotals.weak}）`,
+);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  - ${f}`);
   console.log("[FAIL] 交付清单不自洽");
