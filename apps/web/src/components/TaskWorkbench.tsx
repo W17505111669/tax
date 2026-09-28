@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { marked } from "marked";
 import { api } from "../api.ts";
-import type { AgentInfo, ArtifactInfo, CompareRecord, FileInfo, ReviewRecord, TaskInfo, TaskIssue } from "../types.ts";
+import type {
+  AgentInfo,
+  ArtifactInfo,
+  CompareRecord,
+  FileInfo,
+  LinkCheck,
+  ReviewRecord,
+  TaskInfo,
+  TaskIssue,
+} from "../types.ts";
 import { useTaskEvents } from "../hooks/useTaskEvents.ts";
 import { MarkdownView, type Annotation } from "./MarkdownView.tsx";
 import { readerKey, SideReader, type ReaderTarget } from "./SideReader.tsx";
@@ -13,6 +22,7 @@ import { callStats, callsByRun, durationMs, fmtDuration, mdCell, summarizeArgs }
 import { amountKey, traceAmounts } from "../amount-trace.ts";
 import { reviewSection } from "../review-export.ts";
 import { deliveryCheck, deliverySection, type CheckInput, type CheckResult } from "../delivery-check.ts";
+import { linkVerdict, summarizeLinkChecks, VERDICT_HINT, VERDICT_TEXT, type LinkSummary } from "../link-check.ts";
 import { CompareView } from "./CompareView.tsx";
 import { ThemeSwitch } from "./ThemeSwitch.tsx";
 import { ReviewView } from "./ReviewView.tsx";
@@ -107,6 +117,10 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   const [reopened, setReopened] = useState(false);
   // 已人工核对的金额（键 → 核对时间与备注），点击正文标注即可标记或撤销
   const [amountChecks, setAmountChecks] = useState<Record<string, { at: string; note: string }>>({});
+  // 引用链接可达性核验（按需触发，不自动请求外网）
+  const [linkChecks, setLinkChecks] = useState<Record<string, LinkCheck>>({});
+  const [linkCheckedAt, setLinkCheckedAt] = useState<string | null>(null);
+  const [linkBusy, setLinkBusy] = useState(false);
   const [pendingReviews, setPendingReviews] = useState(0);
   const [readerOpen, setReaderOpen] = useState(false);
   const [readerTabs, setReaderTabs] = useState<ReaderTarget[]>([]);
@@ -372,6 +386,28 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
         setAmountChecks(Object.fromEntries(list.map((c) => [c.key, { at: c.createdAt, note: c.note }]))),
       )
       .catch(() => undefined);
+  };
+
+  // 切换任务时清空上一个任务的核验结果
+  useEffect(() => {
+    setLinkChecks({});
+    setLinkCheckedAt(null);
+    setLinkBusy(false);
+  }, [task.id]);
+
+  /** 核验引用链接可达性：GET + 8 秒超时，只取状态不下载正文（URL 由调用方传入，避免依赖顺序） */
+  const checkCitationLinks = (urls: string[]) => {
+    const unique = [...new Set(urls)];
+    if (unique.length === 0 || linkBusy) return;
+    setLinkBusy(true);
+    void api
+      .checkLinks(unique)
+      .then((res) => {
+        setLinkChecks(Object.fromEntries(res.results.map((r) => [r.url, r])));
+        setLinkCheckedAt(res.checkedAt);
+      })
+      .catch(() => undefined)
+      .finally(() => setLinkBusy(false));
   };
 
   const handleReopenReview = () => {
@@ -759,6 +795,9 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     return { pend: [...pend.values()], acked: [...acked.values()] };
   }, [amountTrace, amountChecks]);
 
+  // 链接核验汇总：可访问 / 失效 / 拒绝自动访问（反爬）/ 无法核验，四类分开计数
+  const linkSummary = useMemo(() => summarizeLinkChecks(Object.values(linkChecks)), [linkChecks]);
+
   // 交付自检输入：结论字数、产物与溯源、工具调用结果、待复核与联网引用
   const deliveryInput = (): CheckInput => ({
     status: reopened ? "waiting_review" : task.status,
@@ -770,13 +809,14 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     toolRunning: toolCalls.filter((c) => c.ok === null).length,
     pendingReview: pendingReviews,
     citations: citations.length,
+    linkCheck: linkCheckedAt ? linkSummary : null,
     amountTotal: amountTrace.total,
     amountUntraced: amountPending.length,
   });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const delivery = useMemo(
     () => deliveryCheck(deliveryInput()),
-    [reopened, task.status, finalResult, artifacts, artSrc, toolCalls, pendingReviews, citations],
+    [reopened, task.status, finalResult, artifacts, artSrc, toolCalls, pendingReviews, citations, linkSummary, linkCheckedAt],
   );
 
   // 交付包里的工具调用清单：按运行分组，含结果、耗时与入参摘要（表格单元格已做竖线/换行安全化）
@@ -833,6 +873,22 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     "",
     ...(citations.length > 0 ? citations.map((c, i) => `${i + 1}. ${c.title}\n   ${c.url}`) : ["（本次任务无联网引用）"]),
     "",
+    ...(linkCheckedAt
+      ? [
+          `- 链接核验：${new Date(linkCheckedAt).toLocaleString("zh-CN", { hour12: false })} · 可访问 ${
+            linkSummary.ok
+          }/${linkSummary.total} · 失效 ${linkSummary.dead} · 拒绝自动访问 ${linkSummary.blocked} · 无法核验 ${
+            linkSummary.unreachable
+          }`,
+          ...Object.values(linkChecks)
+            .filter((r) => linkVerdict(r) !== "ok")
+            .map(
+              (r) =>
+                `  - ${VERDICT_TEXT[linkVerdict(r)]}：${r.url}（${r.status ?? r.error ?? "无响应"}，耗时 ${r.ms} ms）`,
+            ),
+          "",
+        ]
+      : []),
     "## 生成产物与溯源",
     "",
     ...(artifacts.length > 0
@@ -1545,6 +1601,11 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                 status={liveStatus}
                 citations={citations}
                 onOpenUrl={openReader}
+                linkChecks={linkChecks}
+                linkBusy={linkBusy}
+                linkCheckedAt={linkCheckedAt}
+                linkSummary={linkSummary}
+                onCheckLinks={() => checkCitationLinks(citations.map((c) => c.url))}
                 onDownloadReport={() => download(`${task.title}-审查报告.md`, finalResult)}
                 onDownloadCitations={() =>
                   download(
@@ -2631,6 +2692,11 @@ function ResultView({
   fs,
   onFs,
   onExportBundle,
+  linkChecks,
+  linkBusy,
+  linkCheckedAt,
+  linkSummary,
+  onCheckLinks,
 }: {
   result: string;
   error: string | null;
@@ -2649,6 +2715,12 @@ function ResultView({
   fs: "sm" | "md" | "lg";
   onFs: (v: "sm" | "md" | "lg") => void;
   onExportBundle: () => void;
+  /** 引用链接核验：结果、进行中状态、最近核验时间与触发回调 */
+  linkChecks: Record<string, LinkCheck>;
+  linkBusy: boolean;
+  linkCheckedAt: string | null;
+  linkSummary: LinkSummary;
+  onCheckLinks: () => void;
 }) {
   if (error) {
     return (
@@ -2774,20 +2846,73 @@ function ResultView({
               <IconCopy className="h-3 w-3" />
               复制清单
             </button>
+            <button
+              type="button"
+              className="action-btn disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={linkBusy}
+              title="按需核验全部引用链接是否仍可访问（服务端 GET，8 秒超时，不下载正文）"
+              onClick={onCheckLinks}
+            >
+              {linkBusy ? "核验中…" : linkCheckedAt ? "重新核验链接" : "核验链接"}
+            </button>
           </div>
+          {linkCheckedAt && (
+            <p className="mt-1.5 text-[11px] text-mist-600">
+              最近核验 {new Date(linkCheckedAt).toLocaleString("zh-CN", { hour12: false })} · 可访问 {linkSummary.ok}/
+              {linkSummary.total}
+              {linkSummary.dead > 0 && <span className="text-rose-300"> · 失效 {linkSummary.dead}</span>}
+              {linkSummary.blocked > 0 && (
+                <span className="text-sky-300"> · 拒绝自动访问 {linkSummary.blocked}</span>
+              )}
+              {linkSummary.unreachable > 0 && <span> · 无法核验 {linkSummary.unreachable}</span>}
+              {linkSummary.dead > 0 && <span className="text-rose-300">（失效链接交付前请替换或补充依据）</span>}
+            </p>
+          )}
           <div className="mt-2 flex flex-wrap gap-2">
-            {citations.map((c) => (
-              <button
-                key={c.url}
-                type="button"
-                onClick={() => onOpenUrl({ kind: "url", url: c.url })}
-                title={c.url}
-                className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-line bg-night-850 px-2.5 py-1 text-[11.5px] text-mist-300 transition-colors hover:border-glow-500 hover:text-glow-300"
-              >
-                <IconExternal className="h-3 w-3 shrink-0 text-glow-400" />
-                <span className="truncate">{c.title}</span>
-              </button>
-            ))}
+            {citations.map((c) => {
+              const chk = linkChecks[c.url];
+              const verdict = chk ? linkVerdict(chk) : null;
+              return (
+                <button
+                  key={c.url}
+                  type="button"
+                  onClick={() => onOpenUrl({ kind: "url", url: c.url })}
+                  title={
+                    chk && verdict
+                      ? `${c.url}\n核验：${
+                          verdict === "ok"
+                            ? `可访问 HTTP ${chk.status}`
+                            : `${VERDICT_TEXT[verdict]}（${chk.status ?? chk.error ?? "无响应"}）· ${VERDICT_HINT[verdict]}`
+                        } · ${chk.ms} ms`
+                      : c.url
+                  }
+                  className={`inline-flex max-w-full items-center gap-1.5 rounded-full border bg-night-850 px-2.5 py-1 text-[11.5px] transition-colors ${
+                    verdict === "dead"
+                      ? "border-rose-400/50 text-rose-200 hover:border-rose-400"
+                      : "border-line text-mist-300 hover:border-glow-500 hover:text-glow-300"
+                  }`}
+                >
+                  <IconExternal className="h-3 w-3 shrink-0 text-glow-400" />
+                  <span className="truncate">{c.title}</span>
+                  {chk && verdict && (
+                    <span
+                      className={`shrink-0 rounded px-1 font-mono text-[9.5px] ${
+                        verdict === "ok"
+                          ? "bg-jade-400/15 text-jade-300"
+                          : verdict === "dead"
+                            ? "bg-rose-400/15 text-rose-300"
+                            : verdict === "blocked"
+                              ? "bg-sky-400/15 text-sky-300"
+                              : "bg-night-700 text-mist-500"
+                      }`}
+                      title={VERDICT_HINT[verdict]}
+                    >
+                      {verdict === "ok" ? chk.status : VERDICT_TEXT[verdict]}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}

@@ -15,19 +15,28 @@ export type CheckInput = {
   toolRunning: number;
   pendingReview: number;
   citations: number;
+  /** 最近一次链接核验的分级汇总；null 表示尚未核验，此时不做任何判断 */
+  linkCheck: { total: number; ok: number; blocked: number; dead: number; unreachable: number } | null;
   /** 结论中识别出的金额处数（金额溯源） */
   amountTotal: number;
   /** 其中在工具结果与客户指令里都找不到出处的处数 */
   amountUntraced: number;
 };
 
-export type CheckLevel = "block" | "warn" | "ok";
+/** info 只作说明，不影响交付判定（例如反爬导致的「拒绝自动访问」） */
+export type CheckLevel = "block" | "warn" | "ok" | "info";
 
 export type CheckItem = { level: CheckLevel; text: string };
 
 export type Verdict = "可交付" | "谨慎交付" | "不建议直接交付";
 
-export type CheckResult = { verdict: Verdict; items: CheckItem[]; blocks: number; warns: number };
+export type CheckResult = {
+  verdict: Verdict;
+  items: CheckItem[];
+  blocks: number;
+  warns: number;
+  infos: number;
+};
 
 export function deliveryCheck(i: CheckInput): CheckResult {
   const items: CheckItem[] = [];
@@ -77,19 +86,39 @@ export function deliveryCheck(i: CheckInput): CheckResult {
   if (i.citations > 0) items.push({ level: "ok", text: `联网引用 ${i.citations} 条` });
   else items.push({ level: "warn", text: "无联网引用，涉及政策依据的结论请确认是否已完成在线核验" });
 
+  if (i.linkCheck) {
+    if (i.linkCheck.dead > 0) {
+      items.push({
+        level: "warn",
+        text: `${i.linkCheck.dead} 条联网引用已失效（4xx），交付前请替换链接或补充其他依据`,
+      });
+    }
+    if (i.linkCheck.blocked > 0 || i.linkCheck.unreachable > 0) {
+      items.push({
+        level: "info",
+        text: `${i.linkCheck.blocked} 条引用拒绝自动访问、${i.linkCheck.unreachable} 条无法核验（反爬 / 超时 / 5xx），需人工点击确认，不计入交付风险`,
+      });
+    }
+    if (i.linkCheck.total > 0 && i.linkCheck.dead === 0 && i.linkCheck.ok === i.linkCheck.total) {
+      items.push({ level: "ok", text: `联网引用最近核验全部可访问（${i.linkCheck.total} 条）` });
+    }
+  }
+
   const blocks = items.filter((x) => x.level === "block").length;
   const warns = items.filter((x) => x.level === "warn").length;
   const verdict: Verdict = blocks > 0 ? "不建议直接交付" : warns > 0 ? "谨慎交付" : "可交付";
-  return { verdict, items, blocks, warns };
+  return { verdict, items, blocks, warns, infos: items.filter((x) => x.level === "info").length };
 }
 
-const MARK: Record<CheckLevel, string> = { block: "✗", warn: "!", ok: "✓" };
+const MARK: Record<CheckLevel, string> = { block: "✗", warn: "!", ok: "✓", info: "·" };
 
 /** 生成「交付自检」一节的 Markdown 行 */
 export function deliverySection(i: CheckInput): string[] {
   const r = deliveryCheck(i);
   return [
-    `- 结论：${r.verdict}（阻断 ${r.blocks} 项 · 提醒 ${r.warns} 项）`,
+    `- 结论：${r.verdict}（阻断 ${r.blocks} 项 · 提醒 ${r.warns} 项${
+      r.infos > 0 ? ` · 说明 ${r.infos} 项` : ""
+    }）`,
     `- 任务状态：${i.status}`,
     ...r.items.map((x) => `- ${MARK[x.level]} ${x.text}`),
   ];

@@ -4,6 +4,7 @@
  * 运行：pnpm verify:dcheck
  */
 import { deliveryCheck, deliverySection, type CheckInput } from "../../web/src/delivery-check.ts";
+import type { LinkSummary } from "../../web/src/link-check.ts";
 import { pendingReviewIssues } from "../src/services/issues.ts";
 import { listTasks, getTask } from "../src/services/task-store.ts";
 
@@ -27,6 +28,7 @@ const base: CheckInput = {
   toolRunning: 0,
   pendingReview: 0,
   citations: 3,
+  linkCheck: null,
   amountTotal: 12,
   amountUntraced: 0,
 };
@@ -60,6 +62,30 @@ expect(
   true,
 );
 expect("结论无金额时不产生金额条目", deliveryCheck({ ...base, amountTotal: 0 }).items.some((x) => x.text.includes("结论金额")), false);
+const links = (over: Partial<LinkSummary> = {}): LinkSummary => ({
+  total: 3,
+  ok: 3,
+  blocked: 0,
+  dead: 0,
+  unreachable: 0,
+  ...over,
+});
+expect("未核验链接时不做判断", deliveryCheck(base).items.some((x) => x.text.includes("核验")), false);
+expect("有失效引用 → 提醒", deliveryCheck({ ...base, linkCheck: links({ ok: 1, dead: 2 }) }).verdict, "谨慎交付");
+expect(
+  "失效引用提示含条数",
+  deliveryCheck({ ...base, linkCheck: links({ ok: 1, dead: 2 }) }).items.some((x) => x.text.includes("2 条联网引用已失效")),
+  true,
+);
+expect("反爬拒绝只作说明、不降级", deliveryCheck({ ...base, linkCheck: links({ ok: 1, blocked: 2 }) }).verdict, "可交付");
+expect("反爬说明计入 info", deliveryCheck({ ...base, linkCheck: links({ ok: 1, blocked: 2 }) }).infos, 1);
+expect("无法核验也只作说明", deliveryCheck({ ...base, linkCheck: links({ ok: 2, unreachable: 1 }) }).verdict, "可交付");
+expect("全部可访问 → 可交付", deliveryCheck({ ...base, linkCheck: links() }).verdict, "可交付");
+expect(
+  "全部可访问时的正向条目",
+  deliveryCheck({ ...base, linkCheck: links() }).items.some((x) => x.level === "ok" && x.text.includes("全部可访问")),
+  true,
+);
 expect("多项阻断同时存在", deliveryCheck({ ...base, status: "processing", resultChars: 0 }).blocks, 2);
 expect("失败叠加空结论", deliveryCheck({ ...base, status: "failed", resultChars: 0 }).blocks, 2);
 

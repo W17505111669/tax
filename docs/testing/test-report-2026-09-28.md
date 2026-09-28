@@ -32,6 +32,7 @@
 | `pnpm verify:revexp` | 人工复核记录导出（计数与后端同口径 / 转义 / 状态提示） | PASS |
 | `pnpm verify:dcheck` | 交付自检分级规则（阻断 / 提醒 / 可交付）与真实任务走查 | PASS |
 | `pnpm verify:amounts` | 结论金额溯源（提取规则 / 双量纲收集 / 工具-指令-待确认三级口径） | PASS |
+| `pnpm verify:links` | 引用链接核验分级（可访问 / 反爬拒绝 / 失效 / 无法核验） | PASS |
 
 ## 三、真实任务台账
 

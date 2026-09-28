@@ -7,6 +7,7 @@ import TurndownService from "turndown";
 import { dirs } from "../config.ts";
 import { parseExcelFile } from "@tax/document-tools";
 import { getTask, listFiles } from "../services/task-store.ts";
+import { nowIso } from "../db.ts";
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
@@ -54,6 +55,48 @@ function assertSafeUrl(raw: string): URL {
   return url;
 }
 
+export interface LinkCheck {
+  url: string;
+  ok: boolean;
+  status: number | null;
+  finalUrl: string;
+  ms: number;
+  error?: string;
+}
+
+/**
+ * 单条链接可达性核验：用 GET（不少站点对 HEAD 返回 405），8 秒超时，
+ * 只取状态与最终地址、立即取消响应体，避免为核验下载整页内容。
+ */
+async function checkLink(raw: string): Promise<LinkCheck> {
+  const started = Date.now();
+  try {
+    const target = assertSafeUrl(raw);
+    const res = await fetch(target, {
+      method: "GET",
+      headers: { "User-Agent": UA, Accept: "*/*" },
+      redirect: "follow",
+      signal: AbortSignal.timeout(8000),
+    });
+    await res.body?.cancel();
+    return {
+      url: raw,
+      ok: res.ok,
+      status: res.status,
+      finalUrl: res.url || target.toString(),
+      ms: Date.now() - started,
+    };
+  } catch (err) {
+    return {
+      url: raw,
+      ok: false,
+      status: null,
+      finalUrl: raw,
+      ms: Date.now() - started,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
 /** 阅读模式解析：linkedom + Mozilla Readability + Turndown，全部为成熟开源库。 */
 async function readUrl(raw: string): Promise<ReaderResult> {
   const target = assertSafeUrl(raw);
@@ -110,6 +153,20 @@ export async function readerRoutes(app: FastifyInstance): Promise<void> {
     } catch (err) {
       return reply.code(400).send({ error: err instanceof Error ? err.message : "读取失败" });
     }
+  });
+
+  /** 引用链接可达性核验：交付前确认政策依据/案例链接是否仍然可访问（按需触发，最多 30 条） */
+  app.post("/api/reader/check-links", async (req, reply) => {
+    const body = (req.body ?? {}) as { urls?: string[] };
+    const urls = Array.isArray(body.urls) ? body.urls.filter((u) => typeof u === "string").slice(0, 30) : [];
+    if (urls.length === 0) return reply.code(400).send({ error: "需要 urls（1-30 条）" });
+    const results = await Promise.all(urls.map((u) => checkLink(u)));
+    return {
+      checkedAt: nowIso(),
+      total: results.length,
+      ok: results.filter((r) => r.ok).length,
+      results,
+    };
   });
 
   app.get("/api/tasks/:id/files/:fileId/content", async (req, reply) => {

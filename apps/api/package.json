@@ -18,6 +18,7 @@
     "verify:rtools": "tsx scripts/verify-run-tools.ts",
     "verify:amounts": "tsx scripts/verify-amount-trace.ts",
     "verify:dcheck": "tsx scripts/verify-delivery-check.ts",
+    "verify:links": "tsx scripts/verify-link-check.ts",
     "case:run": "tsx scripts/run-case.ts"
   },
   "dependencies": {

@@ -54,6 +54,16 @@ export const api = {
 
   readUrl: (url: string) => request<ReaderResult>(`/api/reader?url=${encodeURIComponent(url)}`),
 
+  checkLinks: (urls: string[]) =>
+    request<{ checkedAt: string; total: number; ok: number; results: import("./types.ts").LinkCheck[] }>(
+      `/api/reader/check-links`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ urls }),
+      },
+    ),
+
   listArtifacts: (taskId: string) =>
     request<{ artifacts: ArtifactInfo[] }>(`/api/tasks/${taskId}/artifacts`).then((r) => r.artifacts),
 

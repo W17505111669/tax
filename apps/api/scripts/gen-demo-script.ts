@@ -94,7 +94,8 @@ const scenes: Array<{
     task: pick((t) => t.tools.has("search_rd_policy"), "政策依据"),
     tab: "result",
     talk: "search_rd_policy 给出比例与文号；正式引用前 web_search 联网核验并记录核验时间。",
-    expect: "结论中的政策依据表格与核验状态。",
+    expect:
+      "结论中的政策依据表格与核验状态、联网引用区的「核验链接」按钮与四级结果标记（可访问 / 拒绝自动访问 / 失效 / 无法核验，悬停看原因）。",
     seconds: 40,
   },
   {

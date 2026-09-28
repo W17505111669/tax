@@ -98,6 +98,16 @@ export interface ArtifactInfo {
   updatedAt: string;
 }
 
+/** 引用链接可达性核验结果 */
+export interface LinkCheck {
+  url: string;
+  ok: boolean;
+  status: number | null;
+  finalUrl: string;
+  ms: number;
+  error?: string;
+}
+
 export interface SheetPreview {
   name: string;
   headers: string[];

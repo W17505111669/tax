@@ -54,6 +54,9 @@ function build(agent: TaxAgentConfig, extra: Array<{ name: string; label: string
   lines.push("");
   lines.push(`- Agent Runtime：Pi Agent SDK \`@earendil-works/pi-coding-agent@0.87.1\`（嵌入式会话，禁用内置 read/bash/edit/write）`);
   lines.push(`- 联网检索：社区扩展 pi-web-access（Exa MCP 零配置）+ 自建 Bing/百度兜底抓取`);
+  lines.push(
+    `- 引用可核验：结论引用链接可按需批量核验可达性（服务端 GET、8 秒超时、不下载正文，沿用内网地址拦截），结果分为可访问 / 拒绝自动访问（反爬，需人工确认）/ 失效 / 无法核验四级；失效引用进入交付自检提醒与整页 MD，反爬不计入交付风险`,
+  );
   lines.push(`- 前后端：React + Vite + Tailwind（深色专业工作台）/ Node.js + Fastify + SSE`);
   lines.push(`- 存储与计算：SQLite（node:sqlite）/ ExcelJS / unpdf / tesseract.js（OCR）/ 整数分金额计算`);
   lines.push(
