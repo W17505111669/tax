@@ -1,7 +1,7 @@
 import path from "node:path";
 import { createTaxAgentSession, loadRuntimeConfig, SessionManager, TaskEventBus } from "@tax/agent-core";
 import type { NormalizedAgentEvent } from "@tax/agent-core";
-import { createExtractTools, createTaskDocumentTools, createTemplateTools } from "@tax/document-tools";
+import { createDiagramTools, createExtractTools, createTaskDocumentTools, createTemplateTools } from "@tax/document-tools";
 import type { AgentId } from "@tax/shared-schemas";
 import { dataDir, dirs } from "../config.ts";
 import { resolveCommunityExtensions } from "../extensions.ts";
@@ -11,6 +11,7 @@ import {
   finishToolCall,
   getTask,
   listFiles,
+  latestToolResult,
   markFilesParsed,
   recordToolCall,
   setTaskStatus,
@@ -43,12 +44,18 @@ export async function runTask(taskId: string, instruction: string, opts: { resum
   const cfg = loadRuntimeConfig();
   cfg.extensionPaths = [...cfg.extensionPaths, ...resolveCommunityExtensions()];
   const taskCwd = path.join(dirs.uploads, taskId);
-  const docCtx = { taskId, files: listFiles(taskId), outputsDir: path.join(dirs.outputs, taskId) };
+  const docCtx = {
+    taskId,
+    files: listFiles(taskId),
+    outputsDir: path.join(dirs.outputs, taskId),
+    latestToolResult: (toolName: string) => latestToolResult(taskId, toolName),
+  };
   const kits = agent.taskToolKits ?? ["documents"];
   const taskTools = [
     ...(kits.includes("documents") ? createTaskDocumentTools(docCtx) : []),
     ...(kits.includes("template") ? createTemplateTools(docCtx) : []),
     ...(kits.includes("extract") ? createExtractTools(docCtx) : []),
+    ...(kits.includes("template") ? createDiagramTools(docCtx) : []),
   ];
 
   const pendingToolCalls = new Map<string, string>();

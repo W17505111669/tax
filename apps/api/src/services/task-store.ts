@@ -161,3 +161,18 @@ export function listToolCalls(taskId: string) {
 export function markFilesParsed(taskId: string): void {
   db.prepare(`UPDATE files SET parse_status = 'parsed' WHERE task_id = ? AND parse_status = 'pending'`).run(taskId);
 }
+
+/** 取本任务某工具最近一次成功执行的结果 details。 */
+export function latestToolResult(taskId: string, toolName: string): unknown | null {
+  const row = db
+    .prepare(
+      `SELECT result FROM tool_calls WHERE task_id = ? AND tool_name = ? AND ok = 1 AND result IS NOT NULL ORDER BY started_at DESC LIMIT 1`,
+    )
+    .get(taskId, toolName) as { result: string } | undefined;
+  if (!row) return null;
+  try {
+    return JSON.parse(row.result);
+  } catch {
+    return null;
+  }
+}

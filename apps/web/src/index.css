@@ -115,6 +115,10 @@ details.tool-row .chev {
   background: #fef3c7 !important;
 }
 
+.print-only {
+  display: none;
+}
+
 /* ===== Markdown 阅读器（深色） ===== */
 .md-body {
   font-size: 13.5px;
@@ -352,6 +356,9 @@ details.tool-row .chev {
   }
   .no-print {
     display: none !important;
+  }
+  .print-only {
+    display: block !important;
   }
   .print-scroll {
     overflow: visible !important;

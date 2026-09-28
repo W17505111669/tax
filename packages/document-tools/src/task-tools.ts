@@ -12,6 +12,8 @@ export interface TaskDocumentContext {
   taskId: string;
   files: BusinessFile[];
   outputsDir: string;
+  /** 取本任务某工具最近一次成功结果（供确定性图表工具读取关联数据）。 */
+  latestToolResult?: (toolName: string) => unknown | null;
 }
 
 export async function parseOne(file: BusinessFile): Promise<ParsedDocument> {

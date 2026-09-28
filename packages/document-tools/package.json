@@ -23,6 +23,7 @@
     "verify:compare": "tsx scripts/verify-compare.ts",
     "verify:ocr": "tsx scripts/verify-ocr.ts",
     "verify:extract": "tsx scripts/verify-extract.ts",
+    "verify:diagram": "tsx scripts/verify-diagram.ts",
     "typecheck": "tsc -p tsconfig.json"
   }
 }

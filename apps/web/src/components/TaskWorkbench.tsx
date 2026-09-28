@@ -429,6 +429,14 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
               />
             )}
             {tab === "result" && (
+              <>
+                <div className="print-only mb-4 border-b border-gray-300 pb-2">
+                  <div className="text-[13px] font-semibold text-gray-900">税务智能审查平台 · 审查结论</div>
+                  <div className="mt-0.5 text-[11px] text-gray-600">
+                    任务：{task.title}　案例：{task.caseId}　状态：{liveStatus}　打印时间：
+                    {new Date().toLocaleString("zh-CN", { hour12: false })}
+                  </div>
+                </div>
               <ResultView
                 result={finalResult}
                 error={task.error}
@@ -444,6 +452,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
                 }
                 onPrint={() => window.print()}
               />
+              </>
             )}
             {tab === "compare" && <CompareView compares={compares} onOpenTarget={openCompareTarget} />}
             {tab === "review" && (
