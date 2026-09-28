@@ -130,7 +130,7 @@ export function IconRail({
                 { keys: "Enter", desc: "阅读器双底稿定位" },
                 { keys: "Alt+1~4", desc: "切换工作台页签" },
                 { keys: "搜索框 ↑/↓+Enter", desc: "选择并打开任务" },
-                { keys: "?", desc: "开关本帮助" },
+                { keys: "? / Ctrl+/", desc: "开关本帮助" },
               ].map((s) => (
                 <li key={s.keys} className="flex items-center justify-between gap-2">
                   <span>{s.desc}</span>
@@ -745,6 +745,9 @@ export function Sidebar({
               >
                 <span className={`chev text-[9px] ${closed ? "" : "rotate-90"}`}>▶</span>
                 <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[g.id] ?? "bg-mist-600"}`} />
+                {list.some((t) => t.status === "processing") && (
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" title="组内含运行中任务" />
+                )}
                 {g.label}
                 <button
                   type="button"

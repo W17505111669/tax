@@ -123,7 +123,10 @@ export default function App() {
     const handler = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      if (e.key === "?") window.dispatchEvent(new CustomEvent("taxai-toggle-help"));
+      if (e.key === "?" || (e.ctrlKey && e.key === "/")) {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent("taxai-toggle-help"));
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
