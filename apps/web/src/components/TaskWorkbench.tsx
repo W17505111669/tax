@@ -793,7 +793,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
               }}
               className="no-print absolute bottom-4 right-6 z-10 rounded-full border border-glow-500/50 bg-night-800/95 px-3 py-1.5 text-[11.5px] text-glow-300 shadow-lg transition-colors hover:bg-night-700"
             >
-              回到最新 ↓
+              回到最新 ↓ {Math.round(scrollPct * 100)}%
             </button>
           )}
         </div>

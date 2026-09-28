@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { AgentInfo, PlatformStats } from "../types.ts";
 import { IconBuilding, IconCheck, IconExternal, IconFile, IconFlask, IconTool } from "./Icons.tsx";
 
-/** 大数字进入页面时从 0 缓动递增，对齐参考片数据页的计数质感。 */
+/** 大数字 odometer：每位数字独立滚轮到目标值，对齐参考片数据页质感。 */
 const DESC_KEYWORDS = ["整数分", "行级", "记录级", "OCR", "mermaid", "联网"];
 
 /** 智能体描述中的能力关键词高亮。 */
@@ -19,21 +19,37 @@ function renderDesc(text: string) {
   );
 }
 
-function useCountUp(target: number, duration = 900): number {
-  const [val, setVal] = useState(0);
+function Odometer({ value }: { value: number }) {
+  const [on, setOn] = useState(false);
   useEffect(() => {
-    let raf = 0;
-    const start = performance.now();
-    const tick = (now: number) => {
-      const p = Math.min(1, (now - start) / duration);
-      const eased = 1 - Math.pow(1 - p, 3);
-      setVal(Math.round(target * eased));
-      if (p < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [target, duration]);
-  return val;
+    const t = window.setTimeout(() => setOn(true), 60);
+    return () => window.clearTimeout(t);
+  }, []);
+  const text = value.toLocaleString("zh-CN");
+  return (
+    <span className="stat-hero inline-flex">
+      {text.split("").map((ch, i) =>
+        /\d/.test(ch) ? (
+          <span key={i} className="inline-block h-[1em] overflow-hidden">
+            <span
+              className="flex flex-col transition-transform duration-700 ease-out"
+              style={{ transform: `translateY(-${on ? Number(ch) : 0}em)` }}
+            >
+              {Array.from({ length: 10 }, (_, d) => (
+                <span key={d} className="block h-[1em] leading-[1em]">
+                  {d}
+                </span>
+              ))}
+            </span>
+          </span>
+        ) : (
+          <span key={i} className="inline-block">
+            {ch}
+          </span>
+        ),
+      )}
+    </span>
+  );
 }
 
 interface Props {
@@ -64,7 +80,6 @@ export function AgentOverview({
   const Icon = agent.id === "rd-audit" ? IconFlask : IconBuilding;
   const p = stats.platform;
   const heroValue = p?.tasks ?? stats.tasks;
-  const heroShown = useCountUp(heroValue);
   const bars = [
     { label: "已完成", value: breakdown.completed },
     { label: "执行中", value: breakdown.processing },
@@ -144,7 +159,7 @@ export function AgentOverview({
 
         <div className="mt-7 grid gap-8 lg:grid-cols-[300px_1fr]">
           <div>
-            <div className="stat-hero">{heroShown.toLocaleString("zh-CN")}</div>
+            <Odometer value={heroValue} />
             <div className="mt-1.5 text-[13px] font-medium text-mist-100">
               累计审查任务
               <span className="ml-2 text-[11px] font-normal text-mist-600">逐条 OCR · 行级定位</span>
