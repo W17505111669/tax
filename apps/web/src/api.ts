@@ -75,11 +75,11 @@ export const api = {
     ),
 
   /** 打包交付：把整页 MD 交给服务端与本任务产物合成 zip（二进制，故不走 request） */
-  bundleZip: async (taskId: string, markdown: string, fileName?: string): Promise<Blob> => {
+  bundleZip: async (taskId: string, markdown: string, fileName?: string, manifest?: unknown): Promise<Blob> => {
     const res = await fetch(`/api/tasks/${taskId}/bundle`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ markdown, fileName }),
+      body: JSON.stringify({ markdown, fileName, manifest }),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => "");

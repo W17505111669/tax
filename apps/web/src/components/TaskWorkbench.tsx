@@ -41,6 +41,8 @@ import {
   type ParsedDoc,
   type ParseSummary,
 } from "../file-parse.ts";
+import { buildManifest } from "../manifest.ts";
+import { reviewCounts } from "../review-export.ts";
 import {
   partitionFiles,
   policyHint,
@@ -1114,6 +1116,58 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   // 打包下载：整页 MD 交服务端与本任务产物合成 zip；失败时退回单文件 MD，保证材料总能拿到
   const [zipBusy, setZipBusy] = useState(false);
   const [zipNote, setZipNote] = useState("");
+  /** 交付包的机器可读清单：与整页 MD 同源，便于归档系统检索与后续自动核对 */
+  const buildDeliveryManifest = () => {
+    const st = callStats(toolCalls);
+    const rc = reviewCounts(issues, reviews);
+    return buildManifest({
+      task: {
+        id: task.id,
+        title: task.title,
+        caseId: task.caseId,
+        agentId: task.agentId,
+        status: reopened ? "waiting_review" : task.status,
+        createdAt: task.createdAt,
+        runCount,
+      },
+      delivery,
+      files: files.map((f) => ({
+        name: f.fileName,
+        type: f.fileType,
+        byteSize: f.byteSize,
+        uploadedAt: f.createdAt ?? "",
+        parseStatus: parseStatusText(reparse[f.id]?.status ?? f.parseStatus),
+        parseDetail: parseDetail(reparse[f.id]?.summary ?? fileParsed.get(f.fileName)),
+      })),
+      artifacts: artifacts.map((a) => {
+        const s = artSrc.get(a.name);
+        return {
+          name: a.name,
+          byteSize: a.byteSize,
+          updatedAt: a.updatedAt,
+          sourceTool: s?.toolName ?? null,
+          sourceRole: s ? s.role : null,
+          sourceAt: s?.at ?? null,
+          run: runOfArtifact(a.name),
+        };
+      }),
+      tools: { total: st.total, ok: st.ok, failed: st.failed, running: st.running, avgMs: st.avgMs },
+      citations: citations.map((c) => {
+        const chk = linkChecks[c.url];
+        return { title: c.title, url: c.url, verdict: chk ? linkVerdict(chk) : "unchecked", status: chk?.status ?? null };
+      }),
+      linkCheck: { summary: linkCheckedAt ? linkSummary : null, checkedAt: linkCheckedAt },
+      amounts: {
+        total: amountTrace.total,
+        traced: amountTrace.traced,
+        fromInput: amountTrace.fromInput,
+        pending: amountPending.length,
+        acked: amountAcked,
+      },
+      review: { issues: rc.total, done: rc.done, pending: rc.pending, notRequired: rc.notRequired },
+    });
+  };
+
   const exportBundleZip = () => {
     if (zipBusy) return;
     const stamp = new Date().toISOString().slice(0, 10);
@@ -1121,7 +1175,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     setZipBusy(true);
     setZipNote("");
     void api
-      .bundleZip(task.id, md, `${task.title}-交付包-${stamp}`)
+      .bundleZip(task.id, md, `${task.title}-交付包-${stamp}`, buildDeliveryManifest())
       .then((blob) => {
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");

@@ -280,10 +280,14 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
    */
   app.post("/api/tasks/:id/bundle", { bodyLimit: 8 * 1024 * 1024 }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const body = (req.body ?? {}) as { markdown?: string; fileName?: string };
+    const body = (req.body ?? {}) as { markdown?: string; fileName?: string; manifest?: unknown };
     const markdown = typeof body.markdown === "string" ? body.markdown : "";
     if (markdown.trim() === "") return reply.code(400).send({ error: "需要 markdown 内容" });
     const entries = await collectBundleEntries(id, markdown);
+    // 机器可读清单紧跟在 MD 之后，便于归档系统直接读取
+    if (body.manifest && typeof body.manifest === "object") {
+      entries.splice(1, 0, { name: "manifest.json", data: JSON.stringify(body.manifest, null, 2) });
+    }
     const zip = await createBundleZip(entries);
     const base = (body.fileName ?? "交付包").replace(/[\\/:*?"<>|\r\n]/g, "_").slice(0, 80);
     appendEvent(id, "agent_status", `交付包已打包：${entries.length} 个文件（含整页交付 MD）`);
