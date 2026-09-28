@@ -128,6 +128,22 @@ export function CompareView({ compares, onOpenTarget }: Props) {
     void navigator.clipboard?.writeText(lines.join("\n")).catch(() => undefined);
   };
 
+  // 仅复制当前筛选（类型+地址）下的差异
+  const copyFiltered = (rec: CompareRecord) => {
+    const t = rec.result.totals;
+    const filterDesc = `${kindFilter === "all" ? "全部" : KIND_META[kindFilter].label}${
+      addrQuery.trim() ? ` / 地址含「${addrQuery.trim()}」` : ""
+    }`;
+    const lines = [`比对准确率 ${t.accuracyPercent}%（筛选：${filterDesc}）`];
+    for (const s of rec.result.sheets) {
+      for (const d of s.diffs.filter(matchFilter)) {
+        const kind = d.kind === "mismatch" ? "差异" : d.kind === "only_a" ? "仅系统" : "仅人工";
+        lines.push(`${kind} ${d.address}: A=${d.a ?? "∅"} B=${d.b ?? "∅"}`);
+      }
+    }
+    void navigator.clipboard?.writeText(lines.join("\n")).catch(() => undefined);
+  };
+
   const openBoth = (rec: CompareRecord, addr: string) => {
     const key = addr.includes("/") && !/^[A-Za-z]{1,3}\d+$/i.test(addr) ? addr.slice(0, addr.indexOf("/")) : undefined;
     if (rec.result.a) onOpenTarget({ ...rec.result.a, highlight: key });
@@ -362,6 +378,13 @@ export function CompareView({ compares, onOpenTarget }: Props) {
                   className="rounded border border-line bg-night-800 px-2 py-0.5 text-[11px] text-mist-300 transition-colors hover:border-glow-500 hover:text-glow-300"
                 >
                   复制摘要
+                </button>
+                <button
+                  type="button"
+                  onClick={() => copyFiltered(rec)}
+                  className="rounded border border-line bg-night-800 px-2 py-0.5 text-[11px] text-mist-300 transition-colors hover:border-glow-500 hover:text-glow-300"
+                >
+                  复制筛选
                 </button>
                 {rec.result.a && (
                   <button

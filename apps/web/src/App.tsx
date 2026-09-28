@@ -175,6 +175,16 @@ export default function App() {
 
   const activeAgent = agents.find((a) => a.id === activeAgentId) ?? null;
 
+  // 浏览器标题随路由更新，多标签切换不迷路
+  useEffect(() => {
+    const base = "税务智能审查平台";
+    document.title = taskDetail?.task
+      ? `${taskDetail.task.title} · ${base}`
+      : activeAgent
+        ? `${activeAgent.shortName} · ${base}`
+        : base;
+  }, [taskDetail?.task.title, activeAgent]);
+
   // 任务终态后刷新历史列表，保证侧栏状态与持久化状态一致
   useEffect(() => {
     const status = taskDetail?.task.status;
