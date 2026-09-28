@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { AgentInfo, PlatformStats } from "../types.ts";
 import { IconBuilding, IconCheck, IconFlask, IconTool } from "./Icons.tsx";
 
@@ -25,10 +25,11 @@ interface Props {
   activeAgentId: string;
   stats: { tasks: number; completed: number; platform: PlatformStats | null };
   breakdown: { processing: number; waiting_review: number; completed: number; failed: number };
+  createdAts: string[];
   onSelect: (id: string) => void;
 }
 
-export function AgentOverview({ agents, activeAgentId, stats, breakdown, onSelect }: Props) {
+export function AgentOverview({ agents, activeAgentId, stats, breakdown, createdAts, onSelect }: Props) {
   const agent = agents.find((a) => a.id === activeAgentId);
   if (!agent) return null;
   const Icon = agent.id === "rd-audit" ? IconFlask : IconBuilding;
@@ -42,6 +43,20 @@ export function AgentOverview({ agents, activeAgentId, stats, breakdown, onSelec
     { label: "已中断", value: breakdown.failed },
   ];
   const barMax = Math.max(1, ...bars.map((b) => b.value));
+  // 近 14 天任务创建分布（按本地日桶）
+  const days = useMemo(() => {
+    const buckets = Array.from({ length: 14 }, () => 0);
+    const now = new Date();
+    const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+    for (const c of createdAts) {
+      const d = new Date(c);
+      const diff = Math.floor((today - Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())) / 86400000);
+      if (diff >= 0 && diff < 14) buckets[13 - diff] = (buckets[13 - diff] ?? 0) + 1;
+    }
+    return buckets;
+  }, [createdAts]);
+  const dayMax = Math.max(1, ...days);
+  const sparkPts = days.map((v, i) => `${((i / 13) * 100).toFixed(2)},${(28 - (v / dayMax) * 24).toFixed(2)}`).join(" ");
   const chips = [
     {
       label:
@@ -104,6 +119,22 @@ export function AgentOverview({ agents, activeAgentId, stats, breakdown, onSelec
                 </li>
               ))}
             </ul>
+            <div className="mt-5">
+              <div className="kicker flex items-center justify-between">
+                <span>任务创建趋势 · 近 14 天</span>
+                <span>今日 {days[13] ?? 0} 件</span>
+              </div>
+              <svg viewBox="0 0 100 30" preserveAspectRatio="none" className="mt-2 h-10 w-full" aria-hidden>
+                <polygon points={`0,30 ${sparkPts} 100,30`} fill="rgba(34, 211, 238, 0.12)" />
+                <polyline
+                  points={sparkPts}
+                  fill="none"
+                  stroke="#22d3ee"
+                  strokeWidth="1.5"
+                  vectorEffect="non-scaling-stroke"
+                />
+              </svg>
+            </div>
           </div>
         </div>
 

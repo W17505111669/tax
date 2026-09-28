@@ -240,6 +240,7 @@ export default function App() {
                 completed: visibleTasks.filter((t) => t.status === "completed").length,
                 failed: visibleTasks.filter((t) => t.status === "failed").length,
               }}
+              createdAts={visibleTasks.map((t) => t.createdAt)}
               onSelect={(id) => {
                 setActiveAgentId(id);
                 setActiveTaskId(null);
