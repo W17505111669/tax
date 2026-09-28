@@ -57,6 +57,9 @@ export function AgentOverview({ agents, activeAgentId, stats, breakdown, created
   }, [createdAts]);
   const dayMax = Math.max(1, ...days);
   const sparkPts = days.map((v, i) => `${((i / 13) * 100).toFixed(2)},${(28 - (v / dayMax) * 24).toFixed(2)}`).join(" ");
+  const weekNow = days.slice(7).reduce((a, b) => a + b, 0);
+  const weekPrev = days.slice(0, 7).reduce((a, b) => a + b, 0);
+  const weekDelta = weekNow - weekPrev;
   const chips = [
     {
       label:
@@ -91,6 +94,11 @@ export function AgentOverview({ agents, activeAgentId, stats, breakdown, created
             <div className="mt-1.5 text-[13px] font-medium text-mist-100">
               累计审查任务
               <span className="ml-2 text-[11px] font-normal text-mist-600">逐条 OCR · 行级定位</span>
+              {weekDelta !== 0 && (
+                <span className={`ml-2 text-[11px] font-normal ${weekDelta > 0 ? "text-jade-400" : "text-rose-300"}`}>
+                  {weekDelta > 0 ? "▲" : "▼"} 较上周 {weekDelta > 0 ? `+${weekDelta}` : weekDelta}
+                </span>
+              )}
             </div>
             <div className="mt-3 flex flex-wrap gap-1.5">
               {chips.map((c) => (

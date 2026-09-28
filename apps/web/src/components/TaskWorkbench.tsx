@@ -674,6 +674,7 @@ function TimelineView({
   const counters = useRef<Record<string, number>>({});
   counters.current = {};
   const lastTextId = [...items].reverse().find((t) => t.kind === "agent_text" && t.detail)?.id;
+  let runSeq = 0;
 
   const copyText = (text: string) => {
     void navigator.clipboard?.writeText(text).catch(() => undefined);
@@ -710,6 +711,18 @@ function TimelineView({
         }
 
         if (item.kind === "agent_status" || item.kind === "run_started") {
+          if (item.kind === "run_started") {
+            runSeq += 1;
+            if (runSeq > 1) {
+              return (
+                <div key={item.id} className="flex items-center gap-3 pt-3">
+                  <span className="h-px flex-1 bg-line" />
+                  <span className="text-[11px] text-mist-600">第 {runSeq} 次运行（续跑）</span>
+                  <span className="h-px flex-1 bg-line" />
+                </div>
+              );
+            }
+          }
           return (
             <div key={item.id} className="flex items-center gap-2 text-[11.5px] text-mist-600">
               <span className="h-1 w-1 rounded-full bg-glow-500" />
