@@ -151,6 +151,43 @@ export function CompareView({ compares, onOpenTarget }: Props) {
           </button>
         ))}
       </div>
+      {compares.length > 1 &&
+        (() => {
+          const pts = compares
+            .map((rec) => rec.result?.totals?.accuracyPercent)
+            .filter((v): v is number => typeof v === "number");
+          if (pts.length < 2) return null;
+          const min = Math.min(...pts);
+          const max = Math.max(...pts);
+          const range = Math.max(1, max - min);
+          const coords = pts.map(
+            (v, i) =>
+              `${((i / (pts.length - 1)) * 100).toFixed(2)},${(26 - ((v - min) / range) * 22).toFixed(2)}`,
+          );
+          return (
+            <div>
+              <div className="kicker flex items-center justify-between">
+                <span>准确率趋势 · {pts.length} 次比对</span>
+                <span>
+                  最低 {min}% · 最高 {max}%
+                </span>
+              </div>
+              <svg viewBox="0 0 100 30" preserveAspectRatio="none" className="mt-2 h-9 w-full" aria-hidden>
+                <polyline
+                  points={coords.join(" ")}
+                  fill="none"
+                  stroke="#34d399"
+                  strokeWidth="1.5"
+                  vectorEffect="non-scaling-stroke"
+                />
+                {coords.map((c, i) => {
+                  const [x, y] = c.split(",");
+                  return <circle key={i} cx={x} cy={y} r="1.4" fill="#34d399" />;
+                })}
+              </svg>
+            </div>
+          );
+        })()}
       {compares.map((rec) => {
         const t = rec.result?.totals;
         if (!t) return null;
