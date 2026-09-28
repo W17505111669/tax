@@ -164,13 +164,14 @@ export function Sidebar({
   }, [revealNonce]);
 
   // 收藏集合（与工作台星标共享 localStorage）
+  const [starNonce, setStarNonce] = useState(0);
   const starred = useMemo(() => {
     try {
       return new Set(JSON.parse(localStorage.getItem("taxai-starred") ?? "[]") as string[]);
     } catch {
       return new Set<string>();
     }
-  }, [tasks]);
+  }, [tasks, starNonce]);
 
   const renderTaskRow = (task: TaskInfo) => {
     const active = task.id === activeTaskId;
@@ -329,16 +330,29 @@ export function Sidebar({
           const closed = collapsed.starred ?? false;
           return (
             <div className="mb-1">
-              <button
-                type="button"
-                onClick={() => setCollapsed((prev) => ({ ...prev, starred: !closed }))}
-                className="flex w-full items-center gap-1.5 px-2 py-1 text-[10.5px] font-medium uppercase tracking-[0.14em] text-mist-600 transition-colors hover:text-mist-300"
-              >
-                <span className={`chev text-[9px] ${closed ? "" : "rotate-90"}`}>▶</span>
-                <span className="text-amber-300">★</span>
-                收藏
-                <span className="ml-auto font-mono text-[10px]">{starList.length}</span>
-              </button>
+              <div className="group flex items-center">
+                <button
+                  type="button"
+                  onClick={() => setCollapsed((prev) => ({ ...prev, starred: !closed }))}
+                  className="flex flex-1 items-center gap-1.5 px-2 py-1 text-[10.5px] font-medium uppercase tracking-[0.14em] text-mist-600 transition-colors hover:text-mist-300"
+                >
+                  <span className={`chev text-[9px] ${closed ? "" : "rotate-90"}`}>▶</span>
+                  <span className="text-amber-300">★</span>
+                  收藏
+                  <span className="ml-auto font-mono text-[10px]">{starList.length}</span>
+                </button>
+                <button
+                  type="button"
+                  title="清空收藏"
+                  onClick={() => {
+                    localStorage.setItem("taxai-starred", "[]");
+                    setStarNonce((n) => n + 1);
+                  }}
+                  className="rounded px-1.5 py-0.5 text-[10px] text-mist-600 opacity-0 transition-opacity hover:text-rose-300 group-hover:opacity-100"
+                >
+                  清空
+                </button>
+              </div>
               {!closed && starList.map((task) => renderTaskRow(task))}
             </div>
           );

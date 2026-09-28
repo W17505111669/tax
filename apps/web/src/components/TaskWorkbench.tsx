@@ -918,6 +918,30 @@ function TimelineView({
             {label}
           </button>
         ))}
+        <button
+          type="button"
+          className="action-btn ml-auto"
+          title="复制全部工具调用摘要（名称/状态/耗时/关键入参）"
+          onClick={() => {
+            const lines = toolCalls.map((c, i) => {
+              const dur = c.endedAt
+                ? `${Math.max(0, (Date.parse(c.endedAt) - Date.parse(c.at)) / 1000).toFixed(1)}s`
+                : "执行中";
+              const a = c.args as Record<string, unknown> | null;
+              const arg =
+                a && typeof a === "object"
+                  ? (Object.values(a).find((x) => typeof x === "string") as string | undefined)
+                  : undefined;
+              return `${i + 1}. ${c.toolName} | ${c.ok === null ? "执行中" : c.ok ? "成功" : "失败"} | ${dur}${
+                arg ? ` | ${arg.slice(0, 60)}` : ""
+              }`;
+            });
+            copyText(lines.join("\n"));
+          }}
+        >
+          <IconCopy className="h-3 w-3" />
+          复制工具摘要
+        </button>
       </div>
       <div className="flex justify-end">
         <div className="user-bubble max-w-[78%] whitespace-pre-wrap px-4 py-2.5 text-[13px] leading-6">
