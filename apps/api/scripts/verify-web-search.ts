@@ -9,8 +9,10 @@ import {
   isAuthoritativeUrl,
   isEncyclopediaUrl,
   isEntryPage,
+  parseBingRss,
   queryTokens,
   relevanceHits,
+  relevanceThreshold,
   searchWebDetailed,
   type SearchAttempt,
   type WebSearchResult,
@@ -103,11 +105,30 @@ expect(
 );
 expect("重复地址只保留一条", filterSearchResults(Q, [...good, ...good], 2).kept.length, 2);
 expect("重复地址标记为 duplicate", filterSearchResults(Q, [...good, ...good], 2).dropped[0]?.reason, "duplicate");
+expect("短检索词门槛不低于设定值", relevanceThreshold("研发费用", "https://a.cn/x/y.html", 2), 2);
+ok("长检索词按比例提高门槛", relevanceThreshold(Q, "https://a.cn/x/y.html", 2) >= 5, `实际 ${relevanceThreshold(Q, "https://a.cn/x/y.html", 2)}`);
+ok(
+  "权威域名门槛低于普通站点",
+  relevanceThreshold(Q, "https://x.gov.cn/a/b.html", 2) < relevanceThreshold(Q, "https://a.cn/x/y.html", 2),
+);
+expect("空检索词门槛为 0", relevanceThreshold("", "https://a.cn/x/y.html", 2), 0);
+expect("权威域名门槛至少为 1", relevanceThreshold("土地", "https://x.gov.cn/a/b.html", 0) >= 1, true);
 expect("保留结果按命中数降序", (() => {
   const f = filterSearchResults(Q, [good[1]!, good[0]!], 2);
   return (f.kept[0]!.relevance ?? 0) >= (f.kept[1]!.relevance ?? 0);
 })(), true);
-expect("门槛为 0 时只过滤入口页与重复", filterSearchResults(Q, [...junk, ...good], 0).kept.length, 3);
+expect(
+  "门槛设 0 时长检索词仍按比例过滤（同名词条不放行）",
+  filterSearchResults(Q, [...junk, ...good], 0).kept.length,
+  2,
+);
+expect("短检索词 + 门槛 0：命中 1 个词元即保留", filterSearchResults("土地增值税", [junk[0]!], 0).kept.length, 1);
+expect(
+  "同一条结果在长检索词下被过滤（门槛随长度自适应）",
+  filterSearchResults(Q, [junk[0]!], 0).kept.length,
+  0,
+);
+expect("入口页在任何门槛下都被过滤", filterSearchResults("土地增值税", [junk[1]!], 0).kept.length, 0);
 
 // 5) 验证页识别与引擎尝试说明
 expect("识别百度安全验证", detectBlockedPage("<html><head><title>百度安全验证</title></head></html>"), "百度安全验证");
@@ -115,11 +136,35 @@ expect("识别反爬提示", detectBlockedPage("<p>We have detected unusual traf
 expect("识别验证码提示", detectBlockedPage("<div>请输入验证码后继续访问</div>") !== null, true);
 expect("正常检索页不误判", detectBlockedPage("<html><head><title>财税〔2015〕119号 - 搜索</title></head><body>结果</body></html>"), null);
 const attempts: SearchAttempt[] = [
-  { engine: "bing", status: "irrelevant", fetched: 10, kept: 0, dropped: 10, httpStatus: 200, note: "10 条结果与检索词无关" },
-  { engine: "baidu", status: "blocked", fetched: 0, kept: 0, dropped: 0, httpStatus: 200, note: "百度安全验证" },
+  { engine: "bing", via: "RSS", status: "irrelevant", fetched: 10, kept: 0, dropped: 10, httpStatus: 200, note: "RSS 10 条结果与检索词无关" },
+  { engine: "baidu", via: "HTML", status: "blocked", fetched: 0, kept: 0, dropped: 0, httpStatus: 200, note: "百度安全验证" },
 ];
-expect("引擎尝试说明包含两个引擎", describeAttempts(attempts), "Bing 结果与检索词无关（10 条结果与检索词无关）；百度 触发安全验证（百度安全验证）");
+expect(
+  "引擎尝试说明包含两个引擎",
+  describeAttempts(attempts),
+  "Bing 结果与检索词无关（RSS 10 条结果与检索词无关）；百度 触发安全验证（百度安全验证）",
+);
 expect("无尝试时如实说明", describeAttempts([]), "未尝试任何检索引擎");
+
+// 5b) Bing RSS 解析：结构稳定，CDATA 与非 http 地址都要正确处理
+const RSS = [
+  `<?xml version="1.0" encoding="utf-8"?><rss><channel>`,
+  `<item><title><![CDATA[研发费用加计扣除 政策执行指引（2.0版）]]></title><link>https://www.most.gov.cn/xxgk/a.pdf</link><description><![CDATA[财税〔2015〕119号 相关口径]]></description></item>`,
+  `<item><title>空链接条目</title><link></link><description>x</description></item>`,
+  `<item><title><![CDATA[财税_百度百科]]></title><link>https://baike.baidu.com/item/%E8%B4%A2%E7%A8%8E/8216429</link><description>财税</description></item>`,
+  `</channel></rss>`,
+].join("");
+expect("RSS 解析条数（跳过无链接条目）", parseBingRss(RSS).length, 2);
+expect("RSS 标题去掉 CDATA", parseBingRss(RSS)[0]?.title, "研发费用加计扣除 政策执行指引（2.0版）");
+expect("RSS 地址原样保留", parseBingRss(RSS)[0]?.url, "https://www.most.gov.cn/xxgk/a.pdf");
+expect("RSS 摘要可用", parseBingRss(RSS)[0]?.snippet, "财税〔2015〕119号 相关口径");
+expect("RSS 引擎标记为 bing", parseBingRss(RSS)[0]?.engine, "bing");
+expect("空 RSS 返回空", parseBingRss("<rss><channel></channel></rss>").length, 0);
+expect(
+  "RSS 结果同样接受相关度过滤",
+  filterSearchResults("财税〔2015〕119号 研发费用加计扣除", parseBingRss(RSS), 2).kept.map((k) => k.url),
+  ["https://www.most.gov.cn/xxgk/a.pdf"],
+);
 
 // 6) 历史数据回放：库里真实落过盘的检索结果，过滤后必须只剩相关条目
 type Row = { args: string | null; result: string | null };
@@ -147,7 +192,7 @@ for (const row of rows) {
   for (const kept of f.kept) {
     ok(
       `回放保留项必须过门槛（${kept.url.slice(0, 60)}）`,
-      isEntryPage(kept.url) === false && (isAuthoritativeUrl(kept.url) ? relevanceHits(query, kept).hits >= 1 : relevanceHits(query, kept).hits >= 2),
+      isEntryPage(kept.url) === false && relevanceHits(query, kept).hits >= relevanceThreshold(query, kept.url, 2),
     );
   }
 }
@@ -158,8 +203,11 @@ console.log(`[verify] 历史检索回放：${replayed} 次调用 · 原 ${before
 try {
   const live = await searchWebDetailed("财税〔2015〕119号 研发费用加计扣除 政策原文", AbortSignal.timeout(15000));
   checks += 1;
+  checks += 1;
+  if (live.attempts.some((a) => a.via !== "RSS" && a.via !== "HTML")) failures.push("实网冒烟：出现未知的取数方式");
   for (const k of live.results) {
-    if (isEntryPage(k.url) || relevanceHits("财税〔2015〕119号 研发费用加计扣除 政策原文", k).hits < (isAuthoritativeUrl(k.url) ? 1 : 2)) {
+    const lq = "财税〔2015〕119号 研发费用加计扣除 政策原文";
+    if (isEntryPage(k.url) || relevanceHits(lq, k).hits < relevanceThreshold(lq, k.url, 2)) {
       failures.push(`实网冒烟：保留项未过门槛 ${k.url}`);
     }
   }

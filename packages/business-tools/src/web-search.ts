@@ -116,6 +116,63 @@ function parseEngine(engine: SearchEngine, html: string): WebSearchResult[] {
   return engine === "bing" ? parseBing(html) : parseBaidu(html);
 }
 
+/** Bing 的 RSS 输出地址：结构稳定，不受页面改版与推荐位/广告位干扰 */
+function rssUrl(query: string): string {
+  return `https://www.bing.com/search?q=${encodeURIComponent(query)}&format=rss&count=20`;
+}
+
+function unCdata(s: string): string {
+  return decodeEntities(s.replace(/<!\[CDATA\[|\]\]>/g, "").replace(/<[^>]*>/g, "")).trim();
+}
+
+/** 解析 Bing RSS：每个 item 取 title / link / description，非 http(s) 地址丢弃 */
+export function parseBingRss(xml: string): WebSearchResult[] {
+  const out: WebSearchResult[] = [];
+  for (const m of xml.matchAll(/<item>([\s\S]*?)<\/item>/g)) {
+    const block = m[1] ?? "";
+    const pick = (tag: string): string => {
+      const v = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`).exec(block)?.[1] ?? "";
+      return unCdata(v);
+    };
+    const link = pick("link");
+    if (!/^https?:\/\//i.test(link)) continue;
+    out.push({ title: pick("title"), url: link, snippet: pick("description").slice(0, 300), engine: "bing" });
+    if (out.length >= 10) break;
+  }
+  return out;
+}
+
+/**
+ * 单引擎取数：Bing 优先 RSS（实测本机 HTML 结果页会返回与检索词完全无关的条目，
+ * RSS 输出则与检索词对应且结构稳定），RSS 不可用时退回 HTML 解析；百度只有 HTML。
+ */
+async function fetchEngine(
+  engine: SearchEngine,
+  query: string,
+  signal?: AbortSignal,
+): Promise<{ results: WebSearchResult[]; via: "RSS" | "HTML"; status: number; blocked: string | null }> {
+  if (engine === "bing") {
+    try {
+      const rss = await getPage(rssUrl(query), signal);
+      if (rss.status >= 200 && rss.status < 400 && !detectBlockedPage(rss.html)) {
+        const items = parseBingRss(rss.html);
+        if (items.length > 0) return { results: items, via: "RSS", status: rss.status, blocked: null };
+      }
+    } catch {
+      // RSS 不可用，退回 HTML
+    }
+  }
+  const page = await getPage(searchUrl(engine, query), signal);
+  const okStatus = page.status >= 200 && page.status < 400;
+  const blocked = okStatus ? detectBlockedPage(page.html) : null;
+  return {
+    results: okStatus && !blocked ? parseEngine(engine, page.html) : [],
+    via: "HTML",
+    status: page.status,
+    blocked,
+  };
+}
+
 /* --------------------------------------------------------------------------
  * 检索结果可信度：相关度门槛 + 入口页过滤 + 验证页识别
  *
@@ -221,6 +278,20 @@ export function minRelevanceScore(): number {
   return Number.isFinite(n) && n >= 0 ? n : 2;
 }
 
+/**
+ * 实际门槛随检索词长度自适应：检索词越长，只命中一两个词元的结果越可能是同名词条
+ * （实测检索「土地增值税清算 建筑安装工程费 扣除口径」会返回「中华人民共和国土地管理法」，
+ * 只因为都含「土地」）。因此按词元数取比例：普通站点 20%，政府与税务机关站点 12%，
+ * 并分别不低于 TAXAI_SEARCH_MIN_RELEVANCE 与 1。
+ */
+export function relevanceThreshold(query: string, url: string, minScore: number = minRelevanceScore()): number {
+  const n = queryTokens(query).length;
+  if (n === 0) return 0;
+  return isAuthoritativeUrl(url)
+    ? Math.max(1, Math.ceil(n * 0.12))
+    : Math.max(minScore, Math.ceil(n * 0.2));
+}
+
 /** 过滤：重复地址与入口页直接丢，相关度不足按门槛丢；保留结果按命中数降序 */
 export function filterSearchResults(
   query: string,
@@ -241,7 +312,7 @@ export function filterSearchResults(
       dropped.push({ title: r.title, url: r.url, reason: "entry", detail: "站点首页或栏目入口，没有具体文件内容" });
       continue;
     }
-    const need = isAuthoritativeUrl(r.url) ? Math.max(1, minScore - 1) : minScore;
+    const need = relevanceThreshold(query, r.url, minScore);
     const rel = relevanceHits(query, r);
     if (rel.hits < need) {
       dropped.push({
@@ -278,6 +349,8 @@ export type SearchAttemptStatus = "ok" | "irrelevant" | "empty" | "blocked" | "e
 export type SearchAttempt = {
   engine: SearchEngine;
   status: SearchAttemptStatus;
+  /** 取数方式：Bing 的 RSS 输出或 HTML 结果页 */
+  via: "RSS" | "HTML";
   /** 引擎页面解析出的结果条数 */
   fetched: number;
   /** 过滤后保留的条数 */
@@ -298,23 +371,30 @@ export async function searchWebDetailed(query: string, signal?: AbortSignal): Pr
   const minScore = minRelevanceScore();
   const attempts: SearchAttempt[] = [];
   for (const engine of engineOrder()) {
-    const base = { engine, fetched: 0, kept: 0, dropped: 0, httpStatus: null as number | null };
+    const base: Omit<SearchAttempt, "status" | "note"> = {
+      engine,
+      via: "HTML",
+      fetched: 0,
+      kept: 0,
+      dropped: 0,
+      httpStatus: null,
+    };
     try {
-      const page = await getPage(searchUrl(engine, query), signal);
-      base.httpStatus = page.status;
-      if (page.status < 200 || page.status >= 400) {
-        attempts.push({ ...base, status: "error", note: `HTTP ${page.status}` });
+      const got = await fetchEngine(engine, query, signal);
+      base.via = got.via;
+      base.httpStatus = got.status;
+      if (got.status < 200 || got.status >= 400) {
+        attempts.push({ ...base, status: "error", note: `HTTP ${got.status}` });
         continue;
       }
-      const blocked = detectBlockedPage(page.html);
-      if (blocked) {
-        attempts.push({ ...base, status: "blocked", note: blocked });
+      if (got.blocked) {
+        attempts.push({ ...base, status: "blocked", note: got.blocked });
         continue;
       }
-      const parsed = parseEngine(engine, page.html);
+      const parsed = got.results;
       base.fetched = parsed.length;
       if (parsed.length === 0) {
-        attempts.push({ ...base, status: "empty", note: "页面未解析出结果条目" });
+        attempts.push({ ...base, status: "empty", note: `${got.via} 未解析出结果条目` });
         continue;
       }
       const filtered = filterSearchResults(query, parsed, minScore);
@@ -325,11 +405,15 @@ export async function searchWebDetailed(query: string, signal?: AbortSignal): Pr
         attempts.push({
           ...base,
           status: "irrelevant",
-          note: `${parsed.length} 条结果与检索词无关${entry > 0 ? `（其中入口页 ${entry} 条）` : ""}`,
+          note: `${got.via} ${parsed.length} 条结果与检索词无关${entry > 0 ? `（其中入口页 ${entry} 条）` : ""}`,
         });
         continue;
       }
-      attempts.push({ ...base, status: "ok", note: `保留 ${filtered.kept.length} 条，过滤 ${filtered.dropped.length} 条` });
+      attempts.push({
+        ...base,
+        status: "ok",
+        note: `${got.via} 保留 ${filtered.kept.length} 条，过滤 ${filtered.dropped.length} 条`,
+      });
       return { results: filtered.kept, attempts, minScore };
     } catch (err) {
       attempts.push({ ...base, status: "error", note: err instanceof Error ? err.message : String(err) });
