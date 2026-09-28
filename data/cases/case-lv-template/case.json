@@ -1,0 +1,6 @@
+{
+  "agentId": "land-vat",
+  "title": "回归案例：土增模板映射填列",
+  "instruction": "请解析上传的底稿模板并调用 inspect_workpaper_template 检查结构；合同与发票数据：HT-001 总承包 12000000 元（发票合计 11900000 元）、HT-002 桩基 3500000 元（发票合计 3500000 元）、HT-003 幕墙 6800000 元（发票合计 4800000 元）。先用 match_contract_invoice 关联汇总，再以映射模式调用 fill_land_vat_workpaper 将三份合同填入模板数据区。本案例不需要联网检索。",
+  "inputs": ["inputs/模板.xlsx"]
+}

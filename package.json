@@ -16,6 +16,7 @@
     "verify:ocr": "pnpm --filter @tax/document-tools verify:ocr",
     "report:test": "pnpm --filter @tax/api exec tsx scripts/gen-test-report.ts",
     "gen:materials": "pnpm --filter @tax/api exec tsx scripts/gen-materials.ts",
+    "case:run": "pnpm --filter @tax/api case:run",
     "demo:script": "pnpm --filter @tax/api exec tsx scripts/gen-demo-script.ts",
     "verify:agents": "pnpm --filter @tax/api verify:agents",
     "typecheck": "pnpm -r typecheck"

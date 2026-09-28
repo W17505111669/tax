@@ -1,0 +1,8 @@
+{
+  "agentId": "rd-audit",
+  "title": "回归案例：研发费用归集核查与底稿",
+  "instruction": "请解析上传的研发费用辅助账，调用 check_rd_expenses 核查（资料清单：立项决议已取得、研发人员名单未取得），随后调用 generate_workpaper 生成底稿：工作表名「归集比对」，表头为「费用类别」「金额（元）」，按人员人工、直接投入、折旧费用三行写入辅助账口径金额。本案例不需要联网检索。",
+  "inputs": ["inputs/辅助账.xlsx"],
+  "expectedFile": "expected/人工参考底稿.xlsx",
+  "minAccuracy": 60
+}
