@@ -521,6 +521,9 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
             <button type="button" onClick={() => void copyMeta()} title="复制任务全部元信息" className="action-btn shrink-0">
               {metaCopied ? <span className="text-jade-400">已复制</span> : <IconFile className="h-3.5 w-3.5" />}
             </button>
+            <button type="button" onClick={() => window.print()} title="打印 / 导出 PDF（沿用当前版式）" className="action-btn shrink-0">
+              <IconPrint className="h-3.5 w-3.5" />
+            </button>
             {runCount > 1 && (
               <span
                 className="rounded border border-line bg-night-800 px-1.5 py-0.5 text-[11px] text-mist-600"
