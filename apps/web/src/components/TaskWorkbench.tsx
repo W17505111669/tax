@@ -379,7 +379,13 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
               {connected ? "事件流已连接" : "事件流重连中"}
             </span>
             <span className="text-line">|</span>
-            <span>{new Date(task.createdAt).toLocaleString("zh-CN", { hour12: false })}</span>
+            <span>创建 {new Date(task.createdAt).toLocaleString("zh-CN", { hour12: false })}</span>
+            {task.updatedAt !== task.createdAt && (
+              <>
+                <span className="text-line">|</span>
+                <span>更新 {new Date(task.updatedAt).toLocaleString("zh-CN", { hour12: false })}</span>
+              </>
+            )}
           </div>
         </div>
         <button

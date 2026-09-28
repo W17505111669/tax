@@ -4,7 +4,7 @@ import type { SheetPreview } from "../types.ts";
 import { MarkdownView } from "./MarkdownView.tsx";
 import { ThemeSwitch } from "./ThemeSwitch.tsx";
 import { usePaperTheme } from "../hooks/usePaperTheme.ts";
-import { IconAlert, IconExternal, IconFile, IconX } from "./Icons.tsx";
+import { IconAlert, IconExternal, IconFile, IconRefresh, IconX } from "./Icons.tsx";
 
 export type ReaderTarget =
   | { kind: "url"; url: string }
@@ -74,6 +74,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   const { theme } = usePaperTheme();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [reload, setReload] = useState(0);
   const active = tabs[activeIndex] ?? null;
   const activeKey = active ? readerKey(active) : "";
   const state = states[activeKey] ?? INITIAL;
@@ -208,7 +209,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeKey]);
+  }, [activeKey, reload]);
 
   return (
     <aside className="no-print flex w-[440px] shrink-0 flex-col border-l border-line bg-night-950">
@@ -340,6 +341,22 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                 目标站拒绝抓取时，可在新标签页打开原文
               </a>
             )}
+            <button
+              type="button"
+              onClick={() => {
+                const key = activeKey;
+                setStates((prev) => {
+                  const next = { ...prev };
+                  delete next[key];
+                  return next;
+                });
+                setReload((r) => r + 1);
+              }}
+              className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-line bg-night-800 px-2.5 py-1 text-[12px] text-mist-100 hover:border-glow-500"
+            >
+              <IconRefresh className="h-3 w-3" />
+              重试读取
+            </button>
           </div>
         )}
         {!state.loading && !state.error && (state.kind === "markdown" || state.kind === "text") && (
