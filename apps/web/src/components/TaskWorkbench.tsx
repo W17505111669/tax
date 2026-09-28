@@ -781,7 +781,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
                       <span className="kicker">结论要点</span>
                       <span className="flex shrink-0 items-center gap-1.5">
                         <span className="text-[10.5px] text-mist-600">
-                          {summary.heads} 节 · {summary.tables} 表 · {summary.mermaids} 图
+                          {summary.heads} 节 · {summary.tables} 表 · {summary.mermaids} 图 · {finalResult.length} 字 · 约{" "}
+                          {Math.max(1, Math.round(finalResult.length / 400))} 分钟
                         </span>
                         <button
                           type="button"

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentInfo, TaskInfo } from "../types.ts";
-import { IconBuilding, IconCopy, IconFlask, IconInfo, IconPanel, IconPlus, IconRefresh } from "./Icons.tsx";
+import { IconBuilding, IconCopy, IconFlask, IconInfo, IconPanel, IconPlus, IconRefresh, IconX } from "./Icons.tsx";
 
 interface Props {
   agents: AgentInfo[];
@@ -175,6 +175,21 @@ export function Sidebar({
 
   const renderTaskRow = (task: TaskInfo) => {
     const active = task.id === activeTaskId;
+    const hl = (text: string) => {
+      const qq = query.trim();
+      if (!qq) return text;
+      const esc = qq.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const parts = text.split(new RegExp(`(${esc})`, "gi"));
+      return parts.map((p, i) =>
+        p.toLowerCase() === qq.toLowerCase() ? (
+          <mark key={i} className="rounded-sm bg-amber-200/80 px-0.5 text-gray-900">
+            {p}
+          </mark>
+        ) : (
+          <span key={i}>{p}</span>
+        ),
+      );
+    };
     return (
       <div
         key={task.id}
@@ -190,7 +205,7 @@ export function Sidebar({
         >
           <span className={`block truncate text-[12.5px] ${active ? "text-mist-100" : "text-mist-300"}`}>
             {starred.has(task.id) && <span className="mr-1 text-amber-300">★</span>}
-            {task.title}
+            {hl(task.title)}
           </span>
           <span className="mt-1 flex items-center gap-1.5 text-[11px] text-mist-600">
             <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[task.status] ?? "bg-mist-600"}`} />
@@ -294,14 +309,24 @@ export function Sidebar({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
-        <div className="mb-2 px-1">
+        <div className="relative mb-2 px-1">
           <input
             ref={searchRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="搜索任务…（Ctrl+K）"
-            className="w-full rounded-md border border-line bg-night-850 px-2.5 py-1.5 text-[12px] text-mist-100 outline-none placeholder:text-mist-600 focus:glow-ring"
+            className="w-full rounded-md border border-line bg-night-850 px-2.5 py-1.5 pr-7 text-[12px] text-mist-100 outline-none placeholder:text-mist-600 focus:glow-ring"
           />
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery("")}
+              title="清除搜索"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-mist-600 hover:text-mist-100"
+            >
+              <IconX className="h-3 w-3" />
+            </button>
+          )}
           <div className="mt-1.5 flex flex-wrap gap-1">
             {STATUS_FILTERS.map((f) => {
               const count = f.id === "all" ? tasks.length : tasks.filter((t) => t.status === f.id).length;
