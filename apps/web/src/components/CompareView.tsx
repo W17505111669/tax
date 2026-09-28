@@ -186,6 +186,7 @@ export function CompareView({ compares, onOpenTarget }: Props) {
                 }}
                 onMouseLeave={() => setTrendHover(null)}
               >
+                <polygon points={`0,30 ${coords.join(" ")} 100,30`} fill="rgba(52, 211, 153, 0.10)" />
                 <polyline
                   points={coords.join(" ")}
                   fill="none"

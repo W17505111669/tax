@@ -172,6 +172,54 @@ export function Sidebar({
     }
   }, [tasks]);
 
+  const renderTaskRow = (task: TaskInfo) => {
+    const active = task.id === activeTaskId;
+    return (
+      <div
+        key={task.id}
+        className={`group relative mb-1 rounded-lg transition-colors ${
+          active ? "bg-night-700 glow-ring" : "hover:bg-night-800"
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => onSelectTask(task.id)}
+          title={task.instruction ? `${task.title}\n${task.instruction.slice(0, 140)}` : task.title}
+          className="block w-full rounded-lg px-2.5 py-2 pr-8 text-left"
+        >
+          <span className={`block truncate text-[12.5px] ${active ? "text-mist-100" : "text-mist-300"}`}>
+            {starred.has(task.id) && <span className="mr-1 text-amber-300">★</span>}
+            {task.title}
+          </span>
+          <span className="mt-1 flex items-center gap-1.5 text-[11px] text-mist-600">
+            <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[task.status] ?? "bg-mist-600"}`} />
+            <span>{STATUS_TEXT[task.status] ?? task.status}</span>
+            <span className="truncate">· {new Date(task.createdAt).toLocaleString("zh-CN", { hour12: false })}</span>
+          </span>
+          {task.status === "processing" && (
+            <span className="mt-1.5 block h-1 w-full overflow-hidden rounded-full bg-night-700">
+              <span
+                className="bar-fill block h-full transition-all"
+                style={{ width: `${((task.progress ?? 0) / 5) * 100}%` }}
+              />
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          title="复制任务 ID"
+          onClick={(e) => {
+            e.stopPropagation();
+            void navigator.clipboard?.writeText(task.id).catch(() => undefined);
+          }}
+          className="absolute right-1.5 top-2 rounded p-1 text-mist-600 opacity-0 transition-opacity hover:text-glow-300 group-hover:opacity-100"
+        >
+          <IconCopy className="h-3 w-3" />
+        </button>
+      </div>
+    );
+  };
+
   const searchRef = useRef<HTMLInputElement>(null);
 
   // Ctrl/Cmd+K 聚焦任务搜索
@@ -275,10 +323,28 @@ export function Sidebar({
           </div>
         </div>
         {filtered.length === 0 && <div className="px-2 py-3 text-[12px] text-mist-600">无匹配任务</div>}
+        {(() => {
+          const starList = filtered.filter((t) => starred.has(t.id));
+          if (starList.length === 0) return null;
+          const closed = collapsed.starred ?? false;
+          return (
+            <div className="mb-1">
+              <button
+                type="button"
+                onClick={() => setCollapsed((prev) => ({ ...prev, starred: !closed }))}
+                className="flex w-full items-center gap-1.5 px-2 py-1 text-[10.5px] font-medium uppercase tracking-[0.14em] text-mist-600 transition-colors hover:text-mist-300"
+              >
+                <span className={`chev text-[9px] ${closed ? "" : "rotate-90"}`}>▶</span>
+                <span className="text-amber-300">★</span>
+                收藏
+                <span className="ml-auto font-mono text-[10px]">{starList.length}</span>
+              </button>
+              {!closed && starList.map((task) => renderTaskRow(task))}
+            </div>
+          );
+        })()}
         {GROUP_ORDER.map((g) => {
-          const list = filtered
-            .filter((t) => t.status === g.id)
-            .sort((a, b) => Number(starred.has(b.id)) - Number(starred.has(a.id)));
+          const list = filtered.filter((t) => t.status === g.id && !starred.has(t.id));
           if (list.length === 0) return null;
           const closed = collapsed[g.id] ?? false;
           return (
@@ -293,56 +359,7 @@ export function Sidebar({
                 {g.label}
                 <span className="ml-auto font-mono text-[10px]">{list.length}</span>
               </button>
-              {!closed &&
-                list.map((task) => {
-                  const active = task.id === activeTaskId;
-                  return (
-                    <div
-                      key={task.id}
-                      className={`group relative mb-1 rounded-lg transition-colors ${
-                        active ? "bg-night-700 glow-ring" : "hover:bg-night-800"
-                      }`}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => onSelectTask(task.id)}
-                        title={task.instruction ? `${task.title}\n${task.instruction.slice(0, 140)}` : task.title}
-                        className="block w-full rounded-lg px-2.5 py-2 pr-8 text-left"
-                      >
-                      <span className={`block truncate text-[12.5px] ${active ? "text-mist-100" : "text-mist-300"}`}>
-                        {starred.has(task.id) && <span className="mr-1 text-amber-300">★</span>}
-                        {task.title}
-                      </span>
-                      <span className="mt-1 flex items-center gap-1.5 text-[11px] text-mist-600">
-                        <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[task.status] ?? "bg-mist-600"}`} />
-                        <span>{STATUS_TEXT[task.status] ?? task.status}</span>
-                        <span className="truncate">
-                          · {new Date(task.createdAt).toLocaleString("zh-CN", { hour12: false })}
-                        </span>
-                      </span>
-                      {task.status === "processing" && (
-                        <span className="mt-1.5 block h-1 w-full overflow-hidden rounded-full bg-night-700">
-                          <span
-                            className="bar-fill block h-full transition-all"
-                            style={{ width: `${((task.progress ?? 0) / 5) * 100}%` }}
-                          />
-                        </span>
-                      )}
-                      </button>
-                      <button
-                        type="button"
-                        title="复制任务 ID"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void navigator.clipboard?.writeText(task.id).catch(() => undefined);
-                        }}
-                        className="absolute right-1.5 top-2 rounded p-1 text-mist-600 opacity-0 transition-opacity hover:text-glow-300 group-hover:opacity-100"
-                      >
-                        <IconCopy className="h-3 w-3" />
-                      </button>
-                    </div>
-                  );
-                })}
+              {!closed && list.map((task) => renderTaskRow(task))}
             </div>
           );
         })}
