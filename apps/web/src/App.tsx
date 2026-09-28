@@ -14,15 +14,18 @@ interface Route {
   agentId?: string;
   taskId?: string;
   tab?: WbTab;
+  sec?: number;
 }
 
 const TABS: WbTab[] = ["timeline", "result", "compare", "review"];
 
 function parseHash(): Route {
-  const m = /^#\/agent\/([a-z-]+)(?:\/task\/([\w-]+))?(?:\/tab\/(\w+))?$/.exec(window.location.hash);
+  const m = /^#\/agent\/([a-z-]+)(?:\/task\/([\w-]+))?(?:\/tab\/(\w+))?(?:\/sec\/(\d+))?$/.exec(
+    window.location.hash,
+  );
   if (!m) return {};
   const tab = TABS.includes(m[3] as WbTab) ? (m[3] as WbTab) : undefined;
-  return { agentId: m[1], taskId: m[2], tab };
+  return { agentId: m[1], taskId: m[2], tab, sec: m[4] ? Number(m[4]) : undefined };
 }
 
 export default function App() {
@@ -38,6 +41,7 @@ export default function App() {
   const [wbTab, setWbTab] = useState<WbTab>("timeline");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [revealNonce, setRevealNonce] = useState(0);
+  const [secTarget, setSecTarget] = useState<number | null>(null);
   const [announce, setAnnounce] = useState("");
   const applyingHash = useRef(false);
 
@@ -74,6 +78,7 @@ export default function App() {
       if (route.agentId) setActiveAgentId(route.agentId);
       if (route.taskId !== undefined) setActiveTaskId(route.taskId || null);
       if (route.tab) setWbTab(route.tab);
+      if (route.sec !== undefined) setSecTarget(route.sec);
       window.setTimeout(() => {
         applyingHash.current = false;
       }, 0);
@@ -269,6 +274,7 @@ export default function App() {
             tab={wbTab}
             onTabChange={setWbTab}
             onRerun={handleRerun}
+            secInto={secTarget}
           />
         ) : activeAgent ? (
           <div className="min-h-0 flex-1 overflow-y-auto">

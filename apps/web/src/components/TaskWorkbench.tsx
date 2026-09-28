@@ -31,6 +31,7 @@ interface Props {
   tab: "timeline" | "result" | "compare" | "review";
   onTabChange: (tab: "timeline" | "result" | "compare" | "review") => void;
   onRerun: () => void;
+  secInto: number | null;
 }
 
 const SEARCH_TOOLS = new Set([
@@ -88,7 +89,7 @@ function toPlainText(md: string): string {
     .trim();
 }
 
-export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }: Props) {
+export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, secInto }: Props) {
   const { timeline, toolCalls, status, connected, reconnect } = useTaskEvents(task.id);
   const [compares, setCompares] = useState<CompareRecord[]>([]);
   const [issues, setIssues] = useState<TaskIssue[]>([]);
@@ -569,6 +570,15 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
     return () => window.removeEventListener("keydown", handler);
   }, [onTabChange]);
 
+  // 深链 /sec/N：结果页渲染后滚动到对应章节锚点
+  useEffect(() => {
+    if (tab !== "result" || secInto === null) return;
+    const t = window.setTimeout(() => {
+      document.getElementById(`sec-${secInto}`)?.scrollIntoView({ block: "start" });
+    }, 150);
+    return () => window.clearTimeout(t);
+  }, [tab, secInto, finalResult]);
+
   const download = (name: string, content: string) => {
     const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -1021,6 +1031,20 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
                           }
                         >
                           {h}
+                        </button>
+                        <button
+                          type="button"
+                          className="action-btn no-print !px-1 !py-0"
+                          title="复制段落深链"
+                          onClick={() =>
+                            void navigator.clipboard
+                              ?.writeText(
+                                `${window.location.origin}${window.location.pathname}#/agent/${agent.id}/task/${task.id}/tab/result/sec/${i}`,
+                              )
+                              .catch(() => undefined)
+                          }
+                        >
+                          <IconExternal className="h-3 w-3" />
                         </button>
                       </li>
                     ))}
