@@ -4,7 +4,7 @@ import type { SheetPreview } from "../types.ts";
 import { MarkdownView } from "./MarkdownView.tsx";
 import { ThemeSwitch } from "./ThemeSwitch.tsx";
 import { usePaperTheme } from "../hooks/usePaperTheme.ts";
-import { IconAlert, IconExternal, IconFile, IconRefresh, IconX } from "./Icons.tsx";
+import { IconAlert, IconDownload, IconExternal, IconFile, IconRefresh, IconX } from "./Icons.tsx";
 
 export type ReaderTarget =
   | { kind: "url"; url: string }
@@ -567,10 +567,16 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
             </button>
           )}
           {state.kind === "pdf" && (
+            <>
             <a className="action-btn ml-auto" href={state.src} target="_blank" rel="noreferrer" title="在新标签页打开 PDF">
               <IconExternal className="h-3.5 w-3.5" />
               新窗口
             </a>
+            <a className="action-btn" href={state.src} download title="下载 PDF">
+              <IconDownload className="h-3.5 w-3.5" />
+              下载
+            </a>
+            </>
           )}
         </div>
       )}

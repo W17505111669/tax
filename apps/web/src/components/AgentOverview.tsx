@@ -279,6 +279,16 @@ export function AgentOverview({
                 onMouseLeave={() => setSparkHover(null)}
               >
                 <polygon points={`0,30 ${sparkPts} 100,30`} fill="rgba(34, 211, 238, 0.12)" />
+                <line
+                  x1="50"
+                  y1="0"
+                  x2="50"
+                  y2="30"
+                  stroke="rgba(230, 237, 247, 0.18)"
+                  strokeWidth="1"
+                  strokeDasharray="2 3"
+                  vectorEffect="non-scaling-stroke"
+                />
                 <polyline
                   points={sparkPts}
                   fill="none"

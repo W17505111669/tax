@@ -88,6 +88,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
   const [scrollPct, setScrollPct] = useState(0);
   const [copied, setCopied] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
+  const [metaCopied, setMetaCopied] = useState(false);
   const [starred, setStarred] = useState<boolean>(() => {
     try {
       return (JSON.parse(localStorage.getItem("taxai-starred") ?? "[]") as string[]).includes(task.id);
@@ -117,6 +118,26 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
       await navigator.clipboard.writeText(url);
       setShareCopied(true);
       window.setTimeout(() => setShareCopied(false), 1200);
+    } catch {
+      /* 剪贴板不可用时忽略 */
+    }
+  };
+
+  const copyMeta = async () => {
+    const lines = [
+      `标题：${task.title}`,
+      `任务 ID：${task.id}`,
+      `智能体：${agent.shortName}${agent.model ? `（${agent.model}）` : ""}`,
+      `案例：${task.caseId}`,
+      `状态：${meta.label}`,
+      `创建：${new Date(task.createdAt).toLocaleString("zh-CN", { hour12: false })}`,
+      `更新：${new Date(task.updatedAt).toLocaleString("zh-CN", { hour12: false })}`,
+      `工具调用：${toolCalls.length} 次`,
+    ];
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      setMetaCopied(true);
+      window.setTimeout(() => setMetaCopied(false), 1200);
     } catch {
       /* 剪贴板不可用时忽略 */
     }
@@ -496,6 +517,9 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
             </button>
             <button type="button" onClick={() => void copyShare()} title="复制任务深链（含页签）" className="action-btn shrink-0">
               {shareCopied ? <span className="text-jade-400">已复制</span> : <IconExternal className="h-3.5 w-3.5" />}
+            </button>
+            <button type="button" onClick={() => void copyMeta()} title="复制任务全部元信息" className="action-btn shrink-0">
+              {metaCopied ? <span className="text-jade-400">已复制</span> : <IconFile className="h-3.5 w-3.5" />}
             </button>
             {runCount > 1 && (
               <span
