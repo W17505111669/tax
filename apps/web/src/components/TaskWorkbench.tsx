@@ -42,6 +42,7 @@ import {
   type ParseSummary,
 } from "../file-parse.ts";
 import { buildManifest } from "../manifest.ts";
+import { bundleFreshness, freshnessText, type BundleFreshness, type ChangeStamp } from "../bundle-freshness.ts";
 import { reviewCounts } from "../review-export.ts";
 import {
   partitionFiles,
@@ -1168,6 +1169,27 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     });
   };
 
+  // 交付包新鲜度：打包时间取自打包事件的结构化 payload，变更来源覆盖事件/产物/复核/金额核对/链接核验
+  const bundleFresh = useMemo(() => {
+    let packedAt: string | null = null;
+    for (const t of timeline) {
+      const p = t.payload as { bundlePacked?: unknown } | undefined;
+      if (p?.bundlePacked) packedAt = t.at;
+    }
+    const changes: ChangeStamp[] = [];
+    const lastEvent = timeline[timeline.length - 1];
+    if (lastEvent) changes.push({ at: lastEvent.at, label: `事件「${lastEvent.title}」` });
+    for (const a of artifacts) changes.push({ at: a.updatedAt, label: `产物 ${a.name}` });
+    for (const r of reviews) changes.push({ at: r.createdAt, label: "复核提交" });
+    for (const c of Object.values(amountChecks)) {
+      if (c.at) changes.push({ at: c.at, label: "金额核对" });
+    }
+    for (const l of Object.values(linkChecks)) {
+      if (l.checkedAt) changes.push({ at: l.checkedAt, label: `链接核验 ${l.url}` });
+    }
+    return bundleFreshness(packedAt, changes);
+  }, [timeline, artifacts, reviews, amountChecks, linkChecks]);
+
   const exportBundleZip = () => {
     if (zipBusy) return;
     const stamp = new Date().toISOString().slice(0, 10);
@@ -1928,6 +1950,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                   void navigator.clipboard?.writeText(bundleLines().join("\n")).catch(() => undefined)
                 }
                 onExportZip={exportBundleZip}
+                bundleFresh={bundleFresh}
                 zipBusy={zipBusy}
                 zipNote={zipNote}
                 onExportBundle={() => {
@@ -3029,6 +3052,7 @@ function ResultView({
   linkSummary,
   onCheckLinks,
   onExportZip,
+  bundleFresh,
   zipBusy,
   zipNote,
 }: {
@@ -3051,6 +3075,8 @@ function ResultView({
   onExportBundle: () => void;
   /** 打包下载（zip）：整页 MD + 本任务产物 */
   onExportZip: () => void;
+  /** 交付包新鲜度：上次打包时间与打包后的变更 */
+  bundleFresh: BundleFreshness;
   zipBusy: boolean;
   zipNote: string;
   /** 引用链接核验：结果、进行中状态、最近核验时间与触发回调 */
@@ -3275,6 +3301,19 @@ function ResultView({
 
       <div>
         <div className="kicker">交付</div>
+        <p className="mt-1 text-[11px] text-mist-600">
+          {bundleFresh.lastPackedAt
+            ? `最近打包：${new Date(bundleFresh.lastPackedAt).toLocaleString("zh-CN", { hour12: false })}`
+            : "尚未打包交付包"}
+          {bundleFresh.stale ? (
+            <span className="text-amber-300" title={bundleFresh.newer.map((c) => `${c.label}（${c.at}）`).join("\n")}>
+              {" "}
+              · {freshnessText(bundleFresh)}
+            </span>
+          ) : bundleFresh.lastPackedAt ? (
+            <span className="text-jade-300"> · 交付包仍是最新</span>
+          ) : null}
+        </p>
         <div className="mt-2 flex items-center gap-2">
           <span className="text-[11px] text-mist-600">打印版式</span>
           <ThemeSwitch />

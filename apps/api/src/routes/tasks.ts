@@ -290,7 +290,9 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     }
     const zip = await createBundleZip(entries);
     const base = (body.fileName ?? "交付包").replace(/[\\/:*?"<>|\r\n]/g, "_").slice(0, 80);
-    appendEvent(id, "agent_status", `交付包已打包：${entries.length} 个文件（含整页交付 MD）`);
+    appendEvent(id, "agent_status", `交付包已打包：${entries.length} 个文件（含整页交付 MD）`, {
+      bundlePacked: { files: entries.length, mdChars: markdown.length, hasManifest: Boolean(body.manifest) },
+    });
     return reply
       .type("application/zip")
       .header("Content-Disposition", `attachment; filename="bundle.zip"; filename*=UTF-8''${encodeURIComponent(`${base}.zip`)}`)

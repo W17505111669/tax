@@ -21,6 +21,7 @@
     "verify:links": "tsx scripts/verify-link-check.ts",
     "verify:fileparse": "tsx scripts/verify-file-parse.ts",
     "verify:bundle": "tsx scripts/verify-bundle-zip.ts",
+    "verify:fresh": "tsx scripts/verify-bundle-freshness.ts",
     "verify:manifest": "tsx scripts/verify-manifest.ts",
     "verify:upload": "tsx scripts/verify-upload-policy.ts",
     "case:run": "tsx scripts/run-case.ts"

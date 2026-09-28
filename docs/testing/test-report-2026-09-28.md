@@ -36,6 +36,7 @@
 | `pnpm verify:fileparse` | 上传资料解析摘要（状态中文化 / 表格与 OCR 摘要 / 按文件名汇总） | PASS |
 | `pnpm verify:bundle` | 交付包打包（条目名安全化 / zip 往返 / 真实任务条目组装） | PASS |
 | `pnpm verify:manifest` | 交付清单 manifest.json（结构 / 内部一致性自校验 / 真实任务走查） | PASS |
+| `pnpm verify:fresh` | 交付包新鲜度（上次打包后的变更识别与提示文案） | PASS |
 | `pnpm verify:upload` | 上传预检规则（扩展名 / 大小 / 空文件 / 批量分组 / 提示文案） | PASS |
 
 ## 三、真实任务台账

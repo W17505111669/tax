@@ -85,6 +85,11 @@ const VERIFY_SCRIPTS: Array<{ name: string; cmd: string; scope: string }> = [
     scope: "交付清单 manifest.json（结构 / 内部一致性自校验 / 真实任务走查）",
   },
   {
+    name: "verify:fresh",
+    cmd: "pnpm verify:fresh",
+    scope: "交付包新鲜度（上次打包后的变更识别与提示文案）",
+  },
+  {
     name: "verify:upload",
     cmd: "pnpm verify:upload",
     scope: "上传预检规则（扩展名 / 大小 / 空文件 / 批量分组 / 提示文案）",
