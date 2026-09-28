@@ -50,6 +50,14 @@ export const api = {
 
   fileContentUrl: (taskId: string, fileId: string) => `/api/tasks/${taskId}/files/${fileId}/content`,
 
+  fileSheetsUrl: (taskId: string, fileId: string) => `/api/tasks/${taskId}/files/${fileId}/sheets`,
+
+  artifactSheetsUrl: (taskId: string, name: string) =>
+    `/api/tasks/${taskId}/artifacts/${encodeURIComponent(name)}/sheets`,
+
+  readSheets: (url: string) =>
+    request<{ sheets: import("./types.ts").SheetPreview[] }>(url).then((r) => r.sheets),
+
   artifactContentUrl: (taskId: string, name: string) =>
     `/api/tasks/${taskId}/artifacts/${encodeURIComponent(name)}/content`,
 };

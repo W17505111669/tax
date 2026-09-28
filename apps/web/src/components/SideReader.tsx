@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.ts";
+import type { SheetPreview } from "../types.ts";
 import { MarkdownView } from "./MarkdownView.tsx";
 import { IconAlert, IconExternal, IconFile, IconSpinner, IconX } from "./Icons.tsx";
 
@@ -14,7 +15,7 @@ export function readerKey(target: ReaderTarget): string {
   return `artifact:${target.taskId}:${target.name}`;
 }
 
-type PreviewKind = "markdown" | "text" | "pdf" | "image" | "binary";
+type PreviewKind = "markdown" | "text" | "pdf" | "image" | "binary" | "sheets";
 
 interface ReaderState {
   loading: boolean;
@@ -24,6 +25,7 @@ interface ReaderState {
   markdown: string;
   text: string;
   src: string;
+  sheets?: SheetPreview[];
 }
 
 const INITIAL: ReaderState = {
@@ -34,6 +36,7 @@ const INITIAL: ReaderState = {
   markdown: "",
   text: "",
   src: "",
+  sheets: [],
 };
 
 function previewKind(headerKind: string | null, name: string): PreviewKind {
@@ -115,6 +118,34 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onClose }:
           active.kind === "file"
             ? api.fileContentUrl(active.taskId, active.fileId)
             : api.artifactContentUrl(active.taskId, active.name);
+        // Excel 优先走工作表结构化预览
+        if (/\.xlsx?$/i.test(active.name)) {
+          try {
+            const sheetsUrl =
+              active.kind === "file"
+                ? api.fileSheetsUrl(active.taskId, active.fileId)
+                : api.artifactSheetsUrl(active.taskId, active.name);
+            const sheets = await api.readSheets(sheetsUrl);
+            if (!cancelled) {
+              setStates((prev) => ({
+                ...prev,
+                [key]: {
+                  loading: false,
+                  error: null,
+                  kind: "sheets",
+                  title: active.name,
+                  markdown: "",
+                  text: "",
+                  src: "",
+                  sheets,
+                },
+              }));
+            }
+            return;
+          } catch {
+            // 回退到二进制预览
+          }
+        }
         const res = await fetch(url);
         if (!res.ok) throw new Error(`读取失败 HTTP ${res.status}`);
         const kind = previewKind(res.headers.get("X-Preview-Kind"), active.name);
@@ -263,6 +294,45 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onClose }:
             >
               下载文件
             </a>
+          </div>
+        )}
+        {!state.loading && !state.error && state.kind === "sheets" && (
+          <div className="paper-sheet px-5 py-4">
+            {(state.sheets ?? []).map((s) => (
+              <section key={s.name} className="mb-5 last:mb-0">
+                <div className="mb-1.5 flex items-baseline gap-2">
+                  <span className="text-[13px] font-semibold text-gray-900">{s.name}</span>
+                  <span className="text-[11px] text-gray-500">{s.rowCount} 行</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse text-[11.5px]">
+                    <thead>
+                      <tr>
+                        {s.headers.map((h) => (
+                          <th
+                            key={h}
+                            className="border border-gray-300 bg-gray-100 px-2 py-1 text-left font-semibold text-gray-800"
+                          >
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {s.rows.slice(0, 100).map((row, i) => (
+                        <tr key={i}>
+                          {s.headers.map((h) => (
+                            <td key={h} className="border border-gray-200 px-2 py-1 align-top text-gray-700">
+                              {row[h] === null || row[h] === undefined ? "" : String(row[h])}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            ))}
           </div>
         )}
         {!state.loading && !state.error && active?.kind === "url" && (

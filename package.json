@@ -9,6 +9,7 @@
     "dev:api": "pnpm --filter @tax/api dev",
     "dev:web": "pnpm --filter @tax/web dev",
     "verify:pi": "pnpm --filter @tax/agent-core verify:pi",
+    "verify:docs": "pnpm --filter @tax/document-tools verify:docs",
     "verify:agents": "pnpm --filter @tax/api verify:agents",
     "typecheck": "pnpm -r typecheck"
   },

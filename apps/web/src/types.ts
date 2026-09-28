@@ -86,3 +86,10 @@ export interface ArtifactInfo {
   byteSize: number;
   updatedAt: string;
 }
+
+export interface SheetPreview {
+  name: string;
+  headers: string[];
+  rows: Array<Record<string, string | number | null>>;
+  rowCount: number;
+}

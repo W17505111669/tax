@@ -156,3 +156,8 @@ export function finishToolCall(id: string, ok: boolean, result: unknown): void {
 export function listToolCalls(taskId: string) {
   return db.prepare(`SELECT * FROM tool_calls WHERE task_id = ? ORDER BY started_at ASC`).all(taskId) as Array<Record<string, unknown>>;
 }
+
+/** 解析工具成功后，把任务资料标记为已解析，前端资料栏同步显示。 */
+export function markFilesParsed(taskId: string): void {
+  db.prepare(`UPDATE files SET parse_status = 'parsed' WHERE task_id = ? AND parse_status = 'pending'`).run(taskId);
+}

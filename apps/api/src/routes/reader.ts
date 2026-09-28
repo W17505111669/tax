@@ -5,6 +5,7 @@ import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import TurndownService from "turndown";
 import { dirs } from "../config.ts";
+import { parseExcelFile } from "@tax/document-tools";
 import { getTask, listFiles } from "../services/task-store.ts";
 
 const UA =
@@ -145,6 +146,32 @@ export async function readerRoutes(app: FastifyInstance): Promise<void> {
     reply.header("Content-Type", MIME[ext] ?? "application/octet-stream");
     reply.header("X-Preview-Kind", TEXTUAL.has(ext) ? "text" : ext === "pdf" ? "pdf" : ["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(ext) ? "image" : "binary");
     return reply.send(fs.createReadStream(file));
+  });
+
+  /** Excel 资料/产物的工作表结构化预览，供侧边阅读器渲染表格。 */
+  app.get("/api/tasks/:id/artifacts/:name/sheets", async (req, reply) => {
+    const { id, name } = req.params as { id: string; name: string };
+    const safe = path.basename(name);
+    const file = path.join(artifactsDir(id), safe);
+    if (!fs.existsSync(file)) return reply.code(404).send({ error: "产物不存在" });
+    if (!/\.(xlsx|xls)$/i.test(safe)) return reply.code(400).send({ error: "仅支持 Excel 文件" });
+    try {
+      return { sheets: await parseExcelFile(file, 200) };
+    } catch (err) {
+      return reply.code(500).send({ error: err instanceof Error ? err.message : "解析失败" });
+    }
+  });
+
+  app.get("/api/tasks/:id/files/:fileId/sheets", async (req, reply) => {
+    const { id, fileId } = req.params as { id: string; fileId: string };
+    const file = listFiles(id).find((f) => f.id === fileId);
+    if (!file) return reply.code(404).send({ error: "文件不存在" });
+    if (!/\.(xlsx|xls)$/i.test(file.fileName)) return reply.code(400).send({ error: "仅支持 Excel 文件" });
+    try {
+      return { sheets: await parseExcelFile(file.storagePath, 200) };
+    } catch (err) {
+      return reply.code(500).send({ error: err instanceof Error ? err.message : "解析失败" });
+    }
   });
 
   app.get("/api/tasks/:id/reader-meta", async (req) => {

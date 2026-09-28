@@ -145,6 +145,27 @@ web_search:True → check_rd_expenses:True → web_search:True → fetch_content
 前端：`SideReader` 可折叠侧栏；Markdown 输出中的外部链接点击被拦截并在阅读器内以阅读模式打开；业务资料与生成产物列表项点击同样进入阅读器；阅读器展开时自动收起中间信息栏以保证主区域宽度。
 
 浏览器实测：点击结论中 12366 链接，侧栏标题显示「国家税务总局12366纳税服务平台」，正文为 Readability 提取的阅读模式内容，并附「原文以来源链接为准」提示。
+
+## Phase 2：文件解析与底稿生成（2026-09-28）
+
+新增 `packages/document-tools`（ExcelJS + unpdf，均为成熟开源库）：
+
+- `parse_uploaded_files` 任务级工具：解析 Excel（自动表头识别、合并标题行排除）、CSV、PDF 文本、TXT；
+- `generate_workpaper` 任务级工具：生成带样式（表头填色、冻结首行、边框、千分位数字格式、公式）的可编辑 Excel 底稿，落入 `data/outputs/<taskId>/`，前端「生成产物」栏可预览（工作表表格化渲染）与下载；
+- 解析成功后任务资料 `parse_status` 自动置为 `parsed`。
+
+`pnpm verify:docs` 实际输出：
+
+```
+[verify] sheet=辅助账 rows=2 headers=类别,金额（元）
+[verify] parseExcel=true parseCsv=true workpaperTitle=true formula=true frozen=true
+
+[PASS] 文档解析与 Excel 底稿生成可用。
+```
+
+端到端实测（任务「上传资料解析与底稿生成闭环」）：上传合成样例辅助账 xlsx 后，Agent 依次调用
+`parse_uploaded_files:True → check_rd_expenses:True → calculate_rd_adjustment:True → web_search:True → generate_workpaper:True`，
+产物 `底稿-研发费用加计扣除专项审查-*.xlsx`（14.2KB）归档成功，阅读器中以白纸表格预览「归集比对」工作表，行列与金额与工具输出一致。
 ## 本机网关自带搜索实测结论（不启用）
 
 对 `http://127.0.0.1:15721/v1`（Responses API）做了三组对照实测：

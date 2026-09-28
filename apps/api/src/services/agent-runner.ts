@@ -1,6 +1,7 @@
 import path from "node:path";
 import { createTaxAgentSession, loadRuntimeConfig, TaskEventBus } from "@tax/agent-core";
 import type { NormalizedAgentEvent } from "@tax/agent-core";
+import { createTaskDocumentTools } from "@tax/document-tools";
 import type { AgentId } from "@tax/shared-schemas";
 import { dirs } from "../config.ts";
 import { resolveCommunityExtensions } from "../extensions.ts";
@@ -10,6 +11,7 @@ import {
   finishToolCall,
   getTask,
   listFiles,
+  markFilesParsed,
   recordToolCall,
   setTaskStatus,
 } from "./task-store.ts";
@@ -40,6 +42,11 @@ export async function runTask(taskId: string, instruction: string): Promise<void
   const cfg = loadRuntimeConfig();
   cfg.extensionPaths = [...cfg.extensionPaths, ...resolveCommunityExtensions()];
   const taskCwd = path.join(dirs.uploads, taskId);
+  const taskTools = createTaskDocumentTools({
+    taskId,
+    files: listFiles(taskId),
+    outputsDir: path.join(dirs.outputs, taskId),
+  });
 
   const pendingToolCalls = new Map<string, string>();
   let session: Awaited<ReturnType<typeof createTaxAgentSession>> | undefined;
@@ -49,6 +56,7 @@ export async function runTask(taskId: string, instruction: string): Promise<void
       agent,
       cfg,
       cwd: taskCwd,
+      taskTools,
       onEvent: (event: NormalizedAgentEvent) => {
         switch (event.kind) {
           case "agent_text_delta":
@@ -69,6 +77,7 @@ export async function runTask(taskId: string, instruction: string): Promise<void
               finishToolCall(callId, event.ok, event.result);
               pendingToolCalls.delete(event.toolName);
             }
+            if (event.toolName === "parse_uploaded_files" && event.ok) markFilesParsed(taskId);
             emit(taskId, "tool_end", `工具 ${event.toolName} 执行${event.ok ? "完成" : "失败"}`, {
               toolName: event.toolName,
               ok: event.ok,
