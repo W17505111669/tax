@@ -72,6 +72,7 @@ export function AgentOverview({ agents, activeAgentId, stats, breakdown, created
     return buckets;
   }, [createdAts]);
   const dayMax = Math.max(1, ...days);
+  const dayAvg = days.reduce((a, b) => a + b, 0) / 14;
   const sparkPts = days.map((v, i) => `${((i / 13) * 100).toFixed(2)},${(28 - (v / dayMax) * 24).toFixed(2)}`).join(" ");
   const weekNow = days.slice(7).reduce((a, b) => a + b, 0);
   const weekPrev = days.slice(0, 7).reduce((a, b) => a + b, 0);
@@ -173,7 +174,7 @@ export function AgentOverview({ agents, activeAgentId, stats, breakdown, created
                 <span>
                   {sparkHover !== null
                     ? `${sparkDate(sparkHover)} · ${days[sparkHover] ?? 0} 件`
-                    : `今日 ${days[13] ?? 0} 件`}
+                    : `日均 ${dayAvg.toFixed(1)} 件 · 今日 ${days[13] ?? 0} 件`}
                 </span>
               </div>
               <svg
@@ -193,6 +194,16 @@ export function AgentOverview({ agents, activeAgentId, stats, breakdown, created
                   fill="none"
                   stroke="#22d3ee"
                   strokeWidth="1.5"
+                  vectorEffect="non-scaling-stroke"
+                />
+                <line
+                  x1="0"
+                  y1={28 - (dayAvg / dayMax) * 24}
+                  x2="100"
+                  y2={28 - (dayAvg / dayMax) * 24}
+                  stroke="rgba(230, 237, 247, 0.25)"
+                  strokeWidth="1"
+                  strokeDasharray="3 3"
                   vectorEffect="non-scaling-stroke"
                 />
                 {sparkHover !== null && (

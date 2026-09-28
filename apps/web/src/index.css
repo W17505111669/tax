@@ -187,6 +187,13 @@ details.tool-row .chev {
   color: var(--color-mist-100);
 }
 
+.action-btn:focus-visible,
+.seg-tab:focus-visible,
+.rail-btn:focus-visible {
+  outline: 2px solid rgba(34, 211, 238, 0.55);
+  outline-offset: 1px;
+}
+
 .stat-hero {
   font-size: 58px;
   line-height: 1.05;

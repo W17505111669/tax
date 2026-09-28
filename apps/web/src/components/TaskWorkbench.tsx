@@ -1160,7 +1160,12 @@ function ResultView({
 
       {citations.length > 0 && (
         <div>
-          <div className="kicker">联网引用</div>
+          <div className="flex items-center gap-2">
+            <span className="kicker">联网引用</span>
+            <span className="rounded bg-glow-500/15 px-1.5 py-0.5 font-mono text-[10px] text-glow-300">
+              {citations.length}
+            </span>
+          </div>
           <div className="mt-2 flex flex-wrap gap-2">
             {citations.map((c) => (
               <button
