@@ -133,6 +133,38 @@ export function CompareView({ compares, onOpenTarget }: Props) {
     void navigator.clipboard?.writeText(lines.join("\n")).catch(() => undefined);
   };
 
+  // 基准对比报告：其余记录相对基准的 totals delta 表
+  const exportBaseReport = () => {
+    if (!baseRec) return;
+    const bt = baseRec.result.totals;
+    const sgn = (v: number) => (v >= 0 ? `+${v}` : `${v}`);
+    const lines = [
+      "# 基准对比报告",
+      "",
+      `- 基准记录：${baseRec.at ?? baseRec.id}　准确率 ${bt.accuracyPercent}%`,
+      "",
+      "| 记录 | 时间 | 准确率 Δ(pp) | 差异 Δ | 仅系统 Δ | 仅人工 Δ |",
+      "| --- | --- | --- | --- | --- | --- |",
+    ];
+    for (const rec of shownCompares) {
+      if (rec.id === baseRec.id) continue;
+      const t = rec.result?.totals;
+      if (!t) continue;
+      lines.push(
+        `| ${rec.id.slice(0, 8)} | ${rec.at ?? "—"} | ${sgn(t.accuracyPercent - bt.accuracyPercent)} | ${sgn(
+          t.mismatched - bt.mismatched,
+        )} | ${sgn(t.onlyA - bt.onlyA)} | ${sgn(t.onlyB - bt.onlyB)} |`,
+      );
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `基准对比-${new Date().toISOString().slice(0, 10)}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   // 仅复制当前筛选（类型+地址）下的差异
   const copyFiltered = (rec: CompareRecord) => {
     const t = rec.result.totals;
@@ -237,6 +269,15 @@ export function CompareView({ compares, onOpenTarget }: Props) {
         >
           仅看最新
         </button>
+        {baseRec && (
+          <button
+            type="button"
+            onClick={exportBaseReport}
+            className="rounded-full border border-glow-500/40 bg-glow-500/10 px-2.5 py-0.5 text-[11px] text-glow-300 transition-colors hover:border-glow-400"
+          >
+            导出基准报告
+          </button>
+        )}
       </div>
       {shownCompares.length > 1 &&
         (() => {
