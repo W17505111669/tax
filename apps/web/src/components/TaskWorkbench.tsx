@@ -533,6 +533,29 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
 
   const doneCount = steps.filter((s) => s.state === "done").length;
 
+  // 整页 MD 包行（下载与复制共用）
+  const bundleLines = () => [
+    `# ${task.title}`,
+    "",
+    `- 任务 ID：${task.id}`,
+    `- 智能体：${agent.shortName}${agent.model ? `（${agent.model}）` : ""}`,
+    `- 案例：${task.caseId}　状态：${liveStatus}　运行次数：${runCount}`,
+    `- 创建：${new Date(task.createdAt).toLocaleString("zh-CN", { hour12: false })}　导出：${new Date().toLocaleString("zh-CN", { hour12: false })}`,
+    "",
+    "## 目录",
+    "",
+    ...toc.map((h, i) => `${i + 1}. ${h}`),
+    "",
+    "## 审查结论",
+    "",
+    finalResult,
+    "",
+    "## 联网引用",
+    "",
+    ...(citations.length > 0 ? citations.map((c, i) => `${i + 1}. ${c.title}\n   ${c.url}`) : ["（本次任务无联网引用）"]),
+    "",
+  ];
+
   // 切换页签时回到底部并恢复钉底跟随
   useEffect(() => {
     if (tab === "timeline") {
@@ -1177,33 +1200,14 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                     )
                     .catch(() => undefined)
                 }
-                onPrint={() => window.print()}
+              onPrint={() => window.print()}
                 fs={fs}
                 onFs={setFs}
+                onCopyBundle={() =>
+                  void navigator.clipboard?.writeText(bundleLines().join("\n")).catch(() => undefined)
+                }
                 onExportBundle={() => {
-                  const lines = [
-                    `# ${task.title}`,
-                    "",
-                    `- 任务 ID：${task.id}`,
-                    `- 智能体：${agent.shortName}${agent.model ? `（${agent.model}）` : ""}`,
-                    `- 案例：${task.caseId}　状态：${liveStatus}　运行次数：${runCount}`,
-                    `- 创建：${new Date(task.createdAt).toLocaleString("zh-CN", { hour12: false })}　导出：${new Date().toLocaleString("zh-CN", { hour12: false })}`,
-                    "",
-                    "## 目录",
-                    "",
-                    ...toc.map((h, i) => `${i + 1}. ${h}`),
-                    "",
-                    "## 审查结论",
-                    "",
-                    finalResult,
-                    "",
-                    "## 联网引用",
-                    "",
-                    ...(citations.length > 0
-                      ? citations.map((c, i) => `${i + 1}. ${c.title}\n   ${c.url}`)
-                      : ["（本次任务无联网引用）"]),
-                    "",
-                  ];
+                  const lines = bundleLines();
                   const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement("a");
@@ -1359,6 +1363,8 @@ const KIND_LEGEND = [
   { id: "run_completed", label: "运行结束", color: "#a3e635" },
   { id: "run_failed", label: "运行失败", color: "#fb7185" },
 ];
+
+const kindColor = (k: string) => KIND_LEGEND.find((x) => x.id === k)?.color ?? "#64798f";
 
 function TimelineView({
   instruction,
@@ -1829,7 +1835,7 @@ function TimelineView({
               {showTs && (
                 <span className="font-mono text-[9.5px] text-mist-600">{`#${item.seq} ${fmtTs(item.at)}`}</span>
               )}
-              <span className="h-1 w-1 rounded-full bg-glow-500" />
+              <span className="h-1 w-1 rounded-full" style={{ background: kindColor(item.kind) }} />
               {item.detail ?? item.title}
               <button
                 type="button"
@@ -1853,6 +1859,11 @@ function TimelineView({
 
         return (
           <div key={item.id} data-tlid={item.id} className={`group glow-card relative px-4 py-3 ${cls}`}>
+            <span
+              className="absolute left-1.5 top-3 h-1.5 w-1.5 rounded-full"
+              style={{ background: kindColor(item.kind) }}
+              title={item.kind}
+            />
             {showTs && (
               <div className="mb-1 font-mono text-[9.5px] text-mist-600">{`#${item.seq} ${fmtTs(item.at)}`}</div>
             )}
@@ -2133,6 +2144,7 @@ function ResultView({
   onDownloadCitations,
   onDownloadBibtex,
   onCopyBibtex,
+  onCopyBundle,
   onPrint,
   fs,
   onFs,
@@ -2147,6 +2159,7 @@ function ResultView({
   onDownloadCitations: () => void;
   onDownloadBibtex: () => void;
   onCopyBibtex: () => void;
+  onCopyBundle: () => void;
   onPrint: () => void;
   fs: "sm" | "md" | "lg";
   onFs: (v: "sm" | "md" | "lg") => void;
@@ -2304,6 +2317,11 @@ function ResultView({
             <IconCopy className="h-4 w-4 text-glow-400" />
             <div className="mt-1.5 text-[13px] font-medium text-mist-100">复制 BibTeX</div>
             <div className="text-[11px] text-mist-600">剪贴板 · @misc 条目</div>
+          </button>
+          <button type="button" onClick={onCopyBundle} className="glow-card px-4 py-3 text-left transition-colors hover:border-glow-500">
+            <IconCopy className="h-4 w-4 text-glow-400" />
+            <div className="mt-1.5 text-[13px] font-medium text-mist-100">复制整页 MD</div>
+            <div className="text-[11px] text-mist-600">剪贴板 · 含元信息/目录/引用</div>
           </button>
         </div>
       </div>
