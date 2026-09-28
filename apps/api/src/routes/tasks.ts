@@ -15,6 +15,7 @@ import {
   saveReview,
   selectReopenTargets,
 } from "../services/issues.ts";
+import { listAmountChecks, setAmountCheck } from "../services/amount-checks.ts";
 import {
   appendEvent,
   createTask,
@@ -258,6 +259,24 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
       }
     }
     return { total: reopened.length, reopened, skipped };
+  });
+
+  /** 结论金额的人工核对标记清单 */
+  app.get("/api/tasks/:id/amount-checks", async (req) => {
+    const { id } = req.params as { id: string };
+    return { checks: listAmountChecks(id) };
+  });
+
+  /** 标记 / 撤销某处「待人工确认」金额；写入事件留痕，键为「值（分）|原文片段」 */
+  app.post("/api/tasks/:id/amount-checks", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as { key?: string; checked?: boolean; note?: string };
+    if (!body.key) return reply.code(400).send({ error: "需要 key（值|原文片段）" });
+    const checked = body.checked !== false;
+    const check = setAmountCheck(id, body.key, checked, body.note ?? "");
+    const label = body.key.split("|")[1] ?? body.key;
+    appendEvent(id, "agent_status", checked ? `金额已人工核对：${label}` : `撤销金额核对：${label}`);
+    return { check, checks: listAmountChecks(id) };
   });
 
   /** 底稿比对记录：从工具调用历史中提取 compare_workpapers 的结构化结果，供前端比对视图使用。 */

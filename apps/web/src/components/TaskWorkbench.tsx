@@ -10,7 +10,7 @@ import { matchToolCalls } from "../timeline-calls.ts";
 import { artifactsOfRun, artifactTable, fmtBytes, runWindows, unattributedArtifacts } from "../run-artifacts.ts";
 import { artifactSources } from "../artifact-sources.ts";
 import { callStats, callsByRun, durationMs, fmtDuration, mdCell, summarizeArgs } from "../run-tools.ts";
-import { traceAmounts } from "../amount-trace.ts";
+import { amountKey, traceAmounts } from "../amount-trace.ts";
 import { reviewSection } from "../review-export.ts";
 import { deliveryCheck, deliverySection, type CheckInput, type CheckResult } from "../delivery-check.ts";
 import { CompareView } from "./CompareView.tsx";
@@ -105,6 +105,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   const [reviews, setReviews] = useState<ReviewRecord[]>([]);
   // 「转为待复核」后的本地乐观标记，服务端状态由 App 轮询同步
   const [reopened, setReopened] = useState(false);
+  // 已人工核对的金额（键 → 核对时间），点击正文标注即可标记或撤销
+  const [amountChecks, setAmountChecks] = useState<Record<string, string>>({});
   const [pendingReviews, setPendingReviews] = useState(0);
   const [readerOpen, setReaderOpen] = useState(false);
   const [readerTabs, setReaderTabs] = useState<ReaderTarget[]>([]);
@@ -321,6 +323,40 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
 
   // 切换任务时清掉乐观标记，避免沿用上一个任务的状态
   useEffect(() => setReopened(false), [task.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api
+      .listAmountChecks(task.id)
+      .then((list) => {
+        if (!cancelled) setAmountChecks(Object.fromEntries(list.map((c) => [c.key, c.createdAt])));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [task.id]);
+
+  /** 标记 / 撤销一处金额的人工核对：先乐观更新，失败回滚 */
+  const toggleAmountCheck = (key: string) => {
+    const checked = !(key in amountChecks);
+    setAmountChecks((prev) => {
+      const next = { ...prev };
+      if (checked) next[key] = new Date().toISOString();
+      else delete next[key];
+      return next;
+    });
+    void api.toggleAmountCheck(task.id, key, checked).then(
+      (list) => setAmountChecks(Object.fromEntries(list.map((c) => [c.key, c.createdAt]))),
+      () =>
+        setAmountChecks((prev) => {
+          const next = { ...prev };
+          if (checked) delete next[key];
+          else next[key] = "";
+          return next;
+        }),
+    );
+  };
 
   const handleReopenReview = () => {
     void api
@@ -655,15 +691,34 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     [finalResult, toolCalls, task.instruction],
   );
 
-  // 待人工确认的金额在结论正文里就地标注（虚线下划线 + 悬浮说明），不必只靠徽章
+  // 待人工确认的金额：已核对的不再计入交付自检提醒
+  const amountPending = useMemo(
+    () => amountTrace.untraced.filter((u) => !(amountKey(u) in amountChecks)),
+    [amountTrace, amountChecks],
+  );
+  const amountAcked = amountTrace.untraced.length - amountPending.length;
+
+  // 就地标注：待确认（琥珀，点击标记为已核对）与已核对（青绿，点击撤销）
   const amountAnnotations = useMemo<Annotation[]>(
     () =>
-      amountTrace.untraced.slice(0, 40).map((u) => ({
-        text: u.match,
-        label: `待人工确认：该金额未在本次工具调用结果与客户指令中找到出处\n上下文：…${u.context}…`,
-        className: "md-annot-warn",
-      })),
-    [amountTrace],
+      amountTrace.untraced.slice(0, 60).map((u) => {
+        const key = amountKey(u);
+        const ackedAt = amountChecks[key];
+        return ackedAt
+          ? {
+              text: u.match,
+              key,
+              className: "md-annot-ok",
+              label: `已人工核对（${new Date(ackedAt).toLocaleString("zh-CN", { hour12: false })}）· 点击撤销标记`,
+            }
+          : {
+              text: u.match,
+              key,
+              className: "md-annot-warn",
+              label: `待人工确认：该金额未在本次工具调用结果与客户指令中找到出处 · 点击标记为已核对\n上下文：…${u.context}…`,
+            };
+      }),
+    [amountTrace, amountChecks],
   );
 
   // 交付自检输入：结论字数、产物与溯源、工具调用结果、待复核与联网引用
@@ -678,7 +733,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     pendingReview: pendingReviews,
     citations: citations.length,
     amountTotal: amountTrace.total,
-    amountUntraced: amountTrace.untraced.length,
+    amountUntraced: amountPending.length,
   });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const delivery = useMemo(
@@ -768,19 +823,24 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     "",
     "## 结论金额溯源",
     "",
-    `- 结论中识别出金额 ${amountTrace.total} 处：工具结果可溯源 ${amountTrace.traced} 处 · 来自客户指令 ${amountTrace.fromInput} 处 · 待人工确认 ${amountTrace.untraced.length} 处`,
-    ...(amountTrace.untraced.length > 0
+    `- 结论中识别出金额 ${amountTrace.total} 处：工具结果可溯源 ${amountTrace.traced} 处 · 来自客户指令 ${amountTrace.fromInput} 处 · 待人工确认 ${amountPending.length} 处${
+      amountAcked > 0 ? ` · 已人工核对 ${amountAcked} 处` : ""
+    }`,
+    ...(amountPending.length > 0
       ? [
           "",
-          "| # | 金额 | 结论中的上下文 |",
-          "| --- | --- | --- |",
-          ...amountTrace.untraced.slice(0, 20).map((u, i) => `| ${i + 1} | ${u.raw} | ${mdCell(u.context)} |`),
+          "| # | 金额 | 结论中的上下文 | 处理建议 |",
+          "| --- | --- | --- | --- |",
+          ...amountPending.slice(0, 20).map(
+            (u, i) => `| ${i + 1} | ${u.raw} | ${mdCell(u.context)} | 核对来源或在正文中点击标记为已核对 |`,
+          ),
           "",
-          ...(amountTrace.untraced.length > 20
-            ? [`（另有 ${amountTrace.untraced.length - 20} 处未列出）`, ""]
-            : []),
+          ...(amountPending.length > 20 ? [`（另有 ${amountPending.length - 20} 处未列出）`, ""] : []),
         ]
-      : ["", "（全部金额都能在工具调用结果或客户指令中找到出处）"]),
+      : [
+          "",
+          "（没有待人工确认的金额：结论中的金额都能在工具调用结果或客户指令中找到出处，或已完成人工核对）",
+        ]),
     "",
   ];
 
@@ -1352,13 +1412,15 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                         {amountTrace.total > 0 && (
                           <span
                             className={`rounded px-1.5 py-0.5 text-[10.5px] ${
-                              amountTrace.untraced.length === 0
+                              amountPending.length === 0
                                 ? "bg-jade-400/15 text-jade-300"
                                 : "bg-amber-400/15 text-amber-300"
                             }`}
-                            title={`结论金额溯源：${amountTrace.traced}/${amountTrace.total} 处可在工具结果中找到出处，${amountTrace.fromInput} 处来自客户指令，${amountTrace.untraced.length} 处两边都没有需人工确认${
-                              amountTrace.untraced.length > 0
-                                ? `\n${amountTrace.untraced
+                            title={`结论金额溯源：${amountTrace.traced}/${amountTrace.total} 处可在工具结果中找到出处，${amountTrace.fromInput} 处来自客户指令，${amountPending.length} 处待人工确认${
+                              amountAcked > 0 ? `，${amountAcked} 处已人工核对` : ""
+                            }${
+                              amountPending.length > 0
+                                ? `\n点击正文中的琥珀标记可标记为已核对：\n${amountPending
                                     .slice(0, 5)
                                     .map((u) => `· ${u.raw}：…${u.context}…`)
                                     .join("\n")}`
@@ -1366,7 +1428,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                             }`}
                           >
                             金额溯源 {amountTrace.traced}/{amountTrace.total}
-                            {amountTrace.untraced.length > 0 ? ` · 待确认 ${amountTrace.untraced.length}` : ""}
+                            {amountPending.length > 0 ? ` · 待确认 ${amountPending.length}` : ""}
+                            {amountAcked > 0 ? ` · 已核对 ${amountAcked}` : ""}
                           </span>
                         )}
                         <button
@@ -1463,6 +1526,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                 onFs={setFs}
                 delivery={delivery}
                 annotations={amountAnnotations}
+                onAnnotateClick={toggleAmountCheck}
                 onCopyBundle={() =>
                   void navigator.clipboard?.writeText(bundleLines().join("\n")).catch(() => undefined)
                 }
@@ -2498,6 +2562,7 @@ function ResultView({
   delivery,
   onPrint,
   annotations,
+  onAnnotateClick,
   fs,
   onFs,
   onExportBundle,
@@ -2514,6 +2579,7 @@ function ResultView({
   onCopyBundle: () => void;
   delivery: CheckResult;
   annotations?: Annotation[];
+  onAnnotateClick?: (key: string) => void;
   onPrint: () => void;
   fs: "sm" | "md" | "lg";
   onFs: (v: "sm" | "md" | "lg") => void;
@@ -2543,6 +2609,7 @@ function ResultView({
           headingIds
           className={fs === "md" ? "" : `fs-${fs}`}
           annotations={annotations}
+          onAnnotateClick={onAnnotateClick}
         />
       </article>
 

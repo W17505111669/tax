@@ -119,6 +119,14 @@ export function collectToolCents(results: unknown[]): Set<number> {
   return set;
 }
 
+/**
+ * 金额核对标记的键：值（分）+ 原文片段。
+ * 结论重写后同值同写法的金额仍是同一个键，人工核对结果不会因为重新运行而丢失。
+ */
+export function amountKey(a: { cents: number; match: string }): string {
+  return `${a.cents}|${a.match}`;
+}
+
 /** 符号不敏感匹配：差异金额常以负数呈现，工具结果里可能是正数（或相反） */
 function inPool(cents: number, pool: Set<number>): boolean {
   return pool.has(cents) || pool.has(-cents);

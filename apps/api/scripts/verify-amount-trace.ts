@@ -2,7 +2,7 @@
  * 验证脚本：结论金额溯源（提取规则 / 工具数值收集 / 三级口径 / 真实任务走查）。
  * 运行：pnpm verify:amounts
  */
-import { collectToolCents, extractAmounts, traceAmounts } from "../../web/src/amount-trace.ts";
+import { amountKey, collectToolCents, extractAmounts, traceAmounts } from "../../web/src/amount-trace.ts";
 import { db } from "../src/db.ts";
 import { getTask, listTasks } from "../src/services/task-store.ts";
 
@@ -56,6 +56,14 @@ expect("match 都是原文精确子串", extracted.every((a) => sample.includes(
 expect("match 保留原文空格与单位", extracted.map((a) => a.match), ["84,444.44 元", "-460,000.00 元", "50 万元"]);
 expect("raw 为归一化展示形式", extracted.map((a) => a.raw), ["84,444.44元", "-460,000.00元", "50万元"]);
 
+// 3c) 人工核对标记的键：值 + 原文片段，保证结论重写后同一写法仍复用核对结果
+expect("核对键由值与原文片段组成", amountKey({ cents: -46000000, match: "-460,000.00 元" }), "-46000000|-460,000.00 元");
+expect(
+  "同值不同写法产生不同键",
+  amountKey({ cents: 5000000, match: "5,000.00 元" }) !== amountKey({ cents: 5000000, match: "5000.00元" }),
+  true,
+);
+expect("提取结果可直接生成核对键", amountKey(extracted[0]!).startsWith("8444444|"), true);
 // 4) 真实任务走查：可溯源比例不得低于 90%（当前实现约 96%）
 let total = 0;
 let explained = 0;

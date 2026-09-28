@@ -106,9 +106,11 @@ interface Props {
   headingIds?: boolean;
   /** 就地标注：把正文里出现的这些原文片段包成带说明的标记（例如待人工确认的金额） */
   annotations?: Annotation[];
+  /** 点击带 key 的标注时回调（用于「标记为已核对」一类可闭环动作） */
+  onAnnotateClick?: (key: string) => void;
 }
 
-export type Annotation = { text: string; label: string; className?: string };
+export type Annotation = { text: string; label: string; className?: string; key?: string };
 
 /**
  * 在已渲染的正文里就地标注指定片段：跳过代码块、行内代码与 mermaid 容器，
@@ -150,11 +152,16 @@ function annotate(el: HTMLElement, items: Annotation[]): void {
     for (const h of hits) {
       if (h.start < cursor) continue;
       if (h.start > cursor) frag.appendChild(document.createTextNode(value.slice(cursor, h.start)));
-      const span = document.createElement("span");
-      span.className = `md-annot ${h.item.className ?? ""}`.trim();
-      span.title = h.item.label;
-      span.textContent = value.slice(h.start, h.end);
-      frag.appendChild(span);
+      // 带 key 的标注渲染成 button：可点击、可键盘聚焦，点击由容器统一委派处理
+      const mark = document.createElement(h.item.key ? "button" : "span");
+      if (h.item.key) {
+        (mark as HTMLButtonElement).type = "button";
+        mark.setAttribute("data-annot-key", h.item.key);
+      }
+      mark.className = `md-annot ${h.item.className ?? ""}`.trim();
+      mark.title = h.item.label;
+      mark.textContent = value.slice(h.start, h.end);
+      frag.appendChild(mark);
       cursor = h.end;
     }
     if (cursor < value.length) frag.appendChild(document.createTextNode(value.slice(cursor)));
@@ -169,6 +176,7 @@ export function MarkdownView({
   onOpenUrl,
   headingIds = false,
   annotations,
+  onAnnotateClick,
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   // 标注数组每次渲染都是新对象，用内容指纹参与依赖，避免无意义的重复渲染
@@ -196,8 +204,15 @@ export function MarkdownView({
   }, [text, live, annotationsKey]);
 
   const handleClick = (event: MouseEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    const annot = target.closest<HTMLElement>("[data-annot-key]");
+    if (annot && onAnnotateClick) {
+      event.preventDefault();
+      onAnnotateClick(annot.dataset.annotKey ?? "");
+      return;
+    }
     if (!onOpenUrl) return;
-    const anchor = (event.target as HTMLElement).closest("a[href]");
+    const anchor = target.closest("a[href]");
     if (!anchor) return;
     const href = anchor.getAttribute("href") ?? "";
     if (!/^https?:\/\//i.test(href)) return;

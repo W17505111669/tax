@@ -66,6 +66,14 @@ db.exec(`
     created_at TEXT NOT NULL,
     UNIQUE (task_id, issue_id)
   );
+
+  CREATE TABLE IF NOT EXISTS amount_checks (
+    task_id TEXT NOT NULL,
+    amount_key TEXT NOT NULL,
+    note TEXT,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (task_id, amount_key)
+  );
 `);
 
 export function nowIso(): string {

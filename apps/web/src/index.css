@@ -306,6 +306,16 @@ details.tool-row .chev {
   background: rgba(245, 158, 11, 0.16);
   box-shadow: inset 0 -1px 0 0 #f59e0b;
 }
+.md-annot-ok {
+  background: rgba(52, 211, 153, 0.14);
+  box-shadow: inset 0 -1px 0 0 #34d399;
+}
+button.md-annot {
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
 .print-only {
   display: none;
 }

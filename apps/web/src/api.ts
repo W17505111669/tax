@@ -100,6 +100,21 @@ export const api = {
       body: JSON.stringify({ ids }),
     }),
 
+  listAmountChecks: (taskId: string) =>
+    request<{ checks: Array<{ key: string; note: string; createdAt: string }> }>(
+      `/api/tasks/${taskId}/amount-checks`,
+    ).then((r) => r.checks),
+
+  toggleAmountCheck: (taskId: string, key: string, checked: boolean) =>
+    request<{ checks: Array<{ key: string; note: string; createdAt: string }> }>(
+      `/api/tasks/${taskId}/amount-checks`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, checked }),
+      },
+    ).then((r) => r.checks),
+
   artifactContentUrl: (taskId: string, name: string) =>
     `/api/tasks/${taskId}/artifacts/${encodeURIComponent(name)}/content`,
 };
