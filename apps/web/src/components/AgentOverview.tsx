@@ -143,9 +143,25 @@ export function AgentOverview({
   const [toolSort, setToolSort] = useState(false);
   const [capsOpen, setCapsOpen] = useState(false);
   const [weekDeltas, setWeekDeltas] = useState<Record<string, number>>({});
-  const [batchArmed, setBatchArmed] = useState(false);
-  const [batchBusy, setBatchBusy] = useState(false);
+  // 批量「转为待复核」的两步确认：armed / busy 记的是范围标签（全平台或某个作品）
+  const [batchArmed, setBatchArmed] = useState<string | null>(null);
+  const [batchBusy, setBatchBusy] = useState("");
   const [batchMsg, setBatchMsg] = useState("");
+  const armBatch = (label: string, ids: string[]) => {
+    if (batchBusy !== "" || !onBatchReopen || ids.length === 0) return;
+    if (batchArmed !== label) {
+      setBatchArmed(label);
+      setBatchMsg("");
+      window.setTimeout(() => setBatchArmed((v) => (v === label ? null : v)), 3000);
+      return;
+    }
+    setBatchArmed(null);
+    setBatchBusy(label);
+    void onBatchReopen(ids)
+      .then((n) => setBatchMsg(`${label}：已把 ${n} 个任务转为待复核，状态事件已留痕`))
+      .catch(() => setBatchMsg(`${label}：批量转换失败，请到各任务复核页逐个处理`))
+      .finally(() => setBatchBusy(""));
+  };
 
   // 平台指标周环比：每日快照入 localStorage，与 7 天前（或最近可得）快照对比
   useEffect(() => {
@@ -618,27 +634,15 @@ export function AgentOverview({
                     <button
                       type="button"
                       className="action-btn ml-auto !text-[11px] disabled:cursor-not-allowed disabled:opacity-40"
-                      disabled={batchBusy}
+                      disabled={batchBusy !== ""}
                       title="把下列已完成但仍有未复核问题的任务批量改回待复核状态，每个任务都会写入状态事件留痕"
                       onClick={() => {
-                        if (batchBusy) return;
-                        if (!batchArmed) {
-                          setBatchArmed(true);
-                          setBatchMsg("");
-                          window.setTimeout(() => setBatchArmed(false), 3000);
-                          return;
-                        }
-                        setBatchArmed(false);
-                        setBatchBusy(true);
-                        void onBatchReopen((stats.platform?.reviewBacklog ?? []).map((b) => b.id))
-                          .then((n) => setBatchMsg(`已把 ${n} 个任务转为待复核，状态事件已留痕`))
-                          .catch(() => setBatchMsg("批量转换失败，请到各任务复核页逐个处理"))
-                          .finally(() => setBatchBusy(false));
+                        armBatch("全平台", (stats.platform?.reviewBacklog ?? []).map((b) => b.id));
                       }}
                     >
-                      {batchBusy
+                      {batchBusy === "全平台"
                         ? "处理中…"
-                        : batchArmed
+                        : batchArmed === "全平台"
                           ? `再点一次确认（${stats.platform.reviewBacklog.length} 个）`
                           : "批量转为待复核"}
                     </button>
@@ -646,16 +650,18 @@ export function AgentOverview({
                 </div>
                 {batchMsg && <div className="mt-1 text-[11px] text-jade-300">{batchMsg}</div>}
                 <div className="mt-1.5 space-y-1">
-                  {backlogByAgent.map(([agentId, list]) => (
+                  {backlogByAgent.map(([agentId, list]) => {
+                    const label = agentName(agentId);
+                    return (
                     <div key={agentId} className="flex flex-wrap items-center gap-1.5">
                       <span
                         className="w-[72px] shrink-0 truncate text-[10.5px] text-mist-500"
-                        title={`${agentName(agentId)}：${list.length} 个任务，合计 ${list.reduce(
+                        title={`${label}：${list.length} 个任务，合计 ${list.reduce(
                           (s, b) => s + b.pending,
                           0,
                         )} 项未复核`}
                       >
-                        {agentName(agentId)}
+                        {label}
                       </span>
                       {list.slice(0, 6).map((b) => (
                         <button
@@ -671,8 +677,24 @@ export function AgentOverview({
                       {list.length > 6 && (
                         <span className="self-center text-[10.5px] text-mist-500">等 {list.length} 个</span>
                       )}
+                      {onBatchReopen && (
+                        <button
+                          type="button"
+                          className="action-btn ml-auto !text-[10.5px] disabled:cursor-not-allowed disabled:opacity-40"
+                          disabled={batchBusy !== ""}
+                          title={`只把「${label}」的 ${list.length} 个已完成任务改回待复核（两步确认，逐个写入状态事件）`}
+                          onClick={() => armBatch(label, list.map((b) => b.id))}
+                        >
+                          {batchBusy === label
+                            ? "处理中…"
+                            : batchArmed === label
+                              ? "再点确认"
+                              : `转该组 ${list.length}`}
+                        </button>
+                      )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ) : (
