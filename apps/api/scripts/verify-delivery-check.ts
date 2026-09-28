@@ -273,6 +273,25 @@ expect(
   }).verdict,
   "可交付",
 );
+expect(
+  "全部复查到出处后不再建议改用快照",
+  deliveryCheck({
+    ...base,
+    docRefTotal: 3,
+    docRefTraced: 0,
+    docRefUnverifiable: 3,
+    docRefRecheck: recheck({ total: 3, matched: 3 }),
+    docRefPending: 0,
+  }).items.some((x) => x.level === "info" && x.text.includes("已全部联网复查到公开出处")),
+  true,
+);
+expect(
+  "未复查时仍建议改用快照或联网复查",
+  deliveryCheck({ ...base, docRefTotal: 3, docRefUnverifiable: 3 }).items.some(
+    (x) => x.level === "info" && x.text.includes("建议改用政策快照检索"),
+  ),
+  true,
+);
 expect("多项阻断同时存在", deliveryCheck({ ...base, status: "processing", resultChars: 0 }).blocks, 2);
 expect("失败叠加空结论", deliveryCheck({ ...base, status: "failed", resultChars: 0 }).blocks, 2);
 

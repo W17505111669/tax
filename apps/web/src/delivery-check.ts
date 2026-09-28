@@ -136,7 +136,9 @@ export function deliveryCheck(i: CheckInput): CheckResult {
   if (i.docRefUnverifiable > 0) {
     items.push({
       level: "info",
-      text: `${i.docRefUnverifiable} 处政策文号无法从留存数据核验（联网检索扩展只持久化查询元数据），建议改用政策快照检索或附检索页面截图`,
+      text: refsCovered
+        ? `${i.docRefUnverifiable} 处政策文号无法从留存数据核验（联网检索扩展只持久化查询元数据），已全部联网复查到公开出处，证据链接见「政策文号溯源」节的复查表`
+        : `${i.docRefUnverifiable} 处政策文号无法从留存数据核验（联网检索扩展只持久化查询元数据），建议改用政策快照检索、联网复查或附检索页面截图`,
     });
   }
   if (i.docRefTotal > 0 && i.docRefUntraced === 0 && i.docRefUnverifiable === 0) {
