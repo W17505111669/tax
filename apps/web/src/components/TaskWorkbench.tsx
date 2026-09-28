@@ -1239,6 +1239,21 @@ function TimelineView({
     return m;
   }, [items]);
 
+  // 按工具名聚合：调用次数 / 成功数 / 平均耗时
+  const toolStats = useMemo(() => {
+    const m = new Map<string, { n: number; ok: number; sum: number }>();
+    for (const c of toolCalls) {
+      const e = m.get(c.toolName) ?? { n: 0, ok: 0, sum: 0 };
+      e.n += 1;
+      if (c.ok === true) e.ok += 1;
+      if (c.endedAt) e.sum += Math.max(0, (Date.parse(c.endedAt) - Date.parse(c.at)) / 1000);
+      m.set(c.toolName, e);
+    }
+    return [...m.entries()]
+      .map(([name, e]) => ({ name, n: e.n, ok: e.ok, avg: (e.sum / Math.max(1, e.n)).toFixed(1) }))
+      .sort((a, b) => b.n - a.n);
+  }, [toolCalls]);
+
   type TItem = (typeof items)[number];
   const isVisible = (it: TItem) => {
     if (view === "tools" && it.kind !== "tool_start" && it.kind !== "run_started") return false;
@@ -1501,6 +1516,40 @@ function TimelineView({
           </button>
         ))}
       </div>
+      {toolStats.length > 0 && (
+        <details className="tool-row glow-card">
+          <summary className="flex items-center gap-2 px-3.5 py-2">
+            <span className="chev text-[10px] text-glow-400">▶</span>
+            <IconTool className="h-3.5 w-3.5 text-glow-400" />
+            <span className="text-[12px] text-mist-100">工具分组统计</span>
+            <span className="ml-auto text-[11px] text-mist-600">{toolStats.length} 种工具</span>
+          </summary>
+          <div className="border-t border-line px-3.5 py-2">
+            <table className="w-full text-[11px]">
+              <thead>
+                <tr className="text-mist-600">
+                  <th className="py-0.5 text-left font-normal">工具</th>
+                  <th className="text-right font-normal">调用</th>
+                  <th className="text-right font-normal">成功</th>
+                  <th className="text-right font-normal">均耗时</th>
+                </tr>
+              </thead>
+              <tbody className="font-mono text-mist-300">
+                {toolStats.map((s) => (
+                  <tr key={s.name}>
+                    <td className="py-0.5 pr-2">{s.name}</td>
+                    <td className="text-right">{s.n}</td>
+                    <td className="text-right text-jade-400">
+                      {s.ok}/{s.n}
+                    </td>
+                    <td className="text-right">{s.avg}s</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      )}
       <div className="flex justify-end">
         <div className="user-bubble max-w-[78%] whitespace-pre-wrap px-4 py-2.5 text-[13px] leading-6">
           {instruction}
