@@ -8,6 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { db } from "../src/db.ts";
+import { computePlatformStats } from "../src/services/stats.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..", "..", "..");
@@ -88,6 +89,11 @@ const VERIFY_SCRIPTS: Array<{ name: string; cmd: string; scope: string }> = [
     name: "verify:fresh",
     cmd: "pnpm verify:fresh",
     scope: "交付包新鲜度（上次打包后的变更识别与提示文案）",
+  },
+  {
+    name: "verify:stats",
+    cmd: "pnpm verify:stats",
+    scope: "平台统计口径（比对准确率双口径 / 工具 / 任务 / 产物计数）",
   },
   {
     name: "verify:upload",
@@ -253,4 +259,16 @@ const report = lines.join("\n");
 const outPath = path.join(root, "docs", "testing", `test-report-${stamp}.md`);
 fs.writeFileSync(outPath, report, "utf8");
 console.log(`\n[report] written: ${outPath}`);
-console.log(`[report] allVerifyPass=${allPass} tasks=${tasks.length} recordCompareAccuracy=${comparedTotal > 0 ? Math.round((matchedTotal / comparedTotal) * 10000) / 100 + "%" : "n/a"}`);
+// 两个口径分别标注，避免与概览页「最近一次记录级比对准确率」混淆
+const platformNow = computePlatformStats();
+const overallNow = comparedTotal > 0 ? Math.round((matchedTotal / comparedTotal) * 10000) / 100 : null;
+if (overallNow !== null && platformNow.compareAccuracyOverall !== overallNow) {
+  console.log(
+    `[report][WARN] 累计比对准确率两处口径不一致：报告 ${overallNow}% vs 平台统计 ${platformNow.compareAccuracyOverall}%`,
+  );
+}
+console.log(
+  `[report] allVerifyPass=${allPass} tasks=${tasks.length} recordCompareLatest=${
+    platformNow.compareAccuracy ?? "n/a"
+  }% recordCompareOverall=${overallNow ?? "n/a"}%（一致 ${matchedTotal}/比对 ${comparedTotal}）`,
+);

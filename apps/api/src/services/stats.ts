@@ -21,6 +21,12 @@ export interface PlatformStats {
   artifacts: number;
   compareAccuracy: number | null;
   compareRuns: number;
+  /** 记录级比对的累计口径：全部记录级比对的 matched/compared 合计与百分比 */
+  compareMatched: number;
+  compareCompared: number;
+  compareAccuracyOverall: number | null;
+  /** 「最近一次」的判定依据：记录级比对的最晚开始时间 */
+  compareLatestAt: string;
   ocrRuns: number;
   ocrAvgConfidence: number | null;
   perAgent: AgentStats[];
@@ -47,6 +53,9 @@ export function computePlatformStats(): PlatformStats {
   let artifacts = 0;
   let compareAccuracy: number | null = null;
   let compareRuns = 0;
+  let compareLatestAt = "";
+  let compareMatched = 0;
+  let compareCompared = 0;
   let ocrConfSum = 0;
   let ocrRuns = 0;
   let reviewPendingIssues = 0;
@@ -62,8 +71,13 @@ export function computePlatformStats(): PlatformStats {
     if (task.status === "completed") agent.completed += 1;
 
     const calls = db
-      .prepare(`SELECT ok, tool_name, result FROM tool_calls WHERE task_id = ?`)
-      .all(task.id) as unknown as Array<{ ok: number | null; tool_name: string; result: string | null }>;
+      .prepare(`SELECT ok, tool_name, result, started_at FROM tool_calls WHERE task_id = ?`)
+      .all(task.id) as unknown as Array<{
+      ok: number | null;
+      tool_name: string;
+      result: string | null;
+      started_at: string | null;
+    }>;
     agent.toolCalls += calls.length;
     toolCalls += calls.length;
     const okCount = calls.filter((c) => c.ok === 1).length;
@@ -116,11 +130,18 @@ export function computePlatformStats(): PlatformStats {
       try {
         const parsed = JSON.parse(call.result) as {
           sheets?: Array<{ mode?: string }>;
-          totals?: { accuracyPercent?: number };
+          totals?: { accuracyPercent?: number; compared?: number; matched?: number };
         };
         if (parsed.sheets?.[0]?.mode === "record" && parsed.totals?.accuracyPercent !== undefined) {
-          compareAccuracy = parsed.totals.accuracyPercent;
           compareRuns += 1;
+          // 「最近一次」按调用开始时间判定，与任务在表中的顺序无关
+          const at = String(call.started_at ?? "");
+          if (at >= compareLatestAt) {
+            compareLatestAt = at;
+            compareAccuracy = parsed.totals.accuracyPercent;
+          }
+          compareCompared += typeof parsed.totals.compared === "number" ? parsed.totals.compared : 0;
+          compareMatched += typeof parsed.totals.matched === "number" ? parsed.totals.matched : 0;
         }
       } catch {
         // 忽略坏记录
@@ -136,6 +157,11 @@ export function computePlatformStats(): PlatformStats {
     artifacts,
     compareAccuracy,
     compareRuns,
+    compareMatched,
+    compareCompared,
+    compareAccuracyOverall:
+      compareCompared > 0 ? Math.round((compareMatched / compareCompared) * 10000) / 100 : null,
+    compareLatestAt,
     ocrRuns,
     ocrAvgConfidence: ocrRuns > 0 ? Math.round((ocrConfSum / ocrRuns) * 100) / 100 : null,
     perAgent: [...perAgentMap.values()],

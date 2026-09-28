@@ -37,6 +37,7 @@
 | `pnpm verify:bundle` | 交付包打包（条目名安全化 / zip 往返 / 真实任务条目组装） | PASS |
 | `pnpm verify:manifest` | 交付清单 manifest.json（结构 / 内部一致性自校验 / 真实任务走查） | PASS |
 | `pnpm verify:fresh` | 交付包新鲜度（上次打包后的变更识别与提示文案） | PASS |
+| `pnpm verify:stats` | 平台统计口径（比对准确率双口径 / 工具 / 任务 / 产物计数） | PASS |
 | `pnpm verify:upload` | 上传预检规则（扩展名 / 大小 / 空文件 / 批量分组 / 提示文案） | PASS |
 
 ## 三、真实任务台账

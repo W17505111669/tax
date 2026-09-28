@@ -178,6 +178,11 @@ export interface PlatformStats {
   artifacts: number;
   compareAccuracy: number | null;
   compareRuns: number;
+  /** 记录级比对的累计口径（全部记录级比对的 一致项/比对项 合计） */
+  compareMatched: number;
+  compareCompared: number;
+  compareAccuracyOverall: number | null;
+  compareLatestAt: string;
   ocrRuns: number;
   ocrAvgConfidence: number | null;
   /** 全平台待复核问题总数 */

@@ -234,7 +234,9 @@ export function AgentOverview({
       `- 累计任务：${p.tasks}（已完成 ${p.completed}）`,
       `- 工具调用：${p.toolCalls} 次 · 成功 ${p.toolOk} · 成功率 ${rate}%`,
       `- 底稿产物：${p.artifacts} 份`,
-      `- 记录级比对准确率：${p.compareAccuracy ?? "—"}%（${p.compareRuns} 次）`,
+      `- 记录级比对准确率：最近一次 ${p.compareAccuracy ?? "—"}%（共 ${p.compareRuns} 次，按调用时间取最新）· 累计 ${
+        p.compareAccuracyOverall ?? "—"
+      }%（一致 ${p.compareMatched} / 比对 ${p.compareCompared}）`,
       `- OCR 平均置信度：${p.ocrAvgConfidence ?? "—"}%（${p.ocrRuns} 次）`,
       `- 复核闭环：待复核问题合计 ${p.reviewPendingIssues} 项；已完成但仍有未复核问题的任务 ${p.reviewBacklog.length} 个`,
       ...(p.reviewBacklog.length > 0
@@ -325,7 +327,10 @@ export function AgentOverview({
       `已完成\t${p.completed}`,
       `工具成功率\t${rate}%`,
       `底稿产物\t${p.artifacts}`,
-      `记录级比对准确率\t${p.compareAccuracy ?? "—"}%`,
+      `记录级比对准确率（最近一次）\t${p.compareAccuracy ?? "—"}%`,
+      `记录级比对准确率（累计）\t${p.compareAccuracyOverall ?? "—"}%`,
+      `记录级比对项合计\t${p.compareCompared}`,
+      `记录级比对一致项\t${p.compareMatched}`,
       `OCR 平均置信度\t${p.ocrAvgConfidence ?? "—"}%`,
       `待复核问题合计\t${p.reviewPendingIssues}`,
       `完成但未复核任务\t${p.reviewBacklog.length}`,
@@ -599,9 +604,16 @@ export function AgentOverview({
                 { label: "底稿产物", key: "artifacts", value: stats.platform.artifacts.toLocaleString("zh-CN"), unit: "份", desc: "各任务 outputs 目录文件计数" },
                 {
                   label: "记录级比对准确率",
-                  desc: "最近一次记录级 compare_workpapers 的准确率",
+                  desc: `最近一次记录级比对的准确率（共 ${stats.platform.compareRuns} 次，按调用时间取最新${
+                    stats.platform.compareLatestAt ? `：${stats.platform.compareLatestAt}` : ""
+                  }）；累计口径为全部记录级比对的 一致项/比对项 合计 = ${stats.platform.compareMatched}/${
+                    stats.platform.compareCompared
+                  }`,
                   value: stats.platform.compareAccuracy !== null ? String(stats.platform.compareAccuracy) : "—",
-                  unit: "%",
+                  unit:
+                    stats.platform.compareAccuracyOverall !== null
+                      ? `% · 累计 ${stats.platform.compareAccuracyOverall}%`
+                      : "%",
                 },
                 {
                   label: "OCR 平均置信度",
