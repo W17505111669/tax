@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from "react";
 import type { CompareRecord, CompareRef } from "../types.ts";
 import { IconAlert, IconCheck, IconDownload } from "./Icons.tsx";
 
@@ -20,6 +21,42 @@ interface Props {
 }
 
 export function CompareView({ compares, onOpenTarget }: Props) {
+  const flat = useMemo(
+    () =>
+      compares.flatMap((rec) =>
+        rec.result?.totals
+          ? rec.result.sheets.flatMap((s) => s.diffs.map((d) => ({ rec, addr: d.address })))
+          : [],
+      ),
+    [compares],
+  );
+  const [sel, setSel] = useState<number | null>(null);
+
+  // ↑/↓ 选择差异行，Enter 在阅读器中打开双底稿定位
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || flat.length === 0) return;
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        setSel((prev) =>
+          prev === null ? 0 : Math.min(flat.length - 1, Math.max(0, prev + (e.key === "ArrowDown" ? 1 : -1))),
+        );
+      } else if (e.key === "Enter" && sel !== null) {
+        const item = flat[sel];
+        if (item) openBoth(item.rec, item.addr);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flat, sel]);
+
+  useEffect(() => {
+    if (sel === null) return;
+    document.querySelector(`[data-diffidx="${sel}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [sel]);
+
   const exportReport = (rec: CompareRecord) => {
     const t = rec.result.totals;
     const lines = [
@@ -65,8 +102,12 @@ export function CompareView({ compares, onOpenTarget }: Props) {
     );
   }
 
+  let cursor = -1;
   return (
     <div className="space-y-6">
+      {flat.length > 0 && (
+        <div className="text-[11px] text-mist-600">↑/↓ 选择差异行 · Enter 在阅读器中打开双底稿并定位</div>
+      )}
       {compares.map((rec) => {
         const t = rec.result?.totals;
         if (!t) return null;
@@ -161,12 +202,19 @@ export function CompareView({ compares, onOpenTarget }: Props) {
                       <tbody>
                       {s.diffs.map((d, i) => {
                         const meta = KIND_META[d.kind];
+                        const idx = (cursor += 1);
                         return (
                           <tr
                             key={`${d.address}-${i}`}
-                            onClick={() => openBoth(rec, d.address)}
+                            data-diffidx={idx}
+                            onClick={() => {
+                              setSel(idx);
+                              openBoth(rec, d.address);
+                            }}
                             title="点击同时在阅读器中打开两份底稿并定位该行"
-                            className="cursor-pointer transition-colors hover:bg-night-700"
+                            className={`cursor-pointer transition-colors hover:bg-night-700 ${
+                              idx === sel ? "bg-night-700 shadow-[inset_0_0_0_1px_rgba(34,211,238,0.45)]" : ""
+                            }`}
                           >
                             <td className="border border-line px-2.5 py-1.5">
                                 <span className={`rounded border px-1.5 py-0.5 text-[10.5px] ${meta.cls}`}>
