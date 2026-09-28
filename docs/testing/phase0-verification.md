@@ -186,6 +186,28 @@ web_search:True → check_rd_expenses:True → web_search:True → fetch_content
 端到端实测（任务「模板保留式填列闭环」，上传合成模板）：Agent 调用链
 `parse_uploaded_files → inspect_workpaper_template → match_contract_invoice → fill_land_vat_workpaper → web_search → check_amount_consistency → generate_workpaper` 全部 True；
 产物 `已填列-土增清算底稿-合成模板.xlsx` 回读校验：HT-001/HT-002/HT-003 三行合同金额与发票汇总（12,000,000/11,900,000、3,500,000/3,500,000、6,800,000/4,800,000）与 match 工具输出一致，差异列与合计公式、合并备注行均保留。
+
+## Phase 4：研发政策快照库与比例规则（2026-09-28）
+
+新增 `agents/rd-audit/knowledge/rd-policies.json`（10 条版本化政策快照：119 号、97 号、40 号、99 号、2021 年 6/13/28 号、2022 年 16 号、2023 年 7/44 号）与 `search_rd_policy` 工具：
+
+- 按费用年度筛选适用政策、按关键词检索条文要点；
+- 确定性比例规则表 `rateFor(year, enterpriseType)`：50%/75%/100%/120% 四档，返回比例与政策依据文号；
+- 系统提示词强制：测算前必须先取快照比例与文号，正式成果引用前须联网核验并记录核验时间。
+
+`pnpm verify:policy` 实际输出（节选）：
+
+```
+[verify] rate(2025,general) = 100% 财政部 税务总局公告2023年第7号 | expect 100% ... | ok
+[verify] rate(2025,ic_imt) = 120% ...2023年第44号 | ok
+[verify] keyword(辅助账)=cs2015-119,sta2015-97,sta2021-28 ok=true | year2025=8条 ok=true
+
+[PASS] 政策快照与比例规则验证通过。
+```
+
+端到端实测（任务「政策依据检索与测算闭环」）：Agent 调用链
+`parse_uploaded_files → search_rd_policy → calculate_rd_adjustment → search_rd_policy → web_search ×2 → search_public_cases`；
+快照返回 `rate=100% basis=财政部 税务总局公告2023年第7号`，最终结论以表格列明文号、适用年度，并注明政策法规库核验状态「全文有效」。
 ## 本机网关自带搜索实测结论（不启用）
 
 对 `http://127.0.0.1:15721/v1`（Responses API）做了三组对照实测：

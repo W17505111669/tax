@@ -2,6 +2,7 @@ import fs from "node:fs";
 import type { TaxAgentConfig } from "@tax/agent-core";
 import { sharedWebTools } from "@tax/business-tools";
 import { rdTools } from "./tools/rd-tools.ts";
+import { searchRdPolicyTool } from "./tools/policy-tools.ts";
 
 const systemPrompt = fs.readFileSync(new URL("./system-prompt.md", import.meta.url), "utf8");
 
@@ -20,7 +21,7 @@ export const rdAuditAgent: TaxAgentConfig = {
   ],
   accent: "#0f766e",
   systemPrompt,
-  tools: rdTools,
+  tools: [...rdTools, searchRdPolicyTool],
   sharedTools: sharedWebTools,
   samplePrompts: [
     "某制造业企业 2025 年度研发项目「高精度数控主轴研发」，辅助账归集如下：人员人工 860000 元、直接投入 420000 元、折旧 150000 元、无形资产摊销 60000 元、新产品设计费 90000 元、其他相关费用 180000 元。请按 100% 比例测算可加计扣除金额，并说明其他相关费用是否存在超限。",
