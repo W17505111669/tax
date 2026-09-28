@@ -1136,6 +1136,7 @@ function TimelineView({
   const lastTextId = [...items].reverse().find((t) => t.kind === "agent_text" && t.detail)?.id;
   const [collapseOld, setCollapseOld] = useState(false);
   const [expandedRuns, setExpandedRuns] = useState<Set<number>>(new Set());
+  const [legendKind, setLegendKind] = useState<string | null>(null);
   const runInfo = useMemo(() => {
     let cur = 0;
     const counts: number[] = [];
@@ -1296,10 +1297,18 @@ function TimelineView({
       </div>
       <div className="flex flex-wrap items-center gap-2 text-[10px] text-mist-600">
         {KIND_LEGEND.filter((k) => (kindCounts[k.id] ?? 0) > 0).map((k) => (
-          <span key={k.id} className="inline-flex items-center gap-1">
+          <button
+            key={k.id}
+            type="button"
+            onClick={() => setLegendKind((v) => (v === k.id ? null : k.id))}
+            title="点击隔离该类事件（再点取消）"
+            className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 transition-colors ${
+              legendKind === k.id ? "border-glow-500 bg-glow-500/10 text-mist-100" : "border-transparent hover:border-line"
+            }`}
+          >
             <span className="h-1.5 w-1.5 rounded-full" style={{ background: k.color }} />
             {k.label} {kindCounts[k.id]}
-          </span>
+          </button>
         ))}
       </div>
       <div className="flex justify-end">
@@ -1343,6 +1352,7 @@ function TimelineView({
           const hay = `${item.title} ${item.detail ?? ""}`.toLowerCase();
           if (!hay.includes(q)) return null;
         }
+        if (legendKind && item.kind !== legendKind) return null;
         if (item.kind === "tool_start") {
           const name = String((item.payload as { toolName?: string } | undefined)?.toolName ?? "");
           const idx = counters.current[name] ?? 0;
