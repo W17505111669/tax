@@ -29,6 +29,25 @@ export function ReviewView({ issues, reviews, pending, onReview }: Props) {
   const [comments, setComments] = useState<Record<string, string>>({});
   const [onlyPending, setOnlyPending] = useState(true);
   const reviewMap = new Map(reviews.map((r) => [r.issueId, r]));
+
+  const exportReviews = () => {
+    const lines = ["# 复核记录", ""];
+    for (const r of [...reviews].sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
+      const issue = issues.find((i) => i.id === r.issueId);
+      lines.push(
+        `- ${new Date(r.createdAt).toLocaleString("zh-CN", { hour12: false })} | ${
+          r.decision === "confirm" ? "确认" : "驳回"
+        } | ${issue?.issueType ?? r.issueId} | 意见：${r.comment || "（无）"}`,
+      );
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `复核记录-${new Date().toISOString().slice(0, 10)}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
   const shown = onlyPending ? issues.filter((i) => !reviewMap.has(i.id)) : issues;
 
   if (issues.length === 0) {
@@ -224,7 +243,12 @@ export function ReviewView({ issues, reviews, pending, onReview }: Props) {
 
       {reviews.length > 0 && (
         <div className="pt-2">
-          <div className="kicker">复核历史</div>
+          <div className="flex items-center justify-between">
+            <span className="kicker">复核历史</span>
+            <button type="button" className="action-btn" onClick={exportReviews} title="导出复核记录 Markdown">
+              导出 MD
+            </button>
+          </div>
           <ul className="mt-2 space-y-1.5">
             {[...reviews]
               .sort((a, b) => a.createdAt.localeCompare(b.createdAt))

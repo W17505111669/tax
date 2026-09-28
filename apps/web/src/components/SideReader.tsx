@@ -4,7 +4,7 @@ import type { SheetPreview } from "../types.ts";
 import { MarkdownView } from "./MarkdownView.tsx";
 import { ThemeSwitch } from "./ThemeSwitch.tsx";
 import { usePaperTheme } from "../hooks/usePaperTheme.ts";
-import { IconAlert, IconDownload, IconExternal, IconFile, IconRefresh, IconX } from "./Icons.tsx";
+import { IconAlert, IconDownload, IconExternal, IconFile, IconRefresh, IconSpinner, IconX } from "./Icons.tsx";
 
 export type ReaderTarget =
   | { kind: "url"; url: string }
@@ -460,7 +460,9 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                   className="flex min-w-0 items-center gap-1.5 text-[12px]"
                   title={`${label}（双击重命名）`}
                 >
-                  {tab.kind === "url" ? (
+                  {tabState?.loading ? (
+                    <IconSpinner className="h-3 w-3 shrink-0 animate-spin text-glow-400" />
+                  ) : tab.kind === "url" ? (
                     <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-glow-500/20 text-[8px] font-bold text-glow-300">
                       {(fallbackTitle(tab).slice(0, 1) || "?").toUpperCase()}
                     </span>
