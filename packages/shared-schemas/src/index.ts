@@ -23,6 +23,8 @@ export interface TaxTask {
   status: TaskStatus;
   createdAt: string;
   updatedAt: string;
+  /** 列表接口附带指令全文，供前端全文搜索。 */
+  instruction?: string;
 }
 
 export interface BusinessFile {

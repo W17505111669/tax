@@ -43,7 +43,9 @@ export function Sidebar({ agents, activeAgentId, activeTaskId, tasks, onSelectAg
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const q = query.trim().toLowerCase();
   const filtered = tasks.filter(
-    (t) => (statusFilter === "all" || t.status === statusFilter) && (q === "" || t.title.toLowerCase().includes(q)),
+    (t) =>
+      (statusFilter === "all" || t.status === statusFilter) &&
+      (q === "" || t.title.toLowerCase().includes(q) || (t.instruction ?? "").toLowerCase().includes(q)),
   );
   return (
     <aside className="no-print relative flex w-[268px] shrink-0 flex-col border-r border-line bg-night-950 text-mist-300">

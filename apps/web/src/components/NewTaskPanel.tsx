@@ -81,20 +81,39 @@ export function NewTaskPanel({ agent, busy, error, onSubmit }: Props) {
           </div>
 
           <div className="mt-3">
-            <div className="text-[12px] font-medium text-mist-500">示例任务</div>
-            <div className="mt-1.5 space-y-1.5">
-              {agent.samplePrompts.map((sample, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => setInstruction(sample)}
-                  className="glow-card block w-full px-3 py-2 text-left text-[12.5px] leading-5 text-mist-500 transition-colors hover:border-glow-500 hover:text-mist-100"
-                >
-                  <span className="mr-2 font-mono text-[11px] text-glow-400">示例 {i + 1}</span>
-                  {sample.length > 78 ? `${sample.slice(0, 78)}…` : sample}
-                </button>
-              ))}
-            </div>
+            <div className="text-[12px] font-medium text-mist-500">推荐问题</div>
+            {(agent.recommendedCards?.length ?? 0) > 0 ? (
+              <div className="mt-1.5 grid gap-2 sm:grid-cols-3">
+                {agent.recommendedCards!.map((card, i) => (
+                  <button
+                    key={card.label}
+                    type="button"
+                    onClick={() => setInstruction(card.prompt)}
+                    className="glow-card px-3 py-2.5 text-left transition-colors hover:border-glow-500"
+                  >
+                    <div className="flex items-baseline gap-1.5 text-[12.5px] font-medium text-mist-100">
+                      <span className="font-mono text-[10.5px] text-glow-400">0{i + 1}</span>
+                      {card.label}
+                    </div>
+                    <div className="mt-1 text-[11px] leading-4 text-mist-600">{card.hint}</div>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-1.5 space-y-1.5">
+                {agent.samplePrompts.map((sample, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => setInstruction(sample)}
+                    className="glow-card block w-full px-3 py-2 text-left text-[12.5px] leading-5 text-mist-500 transition-colors hover:border-glow-500 hover:text-mist-100"
+                  >
+                    <span className="mr-2 font-mono text-[11px] text-glow-400">示例 {i + 1}</span>
+                    {sample.length > 78 ? `${sample.slice(0, 78)}…` : sample}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

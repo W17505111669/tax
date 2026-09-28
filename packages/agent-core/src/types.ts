@@ -19,4 +19,6 @@ export interface TaxAgentConfig {
   taskToolKits?: Array<"documents" | "template" | "extract">;
   /** 建议的示例任务，方便评委一键体验。 */
   samplePrompts: string[];
+  /** 首页推荐问题卡片：标签 + 一句话说明 + 点击后填入的完整指令。 */
+  recommendedCards?: Array<{ label: string; hint: string; prompt: string }>;
 }

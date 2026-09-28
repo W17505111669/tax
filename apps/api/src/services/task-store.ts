@@ -58,6 +58,7 @@ export function listTasks(agentId?: AgentId): TaxTask[] {
     status: row.status as TaskStatus,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
+    instruction: String(row.instruction ?? ""),
   }));
 }
 

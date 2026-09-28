@@ -15,6 +15,7 @@ export interface AgentInfo {
   accent: string;
   tools: AgentToolInfo[];
   samplePrompts: string[];
+  recommendedCards?: Array<{ label: string; hint: string; prompt: string }>;
 }
 
 export type TaskStatus = "created" | "processing" | "waiting_review" | "completed" | "failed";

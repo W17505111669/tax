@@ -34,5 +34,6 @@ export function listAgents() {
     accent: a.accent,
     tools: a.tools.map((t) => ({ name: t.name, label: t.label, description: t.description })),
     samplePrompts: a.samplePrompts,
+    recommendedCards: a.recommendedCards ?? [],
   }));
 }
