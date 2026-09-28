@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { marked } from "marked";
 import { api } from "../api.ts";
 import type {
@@ -848,6 +848,40 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       );
   };
 
+  // 拖拽上传：把文件拖到工作台任意位置即上传到本任务，资料列表由 App 的 3 秒轮询刷新
+  const [dropActive, setDropActive] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState("");
+  const hasFiles = (e: DragEvent<HTMLDivElement>) => Array.from(e.dataTransfer.types).includes("Files");
+  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
+    if (!hasFiles(e)) return; // 内部标签拖拽不触发上传态
+    e.preventDefault();
+    setDropActive(true);
+  };
+  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    setDropActive(false);
+  };
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    setDropActive(false);
+    const dropped = Array.from(e.dataTransfer.files);
+    if (dropped.length === 0 || uploading) return;
+    setUploading(true);
+    setUploadMsg(`正在上传 ${dropped.length} 份资料…`);
+    void api
+      .uploadFiles(task.id, dropped)
+      .then((res) =>
+        setUploadMsg(`已上传 ${res.files.length} 份资料；点资料行「重新解析」或在续跑里说明即可让 Agent 使用`),
+      )
+      .catch((err: unknown) => setUploadMsg(`上传失败：${err instanceof Error ? err.message : String(err)}`))
+      .finally(() => {
+        setUploading(false);
+        window.setTimeout(() => setUploadMsg(""), 10000);
+      });
+  };
+
   // 交付自检输入：结论字数、产物与溯源、工具调用结果、待复核与联网引用
   const deliveryInput = (): CheckInput => ({
     status: reopened ? "waiting_review" : task.status,
@@ -1065,7 +1099,24 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div
+      className="relative flex min-h-0 flex-1 flex-col"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {dropActive && (
+        <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center border-2 border-dashed border-glow-400/70 bg-night-950/80">
+          <div className="rounded-md border border-glow-500/50 bg-night-900 px-4 py-3 text-[13px] text-glow-200">
+            松开即可上传到「{task.title}」
+          </div>
+        </div>
+      )}
+      {uploadMsg && (
+        <div className="no-print absolute left-1/2 top-3 z-40 -translate-x-1/2 rounded-md border border-line bg-night-850 px-3 py-1.5 text-[11.5px] text-mist-200 shadow-lg">
+          {uploadMsg}
+        </div>
+      )}
       <header className="no-print flex flex-wrap items-center gap-3 border-b border-line bg-night-950 px-8 py-3.5">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
