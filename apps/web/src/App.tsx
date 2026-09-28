@@ -269,7 +269,14 @@ export default function App() {
               recent={[...visibleTasks]
                 .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
                 .slice(0, 5)
-                .map((t) => ({ id: t.id, title: t.title, status: t.status, at: t.createdAt, runCount: t.runCount }))}
+                .map((t) => ({
+                  id: t.id,
+                  title: t.title,
+                  status: t.status,
+                  at: t.createdAt,
+                  runCount: t.runCount,
+                  agentId: t.agentId,
+                }))}
               onSelect={(id) => {
                 setActiveAgentId(id);
                 setActiveTaskId(null);

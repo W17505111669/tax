@@ -58,7 +58,14 @@ interface Props {
   stats: { tasks: number; completed: number; platform: PlatformStats | null };
   breakdown: { processing: number; waiting_review: number; completed: number; failed: number };
   createdAts: string[];
-  recent: Array<{ id: string; title: string; status: string; at: string; runCount?: number }>;
+  recent: Array<{
+    id: string;
+    title: string;
+    status: string;
+    at: string;
+    runCount?: number;
+    agentId: string;
+  }>;
   onSelect: (id: string) => void;
   onOpenTask: (id: string) => void;
   onShowAll: () => void;
@@ -320,6 +327,10 @@ export function AgentOverview({
                       className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left transition-colors hover:bg-night-800"
                     >
                       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${RECENT_DOT[r.status] ?? "bg-mist-600"}`} />
+                      {(() => {
+                        const RIcon = r.agentId === "rd-audit" ? IconFlask : IconBuilding;
+                        return <RIcon className="h-3 w-3 shrink-0 text-glow-400" />;
+                      })()}
                       <span className="min-w-0 flex-1 truncate text-[12px] text-mist-300">{r.title}</span>
                       {(r.runCount ?? 1) > 1 && (
                         <span className="shrink-0 font-mono text-[9.5px] text-glow-300" title="运行次数（含续跑）">

@@ -992,6 +992,7 @@ function TimelineView({
   let runSeq = 0;
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [view, setView] = useState<"all" | "tools" | "text">("all");
+  const listRef = useRef<HTMLDivElement>(null);
   const [showTs, setShowTs] = useState(false);
   const fmtTs = (iso: string) => new Date(iso).toLocaleTimeString("zh-CN", { hour12: false });
 
@@ -1004,7 +1005,7 @@ function TimelineView({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" ref={listRef}>
       <div className="flex gap-1.5">
         {(
           [
@@ -1035,6 +1036,30 @@ function TimelineView({
           }`}
         >
           时间戳
+        </button>
+        <button
+          type="button"
+          className="action-btn"
+          title="折叠全部工具行"
+          onClick={() =>
+            listRef.current?.querySelectorAll<HTMLDetailsElement>("details.tool-row").forEach((d) => {
+              d.open = false;
+            })
+          }
+        >
+          折叠全部
+        </button>
+        <button
+          type="button"
+          className="action-btn"
+          title="展开全部工具行"
+          onClick={() =>
+            listRef.current?.querySelectorAll<HTMLDetailsElement>("details.tool-row").forEach((d) => {
+              d.open = true;
+            })
+          }
+        >
+          展开全部
         </button>
         <button
           type="button"
