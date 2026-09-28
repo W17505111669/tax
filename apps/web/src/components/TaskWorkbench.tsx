@@ -5,6 +5,7 @@ import { useTaskEvents } from "../hooks/useTaskEvents.ts";
 import { MarkdownView } from "./MarkdownView.tsx";
 import { readerKey, SideReader, type ReaderTarget } from "./SideReader.tsx";
 import { CompareView } from "./CompareView.tsx";
+import { ThemeSwitch } from "./ThemeSwitch.tsx";
 import { ReviewView } from "./ReviewView.tsx";
 import {
   IconAlert,
@@ -722,6 +723,10 @@ function ResultView({
 
       <div>
         <div className="kicker">交付</div>
+        <div className="mt-2 flex items-center gap-2">
+          <span className="text-[11px] text-mist-600">打印版式</span>
+          <ThemeSwitch />
+        </div>
         <div className="mt-2 grid gap-3 sm:grid-cols-3">
           <button type="button" onClick={onDownloadReport} className="glow-card px-4 py-3 text-left transition-colors hover:border-glow-500">
             <IconDownload className="h-4 w-4 text-glow-400" />

@@ -52,7 +52,7 @@ body {
   background-clip: content-box;
 }
 
-/* ===== 设计语言：深色专业风（参考演示视频） ===== */
+/* ===== 设计语言：深色专业风 ===== */
 .kicker {
   font-size: 10px;
   letter-spacing: 0.22em;
@@ -246,50 +246,104 @@ details.tool-row .chev {
   overflow-x: auto;
 }
 
-/* 阅读器中的“白纸”文档预览 */
+/* ===== 白纸文档预览 + 四套版式主题 ===== */
 .paper-sheet {
-  background: #ffffff;
-  color: #1f2937;
+  --paper-bg: #ffffff;
+  --paper-ink: #374151;
+  --paper-head: #111827;
+  --paper-accent: #0369a1;
+  --paper-rule: #e5e7eb;
+  --paper-headbg: #f3f4f6;
+  --paper-zebra: #f9fafb;
+  background: var(--paper-bg);
+  color: var(--paper-ink);
   border-radius: 6px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
 }
+.paper-sheet.theme-minimal {
+  --paper-headbg: transparent;
+  --paper-rule: #9ca3af;
+  --paper-accent: #111827;
+  --paper-zebra: transparent;
+}
+.paper-sheet.theme-mono {
+  --paper-accent: #111827;
+  --paper-headbg: #e5e7eb;
+  --paper-zebra: #f3f4f6;
+}
+.paper-sheet.theme-modern {
+  --paper-accent: #4338ca;
+  --paper-headbg: #eef2ff;
+  --paper-rule: #c7d2fe;
+  --paper-zebra: #f5f3ff;
+}
 .paper-sheet .md-body {
-  color: #374151;
+  color: var(--paper-ink);
 }
 .paper-sheet .md-body h2,
 .paper-sheet .md-body h3,
 .paper-sheet .md-body h4,
 .paper-sheet .md-body strong {
-  color: #111827;
+  color: var(--paper-head);
+}
+.paper-sheet .md-body h2 {
+  border-bottom-color: var(--paper-rule);
 }
 .paper-sheet .md-body th {
-  background: #f3f4f6;
-  color: #374151;
+  background: var(--paper-headbg);
+  color: var(--paper-head);
 }
 .paper-sheet .md-body th,
 .paper-sheet .md-body td {
-  border-color: #e5e7eb;
+  border-color: var(--paper-rule);
 }
 .paper-sheet .md-body tbody tr:nth-child(even) {
-  background: #f9fafb;
+  background: var(--paper-zebra);
 }
 .paper-sheet .md-body a {
-  color: #0369a1;
+  color: var(--paper-accent);
 }
 .paper-sheet .md-body code {
-  background: #f3f4f6;
-  color: #1f2937;
+  background: var(--paper-headbg);
+  color: var(--paper-head);
 }
 .paper-sheet .md-body blockquote {
-  background: #f9fafb;
-  border-left-color: #9ca3af;
-  color: #4b5563;
+  background: var(--paper-zebra);
+  border-left-color: var(--paper-rule);
+  color: var(--paper-ink);
+}
+.paper-sheet .md-body li::marker {
+  color: var(--paper-accent);
 }
 
-/* ===== 打印 / 导出 PDF：浅色纸张样式，只保留正文 ===== */
+/* ===== 打印 / 导出 PDF：浅色纸张，主题随选择器 ===== */
 @media print {
   body {
+    --paper-bg: #ffffff;
+    --paper-ink: #111827;
+    --paper-head: #000000;
+    --paper-accent: #0369a1;
+    --paper-rule: #d1d5db;
+    --paper-headbg: #f3f4f6;
+    --paper-zebra: #f9fafb;
     background: #ffffff !important;
+  }
+  body[data-paper-theme="minimal"] {
+    --paper-headbg: transparent;
+    --paper-rule: #9ca3af;
+    --paper-accent: #111827;
+    --paper-zebra: transparent;
+  }
+  body[data-paper-theme="mono"] {
+    --paper-accent: #111827;
+    --paper-headbg: #e5e7eb;
+    --paper-zebra: #f3f4f6;
+  }
+  body[data-paper-theme="modern"] {
+    --paper-accent: #4338ca;
+    --paper-headbg: #eef2ff;
+    --paper-rule: #c7d2fe;
+    --paper-zebra: #f5f3ff;
   }
   .no-print {
     display: none !important;
@@ -300,61 +354,64 @@ details.tool-row .chev {
   }
   main,
   .glow-card {
-    background: #ffffff !important;
+    background: var(--paper-bg) !important;
     border: 0 !important;
     box-shadow: none !important;
   }
   .md-body,
   .md-body p,
   .md-body li {
-    color: #111827 !important;
+    color: var(--paper-ink) !important;
   }
   .md-body h2,
   .md-body h3,
   .md-body h4,
   .md-body strong {
-    color: #000000 !important;
+    color: var(--paper-head) !important;
   }
   .md-body h2 {
-    border-color: #d1d5db !important;
+    border-color: var(--paper-rule) !important;
   }
   .md-body th {
-    background: #f3f4f6 !important;
-    color: #111827 !important;
+    background: var(--paper-headbg) !important;
+    color: var(--paper-head) !important;
   }
   .md-body th,
   .md-body td {
-    border-color: #d1d5db !important;
+    border-color: var(--paper-rule) !important;
   }
   .md-body tbody tr:nth-child(even) {
-    background: #f9fafb !important;
+    background: var(--paper-zebra) !important;
   }
   .md-body a {
-    color: #0369a1 !important;
+    color: var(--paper-accent) !important;
   }
   .md-body code {
-    background: #f3f4f6 !important;
-    color: #111827 !important;
+    background: var(--paper-headbg) !important;
+    color: var(--paper-head) !important;
   }
   .md-body pre {
-    background: #f9fafb !important;
-    border-color: #e5e7eb !important;
+    background: var(--paper-zebra) !important;
+    border-color: var(--paper-rule) !important;
   }
   .md-body pre code {
-    color: #111827 !important;
+    color: var(--paper-ink) !important;
   }
   .md-body blockquote {
-    background: #f9fafb !important;
-    border-left-color: #9ca3af !important;
-    color: #374151 !important;
+    background: var(--paper-zebra) !important;
+    border-left-color: var(--paper-rule) !important;
+    color: var(--paper-ink) !important;
   }
   .md-body .mermaid {
-    background: #ffffff !important;
-    border-color: #d1d5db !important;
+    background: var(--paper-bg) !important;
+    border-color: var(--paper-rule) !important;
+  }
+  .md-body li::marker {
+    color: var(--paper-accent) !important;
   }
   .user-bubble {
-    background: #f3f4f6 !important;
-    color: #111827 !important;
+    background: var(--paper-zebra) !important;
+    color: var(--paper-ink) !important;
     box-shadow: none !important;
   }
 }

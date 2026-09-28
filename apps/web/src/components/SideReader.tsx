@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { api } from "../api.ts";
 import type { SheetPreview } from "../types.ts";
 import { MarkdownView } from "./MarkdownView.tsx";
+import { ThemeSwitch } from "./ThemeSwitch.tsx";
+import { usePaperTheme } from "../hooks/usePaperTheme.ts";
 import { IconAlert, IconExternal, IconFile, IconSpinner, IconX } from "./Icons.tsx";
 
 export type ReaderTarget =
@@ -68,6 +70,7 @@ interface Props {
 /** 侧边可折叠阅读器：支持多文档标签页，网页阅读模式、任务资料与生成产物统一预览。 */
 export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onClose }: Props) {
   const [states, setStates] = useState<Record<string, ReaderState>>({});
+  const { theme } = usePaperTheme();
   const active = tabs[activeIndex] ?? null;
   const activeKey = active ? readerKey(active) : "";
   const state = states[activeKey] ?? INITIAL;
@@ -226,6 +229,13 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onClose }:
         </button>
       </header>
 
+      {(state.kind === "markdown" || state.kind === "text") && !state.loading && (
+        <div className="flex items-center gap-2 border-b border-line px-4 py-1.5">
+          <span className="kicker">版式</span>
+          <ThemeSwitch />
+        </div>
+      )}
+
       {active?.kind === "url" && (
         <div className="flex items-center gap-2 border-b border-line px-4 py-1.5">
           <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-mist-600">{active.url}</span>
@@ -268,7 +278,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onClose }:
           </div>
         )}
         {!state.loading && !state.error && (state.kind === "markdown" || state.kind === "text") && (
-          <div className="paper-sheet px-6 py-5">
+          <div className={`paper-sheet theme-${theme} px-6 py-5`}>
             {state.kind === "markdown" ? (
               <MarkdownView text={state.markdown} />
             ) : (
