@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api.ts";
-import type { AgentInfo, FileInfo, TaskInfo } from "./types.ts";
+import type { AgentInfo, FileInfo, PlatformStats, TaskInfo } from "./types.ts";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { AgentOverview } from "./components/AgentOverview.tsx";
 import { NewTaskPanel } from "./components/NewTaskPanel.tsx";
@@ -16,6 +16,7 @@ export default function App() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [backendDown, setBackendDown] = useState(false);
+  const [platform, setPlatform] = useState<PlatformStats | null>(null);
 
   const refreshTasks = useCallback(async () => {
     try {
@@ -41,6 +42,25 @@ export default function App() {
     })();
     void refreshTasks();
   }, [refreshTasks]);
+
+  // 平台应用效果看板：挂载与周期刷新
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      void api
+        .getStats()
+        .then((s) => {
+          if (!cancelled) setPlatform(s);
+        })
+        .catch(() => undefined);
+    };
+    load();
+    const timer = setInterval(load, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
 
   // 任务详情加载 + 运行期间轮询，保证状态与结果以持久化数据为准
   useEffect(() => {
@@ -141,6 +161,7 @@ export default function App() {
               stats={{
                 tasks: visibleTasks.length,
                 completed: visibleTasks.filter((t) => t.status === "completed").length,
+                platform,
               }}
               onSelect={(id) => {
                 setActiveAgentId(id);

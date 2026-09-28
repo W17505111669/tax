@@ -11,6 +11,8 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 export const api = {
   listAgents: () => request<{ agents: AgentInfo[] }>("/api/agents").then((r) => r.agents),
 
+  getStats: () => request<import("./types.ts").PlatformStats>("/api/stats"),
+
   listTasks: (agentId?: string) =>
     request<{ tasks: TaskInfo[] }>(`/api/tasks${agentId ? `?agentId=${agentId}` : ""}`).then((r) => r.tasks),
 

@@ -30,6 +30,8 @@ export interface CompareResult {
   sheets: SheetCompare[];
   unmatchedSheetsA: string[];
   unmatchedSheetsB: string[];
+  a?: { kind: "upload" | "artifact"; name: string };
+  b?: { kind: "upload" | "artifact"; name: string };
   totals: {
     compared: number;
     matched: number;
@@ -374,7 +376,10 @@ export function createCompareTools(ctx: TaskDocumentContext): ToolDefinition[] {
           `未配对工作表：A=${result.unmatchedSheetsA.join(",") || "无"}；B=${result.unmatchedSheetsB.join(",") || "无"}`,
         );
       }
-      return { content: [{ type: "text", text: lines.join("\n") }], details: result };
+      return {
+        content: [{ type: "text", text: lines.join("\n") }],
+        details: { ...result, a: params.a, b: params.b },
+      };
     },
   };
 

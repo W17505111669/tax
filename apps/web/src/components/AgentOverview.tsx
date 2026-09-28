@@ -1,10 +1,10 @@
-import type { AgentInfo } from "../types.ts";
+import type { AgentInfo, PlatformStats } from "../types.ts";
 import { IconBuilding, IconCheck, IconFlask, IconTool } from "./Icons.tsx";
 
 interface Props {
   agents: AgentInfo[];
   activeAgentId: string;
-  stats: { tasks: number; completed: number };
+  stats: { tasks: number; completed: number; platform: PlatformStats | null };
   onSelect: (id: string) => void;
 }
 
@@ -48,6 +48,40 @@ export function AgentOverview({ agents, activeAgentId, stats, onSelect }: Props)
             </div>
           ))}
         </div>
+
+        {stats.platform && (
+          <div className="mt-5">
+            <div className="kicker">平台应用效果 · 实时运行数据</div>
+            <div className="mt-2 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              {[
+                { label: "累计任务", value: String(stats.platform.tasks), unit: "个" },
+                { label: "已完成", value: String(stats.platform.completed), unit: "个" },
+                {
+                  label: "工具成功率",
+                  value:
+                    stats.platform.toolCalls > 0
+                      ? String(Math.round((stats.platform.toolOk / stats.platform.toolCalls) * 10000) / 100)
+                      : "—",
+                  unit: "%",
+                },
+                { label: "底稿产物", value: String(stats.platform.artifacts), unit: "份" },
+                {
+                  label: "记录级比对准确率",
+                  value: stats.platform.compareAccuracy !== null ? String(stats.platform.compareAccuracy) : "—",
+                  unit: "%",
+                },
+              ].map((kpi) => (
+                <div key={kpi.label} className="glow-card px-4 py-3">
+                  <div className="text-[11px] text-mist-600">{kpi.label}</div>
+                  <div className="mt-1 flex items-baseline gap-1">
+                    <span className="text-[22px] font-semibold tracking-tight text-jade-400">{kpi.value}</span>
+                    <span className="text-[11px] text-mist-600">{kpi.unit}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_320px]">
           <div>

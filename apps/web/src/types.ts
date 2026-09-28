@@ -119,6 +119,8 @@ export interface CompareResult {
   sheets: CompareSheet[];
   unmatchedSheetsA: string[];
   unmatchedSheetsB: string[];
+  a?: CompareRef;
+  b?: CompareRef;
   totals: {
     compared: number;
     matched: number;
@@ -133,6 +135,29 @@ export interface CompareRecord {
   id: string;
   at: string | null;
   result: CompareResult;
+}
+
+export interface CompareRef {
+  kind: "upload" | "artifact";
+  name: string;
+}
+
+export interface PlatformStats {
+  tasks: number;
+  completed: number;
+  toolCalls: number;
+  toolOk: number;
+  artifacts: number;
+  compareAccuracy: number | null;
+  compareRuns: number;
+  perAgent: Array<{
+    agentId: string;
+    tasks: number;
+    completed: number;
+    toolCalls: number;
+    toolOk: number;
+    artifacts: number;
+  }>;
 }
 
 export interface TaskIssue {

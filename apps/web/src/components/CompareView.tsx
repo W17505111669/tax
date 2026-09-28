@@ -1,4 +1,4 @@
-import type { CompareRecord } from "../types.ts";
+import type { CompareRecord, CompareRef } from "../types.ts";
 import { IconAlert, IconCheck } from "./Icons.tsx";
 
 const KIND_META = {
@@ -14,7 +14,12 @@ function fmt(v: string | number | null): string {
 }
 
 /** 底稿比对视图：准确率 KPI + 差异高亮表，服务交付质检与答辩展示。 */
-export function CompareView({ compares }: { compares: CompareRecord[] }) {
+interface Props {
+  compares: CompareRecord[];
+  onOpenTarget: (ref: CompareRef) => void;
+}
+
+export function CompareView({ compares, onOpenTarget }: Props) {
   if (compares.length === 0) {
     return (
       <div className="py-10 text-center text-[13px] text-mist-600">
@@ -35,6 +40,26 @@ export function CompareView({ compares }: { compares: CompareRecord[] }) {
               <span className="text-[12px] text-mist-600">
                 {rec.at ? new Date(rec.at).toLocaleString("zh-CN", { hour12: false }) : ""} ·{" "}
                 {rec.result.sheets[0]?.mode === "address" ? "地址模式" : "记录级模式"}
+              </span>
+              <span className="ml-auto flex gap-1.5">
+                {rec.result.a && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenTarget(rec.result.a!)}
+                    className="rounded border border-line bg-night-800 px-2 py-0.5 text-[11px] text-mist-300 transition-colors hover:border-glow-500 hover:text-glow-300"
+                  >
+                    查看系统底稿
+                  </button>
+                )}
+                {rec.result.b && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenTarget(rec.result.b!)}
+                    className="rounded border border-line bg-night-800 px-2 py-0.5 text-[11px] text-mist-300 transition-colors hover:border-glow-500 hover:text-glow-300"
+                  >
+                    查看人工底稿
+                  </button>
+                )}
               </span>
             </div>
 

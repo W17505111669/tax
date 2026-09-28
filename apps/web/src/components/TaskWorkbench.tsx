@@ -170,6 +170,15 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
     }
   };
 
+  const openCompareTarget = (ref: { kind: "upload" | "artifact"; name: string }) => {
+    if (ref.kind === "artifact") {
+      openReader({ kind: "artifact", taskId: task.id, name: ref.name });
+      return;
+    }
+    const file = files.find((f) => f.fileName === ref.name);
+    if (file) openReader({ kind: "file", taskId: task.id, fileId: file.id, name: file.fileName });
+  };
+
   const finalResult = useMemo(() => {
     const last = [...timeline].reverse().find((t) => t.kind === "agent_text" && t.detail);
     return task.result ?? last?.detail ?? "";
@@ -426,7 +435,7 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
                 onPrint={() => window.print()}
               />
             )}
-            {tab === "compare" && <CompareView compares={compares} />}
+            {tab === "compare" && <CompareView compares={compares} onOpenTarget={openCompareTarget} />}
             {tab === "review" && (
               <ReviewView issues={issues} reviews={reviews} pending={pendingReviews} onReview={handleReview} />
             )}
