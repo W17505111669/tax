@@ -1569,6 +1569,19 @@ function ResultView({
             <span className="rounded bg-glow-500/15 px-1.5 py-0.5 font-mono text-[10px] text-glow-300">
               {citations.length}
             </span>
+            <button
+              type="button"
+              className="action-btn"
+              title="复制引用清单（编号+标题+URL）"
+              onClick={() =>
+                void navigator.clipboard
+                  ?.writeText(citations.map((c, i) => `${i + 1}. ${c.title}\n   ${c.url}`).join("\n"))
+                  .catch(() => undefined)
+              }
+            >
+              <IconCopy className="h-3 w-3" />
+              复制清单
+            </button>
           </div>
           <div className="mt-2 flex flex-wrap gap-2">
             {citations.map((c) => (

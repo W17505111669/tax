@@ -458,6 +458,11 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                     <IconFile className="h-3.5 w-3.5 shrink-0 text-glow-400" />
                   )}
                   <span className="max-w-[140px] truncate">{label}</span>
+                  {states[key]?.error && (
+                    <span className="rounded bg-rose-400/15 px-1 text-[9.5px] text-rose-300" title="读取失败，可在标签内重试">
+                      !
+                    </span>
+                  )}
                   {findTrim && (matchCounts[key] ?? 0) > 0 && (
                     <span
                       role="button"
