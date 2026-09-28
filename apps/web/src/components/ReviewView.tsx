@@ -17,6 +17,13 @@ function typeTone(type: string): string {
 
 const QUICK_COMMENTS = ["确认列入底稿", "无需处理", "需重新测算", "待客户补充资料"];
 
+const COMMENT_TEMPLATES = [
+  "经复核确认列入底稿，交付前请再次核对对应单元格与引用来源",
+  "判定无需处理：差异属可接受的尾差/口径范围，已在结论中说明",
+  "需客户补充佐证资料后复核，资料齐备前暂不调整底稿",
+  "请以工具重新测算并对照政策限额核验，复核后再定处理方式",
+];
+
 /** 人工复核页签：税务师对工具核查与底稿比对发现的问题逐项确认或驳回。 */
 export function ReviewView({ issues, reviews, pending, onReview }: Props) {
   const [comments, setComments] = useState<Record<string, string>>({});
@@ -180,6 +187,21 @@ export function ReviewView({ issues, reviews, pending, onReview }: Props) {
                 placeholder="复核意见（可选）"
                 className="min-w-[200px] flex-1 rounded-md border border-line bg-night-850 px-2.5 py-1.5 text-[12px] text-mist-100 outline-none focus:glow-ring"
               />
+              <select
+                value=""
+                onChange={(e) => {
+                  if (e.target.value) setComments((prev) => ({ ...prev, [issue.id]: e.target.value }));
+                }}
+                className="rounded-md border border-line bg-night-850 px-2 py-1.5 text-[11.5px] text-mist-300 outline-none focus:glow-ring"
+                title="插入意见模板"
+              >
+                <option value="">意见模板…</option>
+                {COMMENT_TEMPLATES.map((t) => (
+                  <option key={t} value={t}>
+                    {t.slice(0, 16)}…
+                  </option>
+                ))}
+              </select>
               <span className="shrink-0 font-mono text-[10px] text-mist-600">{commentValue.length} 字</span>
               <button
                 type="button"

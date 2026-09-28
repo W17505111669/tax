@@ -241,6 +241,19 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
     return () => window.removeEventListener("keydown", handler);
   }, [tabs.length, activeIndex, onSelect]);
 
+  // Ctrl+Shift+1..9 直跳第 N 个标签
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || !e.shiftKey || !/^[1-9]$/.test(e.key)) return;
+      const idx = Number(e.key) - 1;
+      if (idx >= tabs.length) return;
+      e.preventDefault();
+      onSelect(idx);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [tabs.length, onSelect]);
+
   useEffect(() => {
     if (!active) return;
     const key = readerKey(active);
