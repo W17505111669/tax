@@ -87,7 +87,17 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   });
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
-  const [sort, setSort] = useState<Record<string, { col: string; dir: 1 | -1 }>>({});
+  const [sort, setSort] = useState<Record<string, { col: string; dir: 1 | -1 }>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("taxai-reader-sort") ?? "{}") as Record<string, { col: string; dir: 1 | -1 }>;
+    } catch {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem("taxai-reader-sort", JSON.stringify(sort));
+  }, [sort]);
 
   const commitAlias = (key: string) => {
     const v = editValue.trim();

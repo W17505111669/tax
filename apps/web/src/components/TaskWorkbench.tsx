@@ -645,6 +645,10 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
                     ))}
                   </ul>
                 </div>
+                <div className="no-print mb-3 flex items-center gap-2 rounded-md border border-line bg-night-850 px-3 py-1.5 text-[11.5px] text-mist-500">
+                  <IconPrint className="h-3.5 w-3.5 shrink-0 text-glow-400" />
+                  打印 / PDF 导出将沿用当前版式主题，可在下方「交付」区切换四套纸张版式后预览。
+                </div>
                 {summary && summary.firstPara && (
                   <div className="mb-4 glow-card px-4 py-3">
                     <div className="flex items-center justify-between gap-3">
