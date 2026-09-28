@@ -244,7 +244,7 @@ export function Sidebar({
       const s = String(v);
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
-    const lines = ["标题,状态,案例,创建时间,运行次数,工具次数,进度,任务ID"];
+    const lines = ["标题,状态,案例,创建时间,运行次数,工具次数,进度,标签,任务ID"];
     for (const t of filtered) {
       lines.push(
         [
@@ -255,6 +255,7 @@ export function Sidebar({
           t.runCount ?? 1,
           t.toolCount ?? 0,
           t.progress ?? 0,
+          esc((tagsMap[t.id] ?? []).join("|")),
           esc(t.id),
         ].join(","),
       );

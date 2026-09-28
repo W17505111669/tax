@@ -1880,6 +1880,15 @@ function TimelineView({
                     <IconCopy className="h-3.5 w-3.5" />
                     复制
                   </button>
+                  <button
+                    type="button"
+                    className="action-btn"
+                    onClick={() => copyText(toPlainText(item.detail ?? ""))}
+                    title="复制去除 Markdown 语法的纯文本"
+                  >
+                    <IconCopy className="h-3.5 w-3.5" />
+                    复制纯文本
+                  </button>
                   <button type="button" className="action-btn" onClick={onRerun} title="重新执行本任务">
                     <IconRefresh className="h-3.5 w-3.5" />
                     重新生成
