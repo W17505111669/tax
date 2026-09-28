@@ -66,6 +66,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
   const [resumeText, setResumeText] = useState("");
   const [resumeFiles, setResumeFiles] = useState<File[]>([]);
   const [resumeBusy, setResumeBusy] = useState(false);
+  const [tick, setTick] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
   const [showJump, setShowJump] = useState(false);
@@ -73,6 +74,13 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
   const liveStatus = status === "created" ? task.status : status;
   const meta = STATUS_META[liveStatus] ?? STATUS_META.created!;
   const running = liveStatus === "processing";
+
+  // 执行中每秒 tick，驱动头部实时计时
+  useEffect(() => {
+    if (!running) return;
+    const t = setInterval(() => setTick((v) => v + 1), 1000);
+    return () => clearInterval(t);
+  }, [running]);
 
   const openReader = (target: ReaderTarget) => {
     const key = readerKey(target);
@@ -212,6 +220,22 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
     return s >= 90 ? `${Math.round(s / 60)} 分钟` : `${s.toFixed(1)} 秒`;
   }, [timeline]);
 
+  const liveElapsed = useMemo(() => {
+    const start = timeline.find((t) => t.kind === "run_started")?.at;
+    if (!running || !start) return "";
+    void tick;
+    const s = (Date.now() - Date.parse(start)) / 1000;
+    return s >= 90 ? `${Math.round(s / 60)} 分钟` : `${s.toFixed(0)} 秒`;
+  }, [timeline, running, tick]);
+
+  const toc = useMemo(
+    () =>
+      (finalResult.match(/^#{2,3} .+$/gm) ?? [])
+        .map((h) => h.replace(/^#{2,3} /, ""))
+        .slice(0, 24),
+    [finalResult],
+  );
+
   const steps = useMemo(() => {
     const hasRun = timeline.some((t) => t.kind === "run_started");
     const toolDone = toolCalls.some((c) => !SEARCH_TOOLS.has(c.toolName) && c.ok !== null);
@@ -288,10 +312,12 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
             <span>案例 {task.caseId}</span>
             <span className="text-line">|</span>
             <span>工具调用 {toolCalls.length} 次</span>
-            {totalDuration && (
+            {(totalDuration || liveElapsed) && (
               <>
                 <span className="text-line">|</span>
-                <span>总耗时 {totalDuration}</span>
+                <span className={running ? "text-amber-300" : undefined}>
+                  {running ? `已用时 ${liveElapsed}` : `总耗时 ${totalDuration}`}
+                </span>
               </>
             )}
             <span className="text-line">|</span>
@@ -489,6 +515,14 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
                     任务：{task.title}　案例：{task.caseId}　状态：{liveStatus}　打印时间：
                     {new Date().toLocaleString("zh-CN", { hour12: false })}
                   </div>
+                </div>
+                <div className="print-only mb-4">
+                  <div className="text-[12px] font-semibold text-gray-900">目录</div>
+                  <ul className="mt-1 list-decimal pl-5 text-[11px] leading-5 text-gray-700">
+                    {toc.map((h) => (
+                      <li key={h}>{h}</li>
+                    ))}
+                  </ul>
                 </div>
               <ResultView
                 result={finalResult}
