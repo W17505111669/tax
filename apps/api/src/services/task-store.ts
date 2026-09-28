@@ -59,6 +59,7 @@ export function listTasks(agentId?: AgentId): TaxTask[] {
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
     instruction: String(row.instruction ?? ""),
+    progress: computeProgress(String(row.id), row.status as string),
   }));
 }
 
@@ -176,4 +177,30 @@ export function latestToolResult(taskId: string, toolName: string): unknown | nu
   } catch {
     return null;
   }
+}
+const PROGRESS_SEARCH_TOOLS = new Set([
+  "web_search",
+  "search_public_cases",
+  "fetch_content",
+  "fetch_public_document",
+  "get_search_content",
+]);
+
+/** 执行步骤进度 0-5：提问→工具核验→联网检索→结论生成→交付，由事件与工具调用推导。 */
+function computeProgress(taskId: string, status: string): number {
+  if (status === "completed") return 5;
+  if (status !== "processing") return 0;
+  const kinds = db.prepare(`SELECT DISTINCT kind AS kind FROM events WHERE task_id = ?`).all(taskId) as Array<{
+    kind: string;
+  }>;
+  const set = new Set(kinds.map((k) => k.kind));
+  const tools = db.prepare(`SELECT tool_name, ok FROM tool_calls WHERE task_id = ?`).all(taskId) as Array<{
+    tool_name: string;
+    ok: number | null;
+  }>;
+  let p = set.has("run_started") ? 1 : 0;
+  if (tools.some((t) => !PROGRESS_SEARCH_TOOLS.has(t.tool_name) && t.ok !== null)) p = Math.max(p, 2);
+  if (tools.some((t) => PROGRESS_SEARCH_TOOLS.has(t.tool_name) && t.ok !== null)) p = Math.max(p, 3);
+  if (set.has("agent_text")) p = Math.max(p, 4);
+  return p;
 }

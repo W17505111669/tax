@@ -320,6 +320,14 @@ export function Sidebar({
                           · {new Date(task.createdAt).toLocaleString("zh-CN", { hour12: false })}
                         </span>
                       </span>
+                      {task.status === "processing" && (
+                        <span className="mt-1.5 block h-1 w-full overflow-hidden rounded-full bg-night-700">
+                          <span
+                            className="bar-fill block h-full transition-all"
+                            style={{ width: `${((task.progress ?? 0) / 5) * 100}%` }}
+                          />
+                        </span>
+                      )}
                       </button>
                       <button
                         type="button"

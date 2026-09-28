@@ -31,6 +31,8 @@ export interface TaskInfo {
   error: string | null;
   createdAt: string;
   updatedAt: string;
+  /** 执行步骤进度 0-5（列表接口附带） */
+  progress?: number;
 }
 
 export interface FileInfo {

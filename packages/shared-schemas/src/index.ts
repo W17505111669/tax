@@ -25,6 +25,8 @@ export interface TaxTask {
   updatedAt: string;
   /** 列表接口附带指令全文，供前端全文搜索。 */
   instruction?: string;
+  /** 执行步骤进度 0-5（由事件与工具调用推导，仅列表接口附带）。 */
+  progress?: number;
 }
 
 export interface BusinessFile {
