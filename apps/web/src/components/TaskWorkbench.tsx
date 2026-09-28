@@ -53,7 +53,7 @@ interface Citation {
 }
 
 export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }: Props) {
-  const { timeline, toolCalls, status, connected } = useTaskEvents(task.id);
+  const { timeline, toolCalls, status, connected, reconnect } = useTaskEvents(task.id);
   const [compares, setCompares] = useState<CompareRecord[]>([]);
   const [issues, setIssues] = useState<TaskIssue[]>([]);
   const [reviews, setReviews] = useState<ReviewRecord[]>([]);
@@ -398,6 +398,12 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
               />
               {connected ? "事件流已连接" : "事件流重连中"}
             </span>
+            {!connected && (
+              <button type="button" className="action-btn" onClick={reconnect} title="手动重连事件流（重放持久化事件）">
+                <IconRefresh className="h-3 w-3" />
+                重连
+              </button>
+            )}
             <span className="text-line">|</span>
             <span>创建 {new Date(task.createdAt).toLocaleString("zh-CN", { hour12: false })}</span>
             {task.updatedAt !== task.createdAt && (

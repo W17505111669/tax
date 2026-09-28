@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { openEventStream } from "../api.ts";
 import type { AgentEvent, EventKind, TaskStatus } from "../types.ts";
 
@@ -44,6 +44,7 @@ export function useTaskEvents(taskId: string | null) {
   const [status, setStatus] = useState<TaskStatus>("created");
   const [connected, setConnected] = useState(false);
   const streamIdRef = useRef<string | null>(null);
+  const [nonce, setNonce] = useState(0);
 
   useEffect(() => {
     setTimeline([]);
@@ -127,7 +128,10 @@ export function useTaskEvents(taskId: string | null) {
       close();
       setConnected(false);
     };
-  }, [taskId]);
+  }, [taskId, nonce]);
 
-  return { timeline, toolCalls, stream, status, connected };
+  // 手动重连：重置状态并重放持久化事件
+  const reconnect = useCallback(() => setNonce((n) => n + 1), []);
+
+  return { timeline, toolCalls, stream, status, connected, reconnect };
 }

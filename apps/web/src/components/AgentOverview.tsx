@@ -76,6 +76,12 @@ export function AgentOverview({ agents, activeAgentId, stats, breakdown, created
   const weekNow = days.slice(7).reduce((a, b) => a + b, 0);
   const weekPrev = days.slice(0, 7).reduce((a, b) => a + b, 0);
   const weekDelta = weekNow - weekPrev;
+  const [sparkHover, setSparkHover] = useState<number | null>(null);
+  const sparkDate = (idx: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (13 - idx));
+    return `${d.getMonth() + 1}/${d.getDate()}`;
+  };
   const perTool = p?.perTool ?? [];
   const toolCount = (name: string) => perTool.find((t) => t.name === name)?.calls ?? 0;
   const chips = [
@@ -148,9 +154,23 @@ export function AgentOverview({ agents, activeAgentId, stats, breakdown, created
             <div className="mt-5">
               <div className="kicker flex items-center justify-between">
                 <span>任务创建趋势 · 近 14 天</span>
-                <span>今日 {days[13] ?? 0} 件</span>
+                <span>
+                  {sparkHover !== null
+                    ? `${sparkDate(sparkHover)} · ${days[sparkHover] ?? 0} 件`
+                    : `今日 ${days[13] ?? 0} 件`}
+                </span>
               </div>
-              <svg viewBox="0 0 100 30" preserveAspectRatio="none" className="mt-2 h-10 w-full" aria-hidden>
+              <svg
+                viewBox="0 0 100 30"
+                preserveAspectRatio="none"
+                className="mt-2 h-10 w-full"
+                onMouseMove={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const ratio = (e.clientX - rect.left) / rect.width;
+                  setSparkHover(Math.max(0, Math.min(13, Math.round(ratio * 13))));
+                }}
+                onMouseLeave={() => setSparkHover(null)}
+              >
                 <polygon points={`0,30 ${sparkPts} 100,30`} fill="rgba(34, 211, 238, 0.12)" />
                 <polyline
                   points={sparkPts}
@@ -159,6 +179,17 @@ export function AgentOverview({ agents, activeAgentId, stats, breakdown, created
                   strokeWidth="1.5"
                   vectorEffect="non-scaling-stroke"
                 />
+                {sparkHover !== null && (
+                  <line
+                    x1={(sparkHover / 13) * 100}
+                    y1="0"
+                    x2={(sparkHover / 13) * 100}
+                    y2="30"
+                    stroke="rgba(230, 237, 247, 0.4)"
+                    strokeWidth="1"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                )}
               </svg>
             </div>
           </div>
