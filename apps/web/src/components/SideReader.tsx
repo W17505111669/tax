@@ -82,11 +82,23 @@ function MiniPane({
   title: string;
   innerRef?: Ref<HTMLDivElement>;
 }) {
+  const [z, setZ] = useState(1);
   return (
     <div ref={innerRef} className="min-h-0 flex-1 overflow-y-auto border-l border-line px-3 py-3">
       <div className="mb-2 truncate text-[11px] text-mist-500" title={title}>
         对照：{title}
       </div>
+      {(st.kind === "image" || st.kind === "pdf") && !st.loading && !st.error && (
+        <div className="mb-2 flex items-center gap-1">
+          <button type="button" className="action-btn" onClick={() => setZ((v) => Math.max(0.5, v - 0.25))} title="缩小">
+            −
+          </button>
+          <span className="min-w-[38px] text-center font-mono text-[10px] text-mist-500">{Math.round(z * 100)}%</span>
+          <button type="button" className="action-btn" onClick={() => setZ((v) => Math.min(3, v + 0.25))} title="放大">
+            ＋
+          </button>
+        </div>
+      )}
       {st.loading && <div className="py-6 text-center text-[11.5px] text-mist-600">加载中…</div>}
       {st.error && (
         <div className="rounded border border-rose-500/40 bg-rose-500/10 px-2 py-1 text-[11px] text-rose-300">{st.error}</div>
@@ -101,10 +113,20 @@ function MiniPane({
         </div>
       )}
       {!st.loading && !st.error && st.kind === "image" && (
-        <img src={st.src} alt={title} className="max-w-full rounded border border-line" />
+        <img
+          src={st.src}
+          alt={title}
+          style={{ width: `${z * 100}%` }}
+          className="max-w-none rounded border border-line"
+        />
       )}
       {!st.loading && !st.error && st.kind === "pdf" && (
-        <iframe src={st.src} title={title} className="h-[50vh] w-full rounded border border-line bg-white" />
+        <iframe
+          src={st.src}
+          title={title}
+          style={{ height: `${50 * z}vh` }}
+          className="w-full rounded border border-line bg-white"
+        />
       )}
       {!st.loading && !st.error && (st.kind === "sheets" || st.kind === "binary") && (
         <div className="rounded border border-line bg-night-850 px-2 py-3 text-center text-[11px] text-mist-600">

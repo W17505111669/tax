@@ -1253,6 +1253,11 @@ function TimelineView({
       .map(([name, e]) => ({ name, n: e.n, ok: e.ok, avg: (e.sum / Math.max(1, e.n)).toFixed(1) }))
       .sort((a, b) => b.n - a.n);
   }, [toolCalls]);
+  const [statsSort, setStatsSort] = useState<"n" | "avg">("n");
+  const toolStatsSorted = useMemo(
+    () => [...toolStats].sort((a, b) => (statsSort === "n" ? b.n - a.n : Number(b.avg) - Number(a.avg))),
+    [toolStats, statsSort],
+  );
 
   type TItem = (typeof items)[number];
   const isVisible = (it: TItem) => {
@@ -1522,6 +1527,18 @@ function TimelineView({
             <span className="chev text-[10px] text-glow-400">▶</span>
             <IconTool className="h-3.5 w-3.5 text-glow-400" />
             <span className="text-[12px] text-mist-100">工具分组统计</span>
+            <button
+              type="button"
+              className="action-btn"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setStatsSort((v) => (v === "n" ? "avg" : "n"));
+              }}
+              title="切换排序：调用次数 / 平均耗时"
+            >
+              排序：{statsSort === "n" ? "次数" : "均耗时"}
+            </button>
             <span className="ml-auto text-[11px] text-mist-600">{toolStats.length} 种工具</span>
           </summary>
           <div className="border-t border-line px-3.5 py-2">
@@ -1535,7 +1552,7 @@ function TimelineView({
                 </tr>
               </thead>
               <tbody className="font-mono text-mist-300">
-                {toolStats.map((s) => (
+                {toolStatsSorted.map((s) => (
                   <tr key={s.name}>
                     <td className="py-0.5 pr-2">{s.name}</td>
                     <td className="text-right">{s.n}</td>
