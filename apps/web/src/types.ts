@@ -213,6 +213,26 @@ export interface PlatformStats {
   reviewPendingIssues: number;
   /** 已完成但仍有待复核问题的任务（复核闭环缺口） */
   reviewBacklog: Array<{ id: string; title: string; agentId: string; pending: number }>;
+  /** 证据可信度：联网检索与引用的质量口径（与任务结果页同一套纯函数算出） */
+  evidence: {
+    searchCalls: number;
+    searchMetadataOnly: number;
+    /** 留下了可引用 URL 的检索次数（与 searchMetadataOnly 之和等于 searchCalls） */
+    searchWithUrls: number;
+    searchKept: number;
+    searchDropped: number;
+    /** 历史记录按现行相关度规则回算会被拦下的条数（过滤规则上线前的记录没有落库 dropped） */
+    searchDroppedReplay: number;
+    citations: number;
+    officialCitations: number;
+    weakCitations: number;
+    docRefs: number;
+    docRefTraced: number;
+    docRefPending: number;
+    docRefMatched: number;
+    /** 仍有证据缺口的任务：存在弱证据引用或待复查文号 */
+    gaps: Array<{ id: string; title: string; agentId: string; weakCitations: number; docRefPending: number }>;
+  };
   perAgent: Array<{
     agentId: string;
     tasks: number;

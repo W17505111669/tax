@@ -101,6 +101,24 @@ export function queriesOfCall(result: unknown): { queries: string[]; providers: 
 /** 引用清单上限：界面胶囊与整页 MD 都按这个数量截断 */
 export const CITATION_LIMIT = 20;
 
+/** 单次检索被过滤掉的条数：自建工具把 details.dropped 落库，用于统计「拦下多少无关结果」 */
+export function droppedOfCall(result: unknown): number {
+  return numOf(asRecord(result)?.dropped);
+}
+
+export type SearchFiltering = { kept: number; dropped: number };
+
+/** 全部检索调用留下的可用来源数与被过滤条数合计（平台看板与验证脚本共用） */
+export function searchFiltering(calls: SearchCall[]): SearchFiltering {
+  const out: SearchFiltering = { kept: 0, dropped: 0 };
+  for (const c of calls) {
+    if (!SEARCH_TOOL_NAMES.has(c.toolName)) continue;
+    out.kept += urlsOfCall(c.toolName, c.result).length;
+    out.dropped += droppedOfCall(c.result);
+  }
+  return out;
+}
+
 /** 从工具调用里提取联网引用（按 URL 去重，保留首次出现的标题与来源工具） */
 export function extractCitations(calls: SearchCall[], limit: number = CITATION_LIMIT): ExtractedCitation[] {
   const out: ExtractedCitation[] = [];

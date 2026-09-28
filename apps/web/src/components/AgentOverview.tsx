@@ -105,6 +105,16 @@ export function AgentOverview({
     }
     return [...m.entries()].sort((a, b2) => b2[1].length - a[1].length);
   }, [p?.reviewBacklog]);
+  // 证据缺口按作品分组：弱证据引用与待复查文号，点击直达结果页处理
+  const gapByAgent = useMemo(() => {
+    const m = new Map<string, PlatformStats["evidence"]["gaps"]>();
+    for (const g of p?.evidence?.gaps ?? []) {
+      const list = m.get(g.agentId);
+      if (list) list.push(g);
+      else m.set(g.agentId, [g]);
+    }
+    return [...m.entries()].sort((a, b2) => b2[1].length - a[1].length);
+  }, [p?.evidence]);
   const agentName = (id: string) => agents.find((a) => a.id === id)?.shortName ?? id;
   // 缺口任务自身的未复核项合计（与「全平台待复核合计」不同：后者还包含待复核态任务）
   const backlogPending = (p?.reviewBacklog ?? []).reduce((s, b) => s + b.pending, 0);
@@ -714,6 +724,64 @@ export function AgentOverview({
                 全平台复核闭环无缺口：没有「已完成但仍有未复核问题」的任务（待复核态任务尚有 {stats.platform.reviewPendingIssues} 项在处理中）
               </div>
             )}
+            {p?.evidence &&
+              (p.evidence.gaps.length > 0 ? (
+                <div className="mt-3 rounded-md border border-sky-400/35 bg-sky-400/5 px-3 py-2">
+                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[12px] text-sky-200">
+                    <span className="font-medium">全平台证据缺口</span>
+                    <span className="text-[11.5px] text-sky-200/85">
+                      {p.evidence.gaps.length} 个任务有弱证据引用或待复查文号：证据力弱 {p.evidence.weakCitations} 条 ·
+                      政策文号待复查 {p.evidence.docRefPending} 处（已复查到公开出处 {p.evidence.docRefMatched} 处）·
+                      联网检索拦下 {p.evidence.searchDropped + p.evidence.searchDroppedReplay} 条无关结果与门户首页
+                      {p.evidence.searchDropped === 0 && p.evidence.searchDroppedReplay > 0
+                        ? "（历史记录按现行相关度规则回算）"
+                        : ""}
+                      {gapByAgent.length > 1 &&
+                        `（${gapByAgent.map(([id, l]) => `${agentName(id)} ${l.length}`).join(" / ")}）`}
+                    </span>
+                    <span className="text-[11px] text-mist-500">
+                      点击任务前往结果页：引用胶囊看证据力分级，文号徽章可一键联网复查
+                    </span>
+                  </div>
+                  <div className="mt-1.5 space-y-1">
+                    {gapByAgent.map(([agentId, list]) => (
+                      <div key={agentId} className="flex flex-wrap items-center gap-1.5">
+                        <span
+                          className="w-[72px] shrink-0 truncate text-[10.5px] text-mist-500"
+                          title={`${agentName(agentId)}：${list.length} 个任务，弱证据引用 ${list.reduce(
+                            (s, g) => s + g.weakCitations,
+                            0,
+                          )} 条 · 待复查文号 ${list.reduce((s, g) => s + g.docRefPending, 0)} 处`}
+                        >
+                          {agentName(agentId)}
+                        </span>
+                        {list.slice(0, 6).map((g) => (
+                          <button
+                            key={g.id}
+                            type="button"
+                            className="action-btn !text-[11px]"
+                            onClick={() => onOpenTask(g.id)}
+                            title={`${g.title}（${agentName(agentId)}）：证据力弱引用 ${g.weakCitations} 条 · 待复查文号 ${g.docRefPending} 处`}
+                          >
+                            {g.title.length > 16 ? `${g.title.slice(0, 16)}…` : g.title}
+                            {g.weakCitations > 0 ? ` · 弱${g.weakCitations}` : ""}
+                            {g.docRefPending > 0 ? ` · 文号${g.docRefPending}` : ""}
+                          </button>
+                        ))}
+                        {list.length > 6 && (
+                          <span className="self-center text-[10.5px] text-mist-500">等 {list.length} 个</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-3 rounded-md border border-jade-400/30 bg-jade-400/5 px-3 py-2 text-[11.5px] text-jade-300">
+                  全平台证据链无缺口：{p.evidence.citations} 条联网引用中没有门户首页或百科词条（官方原文{" "}
+                  {p.evidence.officialCitations} 条），政策文号 {p.evidence.docRefs} 处全部有出处或已复查到公开出处；联网检索累计拦下{" "}
+                  {p.evidence.searchDropped + p.evidence.searchDroppedReplay} 条无关结果与门户首页
+                </div>
+              ))}
             {stats.platform.perAgent.length > 0 && (
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {stats.platform.perAgent.map((pa) => {
