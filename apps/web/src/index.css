@@ -425,6 +425,13 @@ details.tool-row .chev {
   overflow-x: auto;
 }
 
+.md-body.fs-sm {
+  font-size: 12.5px;
+}
+.md-body.fs-lg {
+  font-size: 15px;
+}
+
 .md-body .mermaid {
   flex-direction: column;
   align-items: center;

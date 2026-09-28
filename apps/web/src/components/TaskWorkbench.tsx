@@ -86,6 +86,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
   const pinnedRef = useRef(true);
   const [showJump, setShowJump] = useState(false);
   const [scrollPct, setScrollPct] = useState(0);
+  const [fs, setFs] = useState<"sm" | "md" | "lg">("md");
   const [copied, setCopied] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const [metaCopied, setMetaCopied] = useState(false);
@@ -898,7 +899,9 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
                     citations.map((c, i) => `${i + 1}. ${c.title}\n   ${c.url}`).join("\n") || "（本次任务无联网引用）",
                   )
                 }
-                onPrint={() => window.print()}
+               onPrint={() => window.print()}
+                fs={fs}
+                onFs={setFs}
               />
               </>
             )}
@@ -1517,6 +1520,8 @@ function ResultView({
   onDownloadReport,
   onDownloadCitations,
   onPrint,
+  fs,
+  onFs,
 }: {
   result: string;
   error: string | null;
@@ -1526,6 +1531,8 @@ function ResultView({
   onDownloadReport: () => void;
   onDownloadCitations: () => void;
   onPrint: () => void;
+  fs: "sm" | "md" | "lg";
+  onFs: (v: "sm" | "md" | "lg") => void;
 }) {
   if (error) {
     return (
@@ -1545,7 +1552,12 @@ function ResultView({
   return (
     <div className="max-w-4xl space-y-5">
       <article className="glow-card px-6 py-5">
-        <MarkdownView text={result} onOpenUrl={(url) => onOpenUrl({ kind: "url", url })} headingIds />
+        <MarkdownView
+          text={result}
+          onOpenUrl={(url) => onOpenUrl({ kind: "url", url })}
+          headingIds
+          className={fs === "md" ? "" : `fs-${fs}`}
+        />
       </article>
 
       <div className="flex items-center gap-1">
@@ -1573,6 +1585,21 @@ function ResultView({
           <IconDownload className="h-3.5 w-3.5" />
           下载报告
         </button>
+        <span className="ml-auto flex items-center gap-1 text-[11px] text-mist-600">
+          字号
+          {(["sm", "md", "lg"] as const).map((k) => (
+            <button
+              key={k}
+              type="button"
+              className="seg-tab !px-2 !py-0.5 !text-[10.5px]"
+              data-on={fs === k}
+              onClick={() => onFs(k)}
+              title={`切换${k === "sm" ? "小" : k === "md" ? "中" : "大"}字号`}
+            >
+              {k === "sm" ? "小" : k === "md" ? "中" : "大"}
+            </button>
+          ))}
+        </span>
       </div>
 
       {citations.length > 0 && (

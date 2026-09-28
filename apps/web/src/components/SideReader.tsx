@@ -76,6 +76,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   const [states, setStates] = useState<Record<string, ReaderState>>({});
   const { theme } = usePaperTheme();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const retriedRef = useRef<Set<string>>(new Set());
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [reload, setReload] = useState(0);
   const [zoom, setZoom] = useState(1);
@@ -350,6 +351,17 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
         }
       } catch (err) {
         if (!cancelled) {
+          // 首次失败自动重试一次（网络抖动/冷启动）
+          if (!retriedRef.current.has(key)) {
+            retriedRef.current.add(key);
+            setStates((prev) => {
+              const next = { ...prev };
+              delete next[key];
+              return next;
+            });
+            setReload((r) => r + 1);
+            return;
+          }
           setStates((prev) => ({
             ...prev,
             [key]: { ...INITIAL, error: err instanceof Error ? err.message : "读取失败" },
@@ -706,6 +718,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
               type="button"
               onClick={() => {
                 const key = activeKey;
+                retriedRef.current.delete(key);
                 setStates((prev) => {
                   const next = { ...prev };
                   delete next[key];
