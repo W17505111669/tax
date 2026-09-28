@@ -281,6 +281,17 @@ export function Sidebar({
     localStorage.setItem("taxai-task-order", JSON.stringify(next));
   };
 
+  // 标签芯片拖到任务行即打标签
+  const addTagToTask = (taskId: string, tag: string) => {
+    const map = loadTags();
+    const arr = map[taskId] ?? [];
+    if (!arr.includes(tag)) {
+      map[taskId] = [...arr, tag];
+      saveTags(map);
+      setTagNonce((n) => n + 1);
+    }
+  };
+
   const renderTaskRow = (task: TaskInfo) => {
     const active = task.id === activeTaskId;
     const hl = (text: string) => {
@@ -308,6 +319,11 @@ export function Sidebar({
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => {
           e.preventDefault();
+          const tag = e.dataTransfer.getData("text/tag");
+          if (tag) {
+            addTagToTask(task.id, tag);
+            return;
+          }
           dropOn(task.id);
         }}
         onDragEnd={() => {
@@ -616,6 +632,8 @@ export function Sidebar({
                 <button
                   key={t}
                   type="button"
+                  draggable
+                  onDragStart={(e) => e.dataTransfer.setData("text/tag", t)}
                   onClick={() => setTagFilter((v) => (v === t ? null : t))}
                   onContextMenu={(e) => {
                     e.preventDefault();
