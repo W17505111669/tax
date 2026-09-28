@@ -212,6 +212,36 @@ export function Sidebar({
       return b.createdAt.localeCompare(a.createdAt);
     });
   };
+
+  // 导出当前过滤结果为 CSV（BOM + 转义，Excel 中文可直接打开）
+  const exportCsv = () => {
+    const esc = (v: string | number) => {
+      const s = String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const lines = ["标题,状态,案例,创建时间,运行次数,工具次数,进度,任务ID"];
+    for (const t of filtered) {
+      lines.push(
+        [
+          esc(t.title),
+          esc(STATUS_TEXT[t.status] ?? t.status),
+          esc(t.caseId),
+          esc(new Date(t.createdAt).toLocaleString("zh-CN", { hour12: false })),
+          t.runCount ?? 1,
+          t.toolCount ?? 0,
+          t.progress ?? 0,
+          esc(t.id),
+        ].join(","),
+      );
+    }
+    const blob = new Blob([`\uFEFF${lines.join("\n")}`], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `任务清单-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
   const dropOn = (targetId: string) => {
     const from = dragIdRef.current;
     dragIdRef.current = null;
@@ -411,6 +441,14 @@ export function Sidebar({
             onClick={() => setCollapsed({})}
           >
             全展
+          </button>
+          <button
+            type="button"
+            className="action-btn !px-1.5 !py-0.5 !text-[10px]"
+            title="导出当前过滤结果为 CSV"
+            onClick={exportCsv}
+          >
+            导出
           </button>
           <button
             type="button"
