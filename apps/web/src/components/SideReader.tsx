@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type Ref, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type Ref, type ReactNode } from "react";
 import { api } from "../api.ts";
 import type { SheetPreview } from "../types.ts";
 import { MarkdownView } from "./MarkdownView.tsx";
 import { ThemeSwitch } from "./ThemeSwitch.tsx";
 import { usePaperTheme } from "../hooks/usePaperTheme.ts";
 import { IconAlert, IconDownload, IconExternal, IconFile, IconRefresh, IconSpinner, IconX } from "./Icons.tsx";
-import { locateSheet, sheetLocate } from "../sheet-locate.ts";
+import { currentHitRow, locateSheet, sheetLocate } from "../sheet-locate.ts";
 
 export type ReaderTarget =
   | { kind: "url"; url: string }
@@ -123,6 +123,7 @@ function MiniPane({
   mainSort,
   highlight,
   highlightValue,
+  hitIndex,
 }: {
   st: ReaderState;
   title: string;
@@ -134,6 +135,8 @@ function MiniPane({
   highlight?: string;
   /** 该侧差异值，与主栏同源；用于命中校验 */
   highlightValue?: string | number | null;
+  /** 主栏当前命中序号；副栏按自身命中序列表取同序号处（不足则取最后一处） */
+  hitIndex?: number;
 }) {
   const [z, setZ] = useState(1);
   const [mfind, setMfind] = useState("");
@@ -157,7 +160,19 @@ function MiniPane({
     const spec = mainSort?.[s.name];
     const hl = (highlight ?? "").trim();
     const located = locateSheet(s, spec, hl, highlightValue);
-    return { list, idx, s, spec, rows: located.rows, hl, hlHits: located.hits, hlCount: located.count };
+    // 主栏走到第几处，副栏就标自己第几处（命中数不同则夹到最后一处）
+    const currentRow = currentHitRow(located.hits, hitIndex ?? 0);
+    return {
+      list,
+      idx,
+      s,
+      spec,
+      rows: located.rows,
+      hl,
+      hlHits: located.hits,
+      hlCount: located.count,
+      currentRow,
+    };
   })();
 
   // 定位关键字变化时，副栏自动切到首个命中的工作表（多表底稿不用手工翻）
@@ -184,7 +199,7 @@ function MiniPane({
     if (hlCount === 0) return;
     const id = requestAnimationFrame(() => {
       const root = localRef.current;
-      const row = root?.querySelector<HTMLElement>("tr.row-hl");
+      const row = root?.querySelector<HTMLElement>("tr.hl-current") ?? root?.querySelector<HTMLElement>("tr.row-hl");
       if (!root || !row) return;
       // 表格自带内层滚动容器（max-h-[60vh]），要滚的是它而不是外层副栏
       let scroller: HTMLElement = root;
@@ -200,7 +215,7 @@ function MiniPane({
     });
     return () => cancelAnimationFrame(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hlCount, hlKey, hlSheet, st.loading]);
+  }, [hlCount, hlKey, hlSheet, st.loading, hitIndex]);
   return (
     <div ref={attachRef} className="min-h-0 flex-1 overflow-y-auto border-l border-line px-3 py-3">
       <div className="mb-2 truncate text-[11px] text-mist-500" title={title}>
@@ -258,7 +273,7 @@ function MiniPane({
       )}
       {sheetView &&
         (() => {
-          const { list, idx, s, spec, rows, hl, hlHits, hlCount } = sheetView;
+          const { list, idx, s, spec, rows, hl, hlHits, hlCount, currentRow } = sheetView;
           return (
             <div className="paper-sheet theme-minimal px-2 py-2">
               {list.length > 1 && (
@@ -325,7 +340,13 @@ function MiniPane({
                     {rows.map((row, i) => {
                       const hits = hlHits[i] ?? { hit: false, cols: [] as string[] };
                       return (
-                        <tr key={i} className={`${i % 2 ? "bg-gray-50" : ""} ${hits.hit ? "row-hl" : ""}`}>
+                        <tr
+                          key={i}
+                          data-hlrow={hits.hit ? "" : undefined}
+                          className={`${i % 2 ? "bg-gray-50" : ""} ${hits.hit ? "row-hl" : ""} ${
+                            i === currentRow ? "hl-current" : ""
+                          }`}
+                        >
                           {s.headers.map((h) => {
                             const v = row[h];
                             const txt = v === null || v === undefined ? "" : String(v);
@@ -598,10 +619,30 @@ export function SideReader({
     );
   }, [state.kind, state.sheets, activeHl, activeHlValue, sort, activeKey]);
   const [hitIdx, setHitIdx] = useState(0);
-  const gotoHit = (delta: number) => {
-    if (hitTotal === 0) return;
-    setHitIdx((prev) => (((prev + delta) % hitTotal) + hitTotal) % hitTotal);
-  };
+  const gotoHit = useCallback(
+    (delta: number) => {
+      if (hitTotal === 0) return;
+      setHitIdx((prev) => (((prev + delta) % hitTotal) + hitTotal) % hitTotal);
+    },
+    [hitTotal],
+  );
+
+  // 表格定位的键盘导航：Enter 下一处 / Shift+Enter 上一处（输入框内不抢按键）
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== "Enter" || hitTotal === 0) return;
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName;
+      // 输入框与按钮上保留 Enter 的默认行为（按钮激活 / 表单提交），只在阅读区空白处接管
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "BUTTON" || el?.isContentEditable) {
+        return;
+      }
+      e.preventDefault();
+      gotoHit(e.shiftKey ? -1 : 1);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [hitTotal, gotoHit]);
 
   // 加载完成或切换命中处时：滚到视口中央，并用玫红底标出「当前处」
   useEffect(() => {
@@ -1503,6 +1544,7 @@ export function SideReader({
           find={findTrim}
           highlight={secondHl}
           highlightValue={secondHlValue}
+          hitIndex={hitIdx}
           mainSort={Object.fromEntries(
             Object.entries(sort)
               .filter(([k]) => k.startsWith(`${activeKey}:`))

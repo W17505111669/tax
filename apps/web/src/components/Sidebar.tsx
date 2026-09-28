@@ -144,6 +144,7 @@ export function IconRail({
                 { keys: "↑ / ↓", desc: "选择比对差异行" },
                 { keys: "Enter", desc: "阅读器双底稿定位" },
                 { keys: "Alt+1~4", desc: "切换工作台页签" },
+                { keys: "Enter / Shift+Enter", desc: "阅读器表格定位：下一处 / 上一处命中" },
                 { keys: "搜索框 ↑/↓+Enter", desc: "选择并打开任务" },
                 { keys: "? / Ctrl+/", desc: "开关本帮助" },
                 { keys: "Ctrl+Shift+↑/↓", desc: "侧栏分组全折/全展" },

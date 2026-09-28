@@ -146,3 +146,18 @@ export function locateSheet(
     : [];
   return { rows, hits, count: hits.filter((h) => h.hit).length };
 }
+
+/**
+ * 双栏「当前处」的行下标：主栏走到第 hitIndex 处命中，副栏就标自己的第 hitIndex 处。
+ * 两侧命中数不同（例如某一侧差异值只出现一次）时夹到最后一处；没有命中返回 -1。
+ */
+export function currentHitRow(hits: Array<{ hit: boolean }>, hitIndex: number): number {
+  const rows: number[] = [];
+  hits.forEach((h, i) => {
+    if (h.hit) rows.push(i);
+  });
+  if (rows.length === 0) return -1;
+  const n = Number.isFinite(hitIndex) ? Math.trunc(hitIndex) : 0;
+  const idx = Math.min(Math.max(0, n), rows.length - 1);
+  return rows[idx] ?? -1;
+}

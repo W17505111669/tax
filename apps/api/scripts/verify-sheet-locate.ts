@@ -5,6 +5,7 @@
  */
 import {
   colLettersToIndex,
+  currentHitRow,
   locateSheet,
   sameValue,
   sheetLocate,
@@ -176,6 +177,15 @@ expect(
   locateSheet({ name: "多行", headers: ["费用类别", "金额（元）"], rows: many }, null, "", null).rows.length,
   100,
 );
+
+// 8) 双栏「当前处」：主栏序号映射到副栏自己的命中序列，越界夹边，无命中返回 -1
+const H = (hit: boolean) => ({ hit, cols: [] as string[] });
+expect("无命中返回 -1", currentHitRow([H(false), H(false)], 0), -1);
+expect("单命中取该行", currentHitRow([H(false), H(true), H(false)], 0), 1);
+expect("主栏序号越界时夹到最后一处", currentHitRow([H(true), H(false), H(false)], 5), 0);
+expect("多命中按序号取第 2 处", currentHitRow([H(true), H(false), H(true), H(true)], 1), 2);
+expect("负序号夹到第一处", currentHitRow([H(false), H(true), H(true)], -3), 1);
+expect("非整数序号向下取整", currentHitRow([H(true), H(true), H(true)], 1.7), 1);
 
 console.log(`[verify] 表格定位检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
