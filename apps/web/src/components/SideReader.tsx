@@ -5,6 +5,7 @@ import { MarkdownView } from "./MarkdownView.tsx";
 import { ThemeSwitch } from "./ThemeSwitch.tsx";
 import { usePaperTheme } from "../hooks/usePaperTheme.ts";
 import { IconAlert, IconDownload, IconExternal, IconFile, IconRefresh, IconSpinner, IconX } from "./Icons.tsx";
+import { sheetLocate } from "../sheet-locate.ts";
 
 export type ReaderTarget =
   | { kind: "url"; url: string }
@@ -472,11 +473,12 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   }, [activeKey]);
 
   // 表格预览加载完成后，把比对定位的高亮行滚到视口中央
+  const activeHl = active && "highlight" in active ? (active.highlight ?? "") : "";
   useEffect(() => {
     if (state.loading || state.kind !== "sheets") return;
     const el = scrollRef.current?.querySelector(".row-hl");
     el?.scrollIntoView({ block: "center" });
-  }, [state.loading, state.kind, activeKey]);
+  }, [state.loading, state.kind, activeKey, activeHl, state.sheets]);
 
   // 切换标签时重置缩放
   useEffect(() => {
@@ -1193,6 +1195,11 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                       return String(av ?? "").localeCompare(String(bv ?? ""), "zh-CN") * st.dir;
                     });
                   })();
+                  const hl = activeHl.trim();
+                  const hlHits = hl
+                    ? rows.map((row, i) => sheetLocate(row, s.headers, i, hl, s.name, Boolean(st)))
+                    : [];
+                  const hlCount = hlHits.filter((h) => h.hit).length;
                   return (
                     <>
                 <div className="mb-1.5 flex items-baseline gap-2">
@@ -1236,9 +1243,19 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                   >
                     冻首列
                   </button>
-                  {active && "highlight" in active && active.highlight && (
-                    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10.5px] text-amber-700">
-                      定位：{active.highlight}
+                  {hl && (
+                    <span
+                      className={`rounded px-1.5 py-0.5 text-[10.5px] ${
+                        hlCount > 0 ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-600"
+                      }`}
+                      title={
+                        hlCount > 0
+                          ? "命中行以琥珀底标出，命中单元格加深，并已自动滚入视口；支持「记录名/列名」与 A1 地址"
+                          : "本表未匹配到定位关键字；A1 地址在排序状态下不生效，可取消排序或改用页内搜索"
+                      }
+                    >
+                      定位：{hl}
+                      {hlCount > 0 ? `（${hlCount} 行命中）` : "（未命中）"}
                     </span>
                   )}
                 </div>
@@ -1277,18 +1294,10 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                       </tr>
                     </thead>
                     <tbody>
-                      {rows.map((row, i) => (
-                        <tr
-                          key={i}
-                          className={
-                            active &&
-                            "highlight" in active &&
-                            active.highlight &&
-                            String(row[s.headers[0] ?? ""]) === active.highlight
-                              ? "row-hl"
-                              : undefined
-                          }
-                          >
+                      {rows.map((row, i) => {
+                        const hits = hlHits[i] ?? { hit: false, cols: [] as string[] };
+                        return (
+                          <tr key={i} className={hits.hit ? "row-hl" : undefined}>
                             {showRowNum && (
                               <td
                                 className={`border border-gray-200 px-2 py-1 text-right font-mono text-[10.5px] text-gray-400 ${
@@ -1310,13 +1319,14 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                                 title="双击复制单元格"
                                 className={`border border-gray-200 px-2 py-1 align-top text-gray-700 ${
                                   freezeFirst && hi === 0 && !showRowNum ? "sticky left-0 z-20 bg-inherit" : ""
-                                }`}
+                                } ${hits.cols.includes(h) ? "cell-hl" : ""}`}
                               >
                               {row[h] === null || row[h] === undefined ? "" : String(row[h])}
                             </td>
                           ))}
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

@@ -124,7 +124,8 @@ const scenes: Array<{
     task: pick((t) => t.tools.has("compare_workpapers")),
     tab: "compare",
     talk: "记录级比对输出准确率；点击差异行同时打开两份底稿并高亮定位；导出比对报告。",
-    expect: "比对 KPI 卡、差异表（↑/↓ 选择、Enter 定位）、阅读器双标签 + 琥珀高亮行自动滚入视口。",
+    expect:
+      "比对 KPI 卡、差异表（↑/↓ 选择、Enter 定位）、阅读器双标签 + 琥珀高亮行与加深单元格自动滚入视口（徽章显示命中行数，记录地址与 A1 地址均可定位）。",
     seconds: 50,
   },
   {

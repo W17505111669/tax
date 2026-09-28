@@ -9,6 +9,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "verify:agents": "tsx scripts/verify-agents.ts",
     "verify:progress": "tsx scripts/verify-progress.ts",
+    "verify:locate": "tsx scripts/verify-sheet-locate.ts",
     "case:run": "tsx scripts/run-case.ts"
   },
   "dependencies": {
