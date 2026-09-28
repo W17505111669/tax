@@ -10,6 +10,7 @@
     "verify:agents": "tsx scripts/verify-agents.ts",
     "verify:progress": "tsx scripts/verify-progress.ts",
     "verify:locate": "tsx scripts/verify-sheet-locate.ts",
+    "verify:tlcalls": "tsx scripts/verify-timeline-calls.ts",
     "verify:review": "tsx scripts/verify-review-status.ts",
     "case:run": "tsx scripts/run-case.ts"
   },

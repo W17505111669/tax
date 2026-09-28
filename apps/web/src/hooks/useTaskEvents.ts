@@ -14,6 +14,8 @@ export interface TimelineItem {
 }
 
 export interface ToolCallItem {
+  /** 工具调用 id（来自事件 payload.callId），用于与时间线事件精确配对 */
+  id: string;
   toolName: string;
   args: unknown;
   result: unknown;
@@ -78,11 +80,14 @@ export function useTaskEvents(taskId: string | null) {
       }
 
       if (event.kind === "tool_start") {
-        const payload = event.payload as { toolName?: string; args?: unknown } | undefined;
+        const payload = event.payload as { toolName?: string; args?: unknown; callId?: string } | undefined;
+        const toolName = payload?.toolName ?? "unknown";
         setToolCalls((prev) => [
           ...prev,
           {
-            toolName: payload?.toolName ?? "unknown",
+            // 历史事件可能没有 callId，用 seq 兜底保证 id 唯一
+            id: payload?.callId ?? `${toolName}#${event.seq}`,
+            toolName,
             args: payload?.args,
             result: null,
             ok: null,
@@ -93,16 +98,29 @@ export function useTaskEvents(taskId: string | null) {
       }
 
       if (event.kind === "tool_end") {
-        const payload = event.payload as { toolName?: string; ok?: boolean; result?: unknown } | undefined;
+        const payload = event.payload as
+          | { toolName?: string; ok?: boolean; result?: unknown; callId?: string }
+          | undefined;
         setToolCalls((prev) => {
           const next = [...prev];
-          for (let i = next.length - 1; i >= 0; i -= 1) {
-            const item = next[i]!;
-            if (item.toolName === (payload?.toolName ?? "") && item.ok === null) {
-              next[i] = { ...item, ok: payload?.ok ?? true, result: payload?.result ?? null, endedAt: event.at };
-              break;
+          // 优先按 callId 精确落位；历史事件没有 callId 时退回「同名且未结束」的最近一条
+          let hit = payload?.callId ? next.findIndex((c) => c.id === payload.callId) : -1;
+          if (hit < 0) {
+            for (let i = next.length - 1; i >= 0; i -= 1) {
+              const item = next[i]!;
+              if (item.toolName === (payload?.toolName ?? "") && item.ok === null) {
+                hit = i;
+                break;
+              }
             }
           }
+          if (hit < 0) return prev;
+          next[hit] = {
+            ...next[hit]!,
+            ok: payload?.ok ?? true,
+            result: payload?.result ?? null,
+            endedAt: event.at,
+          };
           return next;
         });
       }

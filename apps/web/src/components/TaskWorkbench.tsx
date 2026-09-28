@@ -6,6 +6,7 @@ import { useTaskEvents } from "../hooks/useTaskEvents.ts";
 import { MarkdownView } from "./MarkdownView.tsx";
 import { readerKey, SideReader, type ReaderTarget } from "./SideReader.tsx";
 import { loadTags, saveTags } from "../tags.ts";
+import { matchToolCalls } from "../timeline-calls.ts";
 import { CompareView } from "./CompareView.tsx";
 import { ThemeSwitch } from "./ThemeSwitch.tsx";
 import { ReviewView } from "./ReviewView.tsx";
@@ -1507,25 +1508,40 @@ function TimelineView({
   );
 
   // 事件列表序列化为 Markdown 行（工具入参/返回截断 2000 字）
+  // tool_start 事件 ↔ 工具调用记录：按 callId 精确配对，任何子集导出（按次运行 / 过滤视图）都不会挂错
+  const callIdxOf = useMemo(() => matchToolCalls(items, toolCalls), [items, toolCalls]);
+  const callOfItem = useMemo(() => {
+    const map = new Map<TItem, (typeof toolCalls)[number] | undefined>();
+    items.forEach((it, i) => {
+      if (it.kind !== "tool_start") return;
+      const idx = callIdxOf[i] ?? -1;
+      map.set(it, idx >= 0 ? toolCalls[idx] : undefined);
+    });
+    return map;
+  }, [items, callIdxOf, toolCalls]);
+
+  // 导出用的 JSON 片段：超长时明确标注截断，避免交付物看起来像完整数据
+  const clipJson = (v: unknown): string => {
+    const s = JSON.stringify(v, null, 2);
+    return s.length > 2000 ? `${s.slice(0, 2000)}\n…（已截断，完整内容见工具调用记录）` : s;
+  };
+
   const buildMd = (list: TItem[]): string[] => {
     const lines: string[] = [];
-    const counters: Record<string, number> = {};
     for (const it of list) {
       if (it.kind === "tool_start") {
         const name = String((it.payload as { toolName?: string } | undefined)?.toolName ?? "");
-        const idx = counters[name] ?? 0;
-        counters[name] = idx + 1;
-        const call = toolCalls.filter((c) => c.toolName === name)[idx];
+        const call = callOfItem.get(it);
         lines.push(
           `## ${it.at} 工具 ${name}（${!call || call.ok === null ? "执行中" : call.ok ? "成功" : "失败"}）`,
           "",
           "```json",
-          JSON.stringify(call?.args ?? null, null, 2).slice(0, 2000),
+          clipJson(call?.args ?? null),
           "```",
           "",
         );
         if (call && call.ok !== null) {
-          lines.push("返回：", "", "```json", JSON.stringify(call.result, null, 2).slice(0, 2000), "```", "");
+          lines.push("返回：", "", "```json", clipJson(call.result), "```", "");
         }
       } else if (it.kind === "agent_text") {
         lines.push(`## ${it.at} 结论输出`, "", it.detail ?? "", "");

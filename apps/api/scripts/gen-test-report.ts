@@ -29,6 +29,11 @@ const VERIFY_SCRIPTS: Array<{ name: string; cmd: string; scope: string }> = [
     scope: "阅读器表格定位命中规则（记录地址 / A1 / 文本 / 差异值校验）",
   },
   { name: "verify:review", cmd: "pnpm verify:review", scope: "人工复核状态一致性（完成态遗留待复核问题的补救判定）" },
+  {
+    name: "verify:tlcalls",
+    cmd: "pnpm verify:tlcalls",
+    scope: "时间线工具调用配对（callId 精确匹配 + 同名序号兜底）",
+  },
 ];
 
 function runVerify(cmd: string): { pass: boolean; output: string } {
