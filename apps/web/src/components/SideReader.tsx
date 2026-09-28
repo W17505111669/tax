@@ -507,8 +507,11 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
             );
           })}
           {visible.length === 0 && (
-            <span className="px-3 py-2 text-[11.5px] text-mist-600">
-              {group === "refs" ? "暂无引用网页或任务资料" : "暂无生成产物"}
+            <span className="flex items-center gap-2 px-3 py-2 text-[11.5px] text-mist-600">
+              <IconFile className="h-3.5 w-3.5 shrink-0" />
+              {group === "refs"
+                ? "暂无引用网页或任务资料，点击结论引用胶囊或任务资料即可打开"
+                : "暂无生成产物，导出底稿后自动出现"}
             </span>
           )}
         </div>

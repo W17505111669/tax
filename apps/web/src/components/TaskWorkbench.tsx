@@ -1195,6 +1195,7 @@ function TimelineView({
                 name={name}
                 call={call}
                 ts={showTs ? `#${item.seq} ${fmtTs(item.at)}` : undefined}
+                autoOpen={call === undefined || call.ok === null}
               />
             </div>
           );
@@ -1343,12 +1344,14 @@ function ToolRow({
   name,
   call,
   ts,
+  autoOpen = false,
 }: {
   name: string;
   call:
     | { args: unknown; result: unknown; ok: boolean | null; at: string; endedAt: string | null }
     | undefined;
   ts?: string;
+  autoOpen?: boolean;
 }) {
   const isSearch = SEARCH_TOOLS.has(name);
   const duration =
@@ -1396,7 +1399,16 @@ function ToolRow({
     void navigator.clipboard?.writeText(text).catch(() => undefined);
   };
   return (
-    <details className="tool-row glow-card">
+    <details
+      className="tool-row glow-card"
+      ref={(el) => {
+        // 运行中的工具行挂载时自动展开，便于观察入参/返回流
+        if (el && autoOpen && !el.dataset.init) {
+          el.open = true;
+          el.dataset.init = "1";
+        }
+      }}
+    >
       <summary className="flex items-center gap-2 px-3.5 py-2">
         {ts && <span className="font-mono text-[9.5px] text-mist-600">{ts}</span>}
         <IconTool className="h-3.5 w-3.5 text-glow-400" />
