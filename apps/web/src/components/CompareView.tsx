@@ -26,6 +26,7 @@ export function CompareView({ compares, onOpenTarget }: Props) {
     const v = localStorage.getItem("taxai-compare-kind");
     return v === "mismatch" || v === "only_a" || v === "only_b" ? v : "all";
   });
+  const [trendHover, setTrendHover] = useState<number | null>(null);
 
   useEffect(() => {
     localStorage.setItem("taxai-compare-kind", kindFilter);
@@ -169,10 +170,22 @@ export function CompareView({ compares, onOpenTarget }: Props) {
               <div className="kicker flex items-center justify-between">
                 <span>准确率趋势 · {pts.length} 次比对</span>
                 <span>
-                  最低 {min}% · 最高 {max}%
+                  {trendHover !== null && pts[trendHover] !== undefined
+                    ? `第 ${trendHover + 1} 次 · ${pts[trendHover]}%`
+                    : `最低 ${min}% · 最高 ${max}%`}
                 </span>
               </div>
-              <svg viewBox="0 0 100 30" preserveAspectRatio="none" className="mt-2 h-9 w-full" aria-hidden>
+              <svg
+                viewBox="0 0 100 30"
+                preserveAspectRatio="none"
+                className="mt-2 h-9 w-full"
+                onMouseMove={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const ratio = (e.clientX - rect.left) / rect.width;
+                  setTrendHover(Math.max(0, Math.min(pts.length - 1, Math.round(ratio * (pts.length - 1)))));
+                }}
+                onMouseLeave={() => setTrendHover(null)}
+              >
                 <polyline
                   points={coords.join(" ")}
                   fill="none"
@@ -184,6 +197,17 @@ export function CompareView({ compares, onOpenTarget }: Props) {
                   const [x, y] = c.split(",");
                   return <circle key={i} cx={x} cy={y} r="1.4" fill="#34d399" />;
                 })}
+                {trendHover !== null && (
+                  <line
+                    x1={(trendHover / (pts.length - 1)) * 100}
+                    y1="0"
+                    x2={(trendHover / (pts.length - 1)) * 100}
+                    y2="30"
+                    stroke="rgba(230, 237, 247, 0.4)"
+                    strokeWidth="1"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                )}
               </svg>
             </div>
           );
