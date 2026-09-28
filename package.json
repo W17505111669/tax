@@ -22,12 +22,13 @@
     "demo:script": "pnpm --filter @tax/api exec tsx scripts/gen-demo-script.ts",
     "gen:ppt": "pnpm --filter @tax/api exec tsx scripts/gen-ppt-outline.ts",
     "pack:evidence": "pnpm --filter @tax/api exec tsx scripts/pack-evidence.ts",
-    "qa:all": "pnpm verify:pi && pnpm verify:docs && pnpm verify:template && pnpm verify:policy && pnpm verify:compare && pnpm verify:ocr && pnpm verify:extract && pnpm verify:diagram && pnpm verify:agents && pnpm verify:progress && pnpm verify:locate && pnpm verify:review && pnpm verify:tlcalls && pnpm report:test && pnpm gen:materials && pnpm demo:script && pnpm gen:ppt && pnpm pack:evidence",
+    "qa:all": "pnpm verify:pi && pnpm verify:docs && pnpm verify:template && pnpm verify:policy && pnpm verify:compare && pnpm verify:ocr && pnpm verify:extract && pnpm verify:diagram && pnpm verify:agents && pnpm verify:progress && pnpm verify:locate && pnpm verify:review && pnpm verify:tlcalls && pnpm verify:runart && pnpm report:test && pnpm gen:materials && pnpm demo:script && pnpm gen:ppt && pnpm pack:evidence",
     "verify:agents": "pnpm --filter @tax/api verify:agents",
     "verify:progress": "pnpm --filter @tax/api verify:progress",
     "verify:locate": "pnpm --filter @tax/api verify:locate",
     "verify:tlcalls": "pnpm --filter @tax/api verify:tlcalls",
     "verify:review": "pnpm --filter @tax/api verify:review",
+    "verify:runart": "pnpm --filter @tax/api verify:runart",
     "typecheck": "pnpm -r typecheck"
   },
   "devDependencies": {

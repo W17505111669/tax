@@ -142,7 +142,8 @@ const scenes: Array<{
     task: pick((t) => t.hasResume),
     tab: "timeline",
     talk: "补充意见后续跑，Agent 引用上一轮工具结果直接作答，不重复核查。",
-    expect: "「续跑任务」事件与引用上轮结论的回答。",
+    expect:
+      "「续跑任务」事件与引用上轮结论的回答；续跑分隔行标出本次运行的产物数（悬停看清单与大小），按次运行导出的 MD 含时间窗与产物表。",
     seconds: 40,
   },
   {

@@ -34,6 +34,11 @@ const VERIFY_SCRIPTS: Array<{ name: string; cmd: string; scope: string }> = [
     cmd: "pnpm verify:tlcalls",
     scope: "时间线工具调用配对（callId 精确匹配 + 同名序号兜底）",
   },
+  {
+    name: "verify:runart",
+    cmd: "pnpm verify:runart",
+    scope: "运行时间窗推导与产物归属（导出「本次运行产物清单」的依据）",
+  },
 ];
 
 function runVerify(cmd: string): { pass: boolean; output: string } {

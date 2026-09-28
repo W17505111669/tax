@@ -7,6 +7,7 @@ import { MarkdownView } from "./MarkdownView.tsx";
 import { readerKey, SideReader, type ReaderTarget } from "./SideReader.tsx";
 import { loadTags, saveTags } from "../tags.ts";
 import { matchToolCalls } from "../timeline-calls.ts";
+import { artifactsOfRun, artifactTable, fmtBytes, runWindows, unattributedArtifacts } from "../run-artifacts.ts";
 import { CompareView } from "./CompareView.tsx";
 import { ThemeSwitch } from "./ThemeSwitch.tsx";
 import { ReviewView } from "./ReviewView.tsx";
@@ -1101,6 +1102,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                 items={timeline}
                 toolCalls={toolCalls}
                 citations={citations}
+                artifacts={artifacts}
                 onOpenUrl={openReader}
                 onRerun={onRerun}
                 autoFollow={autoFollow}
@@ -1467,6 +1469,7 @@ function TimelineView({
   items,
   toolCalls,
   citations,
+  artifacts,
   onOpenUrl,
   onRerun,
   autoFollow,
@@ -1476,6 +1479,7 @@ function TimelineView({
   items: ReturnType<typeof useTaskEvents>["timeline"];
   toolCalls: ReturnType<typeof useTaskEvents>["toolCalls"];
   citations: Citation[];
+  artifacts: ArtifactInfo[];
   onOpenUrl: (target: ReaderTarget) => void;
   onRerun: () => void;
   autoFollow: boolean;
@@ -1526,6 +1530,10 @@ function TimelineView({
     return s.length > 2000 ? `${s.slice(0, 2000)}\n…（已截断，完整内容见工具调用记录）` : s;
   };
 
+  // 每次运行的时间窗与归属产物：导出 MD 与运行头部角标共用同一套判定
+  const windows = useMemo(() => runWindows(items), [items]);
+  const artsOfRun = (runIdx: number) => artifactsOfRun(artifacts, windows.find((w) => w.run === runIdx));
+
   const buildMd = (list: TItem[]): string[] => {
     const lines: string[] = [];
     for (const it of list) {
@@ -1554,7 +1562,20 @@ function TimelineView({
 
   const downloadRun = (runIdx: number) => {
     const list = items.filter((_, i2) => runInfo.of[i2] === runIdx);
-    const lines = [`# 第 ${runIdx} 次运行时间线`, "", `- 事件数 ${list.length}`, "", ...buildMd(list)];
+    const win = windows.find((w) => w.run === runIdx);
+    const arts = artifactsOfRun(artifacts, win);
+    const lines = [
+      `# 第 ${runIdx} 次运行时间线`,
+      "",
+      `- 事件数 ${list.length}`,
+      `- 时间窗：${win ? `${win.start} ~ ${win.end ?? "（未结束）"}` : "（无 run_started 事件）"}`,
+      `- 本次运行产物：${arts.length} 份`,
+      "",
+      ...buildMd(list),
+      "## 本次运行产物",
+      "",
+      ...artifactTable(arts, "（本次运行未生成产物）"),
+    ];
     const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -1715,6 +1736,19 @@ function TimelineView({
               "",
             ];
             lines.push(...buildMd(items.filter(isVisible)));
+            const unattr = unattributedArtifacts(artifacts, windows);
+            lines.push(
+              "## 产物清单（按运行归属）",
+              "",
+              ...windows.flatMap((w) => [
+                `### 第 ${w.run} 次运行（${w.start} ~ ${w.end ?? "未结束"}）`,
+                "",
+                ...artifactTable(artifactsOfRun(artifacts, w), "（本次运行未生成产物）"),
+              ]),
+            );
+            if (unattr.length > 0) {
+              lines.push("### 未归属到具体运行", "", ...artifactTable(unattr, ""));
+            }
             const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
@@ -1855,6 +1889,7 @@ function TimelineView({
       {items.map((item, ii) => {
         const runIdx = runInfo.of[ii] ?? 0;
         const cls = runIdx > 1 ? "ml-3 border-l-2 border-line/70 pl-3" : "";
+        const runArts = runIdx > 0 ? artsOfRun(runIdx) : [];
         if (collapseOld && runIdx > 0 && runIdx < runInfo.max && !expandedRuns.has(runIdx)) {
           if (item.kind === "run_started") {
             return (
@@ -1864,7 +1899,8 @@ function TimelineView({
                   className="action-btn flex-1 justify-between"
                   onClick={() => setExpandedRuns((prev) => new Set(prev).add(runIdx))}
                 >
-                  第 {runIdx} 次运行 · {runInfo.counts[runIdx] ?? 0} 事件（已折叠）
+                  第 {runIdx} 次运行 · {runInfo.counts[runIdx] ?? 0} 事件
+                  {runArts.length > 0 ? ` · 产物 ${runArts.length}` : ""}（已折叠）
                   <span className="ml-2">点击展开 ▸</span>
                 </button>
                 <button
@@ -1931,7 +1967,17 @@ function TimelineView({
               return (
                 <div key={item.id} className="flex items-center gap-3 pt-3">
                   <span className="h-px flex-1 bg-line" />
-                  <span className="text-[11px] text-mist-600">第 {runIdx} 次运行（续跑）</span>
+                  <span
+                    className="text-[11px] text-mist-600"
+                    title={
+                      runArts.length > 0
+                        ? `本次运行产物：${runArts.map((a) => `${a.name}（${fmtBytes(a.byteSize)}）`).join("、")}`
+                        : "本次运行未生成产物"
+                    }
+                  >
+                    第 {runIdx} 次运行（续跑）
+                    {runArts.length > 0 ? ` · 产物 ${runArts.length}` : ""}
+                  </span>
                   <span className="h-px flex-1 bg-line" />
                 </div>
               );

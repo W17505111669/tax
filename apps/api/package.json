@@ -12,6 +12,7 @@
     "verify:locate": "tsx scripts/verify-sheet-locate.ts",
     "verify:tlcalls": "tsx scripts/verify-timeline-calls.ts",
     "verify:review": "tsx scripts/verify-review-status.ts",
+    "verify:runart": "tsx scripts/verify-run-artifacts.ts",
     "case:run": "tsx scripts/run-case.ts"
   },
   "dependencies": {
