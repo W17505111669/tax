@@ -60,6 +60,7 @@ export function listTasks(agentId?: AgentId): TaxTask[] {
     updatedAt: String(row.updated_at),
     instruction: String(row.instruction ?? ""),
     progress: computeProgress(String(row.id), row.status as string),
+    runCount: runCountOf(String(row.id)),
   }));
 }
 
@@ -185,6 +186,13 @@ const PROGRESS_SEARCH_TOOLS = new Set([
   "fetch_public_document",
   "get_search_content",
 ]);
+
+function runCountOf(taskId: string): number {
+  const row = db
+    .prepare(`SELECT COUNT(*) AS n FROM events WHERE task_id = ? AND kind = 'run_started'`)
+    .get(taskId) as { n: number };
+  return row.n;
+}
 
 /** 执行步骤进度 0-5：提问→工具核验→联网检索→结论生成→交付，由事件与工具调用推导。 */
 function computeProgress(taskId: string, status: string): number {

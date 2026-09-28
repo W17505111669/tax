@@ -27,6 +27,8 @@ export interface TaxTask {
   instruction?: string;
   /** 执行步骤进度 0-5（由事件与工具调用推导，仅列表接口附带）。 */
   progress?: number;
+  /** 运行次数（run_started 事件计数，仅列表接口附带）。 */
+  runCount?: number;
 }
 
 export interface BusinessFile {

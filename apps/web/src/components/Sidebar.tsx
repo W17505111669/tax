@@ -209,7 +209,12 @@ export function Sidebar({
           </span>
           <span className="mt-1 flex items-center gap-1.5 text-[11px] text-mist-600">
             <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[task.status] ?? "bg-mist-600"}`} />
-            <span>{STATUS_TEXT[task.status] ?? task.status}</span>
+                        <span>{STATUS_TEXT[task.status] ?? task.status}</span>
+                        {(task.runCount ?? 1) > 1 && (
+                          <span className="font-mono text-[9.5px] text-glow-300" title={`共 ${task.runCount} 次运行（含续跑）`}>
+                            ↻{task.runCount}
+                          </span>
+                        )}
             <span className="truncate">· {new Date(task.createdAt).toLocaleString("zh-CN", { hour12: false })}</span>
           </span>
           {task.status === "processing" && (

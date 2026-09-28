@@ -35,6 +35,8 @@ export interface TaskInfo {
   updatedAt: string;
   /** 执行步骤进度 0-5（列表接口附带） */
   progress?: number;
+  /** 运行次数（列表接口附带） */
+  runCount?: number;
 }
 
 export interface FileInfo {

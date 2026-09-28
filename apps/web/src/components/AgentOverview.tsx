@@ -58,7 +58,7 @@ interface Props {
   stats: { tasks: number; completed: number; platform: PlatformStats | null };
   breakdown: { processing: number; waiting_review: number; completed: number; failed: number };
   createdAts: string[];
-  recent: Array<{ id: string; title: string; status: string; at: string }>;
+  recent: Array<{ id: string; title: string; status: string; at: string; runCount?: number }>;
   onSelect: (id: string) => void;
   onOpenTask: (id: string) => void;
   onShowAll: () => void;
@@ -321,6 +321,11 @@ export function AgentOverview({
                     >
                       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${RECENT_DOT[r.status] ?? "bg-mist-600"}`} />
                       <span className="min-w-0 flex-1 truncate text-[12px] text-mist-300">{r.title}</span>
+                      {(r.runCount ?? 1) > 1 && (
+                        <span className="shrink-0 font-mono text-[9.5px] text-glow-300" title="运行次数（含续跑）">
+                          ↻{r.runCount}
+                        </span>
+                      )}
                       <span className="shrink-0 text-[10px] text-mist-600">{RECENT_TEXT[r.status] ?? r.status}</span>
                       <span className="shrink-0 text-[10.5px] text-mist-600">{relTime(r.at)}</span>
                     </button>

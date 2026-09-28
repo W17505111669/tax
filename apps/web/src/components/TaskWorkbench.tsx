@@ -516,6 +516,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
                 </span>
               </>
             )}
+            <span className="text-line">|</span>
+            <span title="SSE 事件数（含流式增量）">事件 {timeline.length}</span>
             {(totalDuration || liveElapsed) && (
               <>
                 <span className="text-line">|</span>
