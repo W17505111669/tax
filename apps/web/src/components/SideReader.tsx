@@ -105,6 +105,7 @@ function MiniPane({
   innerRef,
   find,
   mainSort,
+  highlight,
 }: {
   st: ReaderState;
   title: string;
@@ -112,6 +113,8 @@ function MiniPane({
   find?: string;
   /** 主栏当前文件的排序状态（按工作表名索引），副栏跟随以保证双栏行序一致 */
   mainSort?: Record<string, { col: string; dir: 1 | -1 }>;
+  /** 比对定位关键字，与主栏同源；副栏同步标出命中行与单元格 */
+  highlight?: string;
 }) {
   const [z, setZ] = useState(1);
   const [mfind, setMfind] = useState("");
@@ -190,6 +193,11 @@ function MiniPane({
               return String(av ?? "").localeCompare(String(bv ?? ""), "zh-CN") * spec.dir;
             });
           })();
+          const hl = (highlight ?? "").trim();
+          const hlHits = hl
+            ? rows.map((row, i) => sheetLocate(row, s.headers, i, hl, s.name, Boolean(spec)))
+            : [];
+          const hlCount = hlHits.filter((h) => h.hit).length;
           return (
             <div className="paper-sheet theme-minimal px-2 py-2">
               {list.length > 1 && (
@@ -219,6 +227,20 @@ function MiniPane({
                     排序 {spec.col} {spec.dir === 1 ? "↑" : "↓"}
                   </span>
                 )}
+                {hl && (
+                  <span
+                    className={`rounded px-1 py-0.5 text-[9.5px] ${spec ? "" : "ml-auto"} ${
+                      hlCount > 0 ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-600"
+                    }`}
+                    title={
+                      hlCount > 0
+                        ? `副栏同步定位：命中 ${hlCount} 行（统计范围为本表已加载的前 ${rows.length} 行）`
+                        : "副栏本表未匹配到定位关键字，可切换工作表查看"
+                    }
+                  >
+                    定位 {hlCount > 0 ? `${hlCount} 行` : "未命中"}
+                  </span>
+                )}
               </div>
               <div className="max-h-[60vh] overflow-auto rounded border border-gray-200">
                 <table
@@ -239,19 +261,28 @@ function MiniPane({
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((row, i) => (
-                      <tr key={i} className={i % 2 ? "bg-gray-50" : ""}>
-                        {s.headers.map((h) => {
-                          const v = row[h];
-                          const txt = v === null || v === undefined ? "" : String(v);
-                          return (
-                            <td key={h} className="truncate border-b border-gray-100 px-1.5 py-0.5 text-gray-700" title={txt}>
-                              {txt}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
+                    {rows.map((row, i) => {
+                      const hits = hlHits[i] ?? { hit: false, cols: [] as string[] };
+                      return (
+                        <tr key={i} className={`${i % 2 ? "bg-gray-50" : ""} ${hits.hit ? "row-hl" : ""}`}>
+                          {s.headers.map((h) => {
+                            const v = row[h];
+                            const txt = v === null || v === undefined ? "" : String(v);
+                            return (
+                              <td
+                                key={h}
+                                className={`truncate border-b border-gray-100 px-1.5 py-0.5 text-gray-700 ${
+                                  hits.cols.includes(h) ? "cell-hl" : ""
+                                }`}
+                                title={txt}
+                              >
+                                {txt}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1353,6 +1384,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
           title={secondLabel}
           innerRef={miniRef}
           find={findTrim}
+          highlight={activeHl}
           mainSort={Object.fromEntries(
             Object.entries(sort)
               .filter(([k]) => k.startsWith(`${activeKey}:`))
