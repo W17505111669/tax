@@ -86,6 +86,13 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
   const pinnedRef = useRef(true);
   const [showJump, setShowJump] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [starred, setStarred] = useState<boolean>(() => {
+    try {
+      return (JSON.parse(localStorage.getItem("taxai-starred") ?? "[]") as string[]).includes(task.id);
+    } catch {
+      return false;
+    }
+  });
   const lastFocusRef = useRef<HTMLElement | null>(null);
 
   const liveStatus = status === "created" ? task.status : status;
@@ -99,6 +106,19 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
       window.setTimeout(() => setCopied(false), 1200);
     } catch {
       /* 剪贴板不可用时忽略 */
+    }
+  };
+
+  const toggleStar = () => {
+    const next = !starred;
+    setStarred(next);
+    try {
+      const list = new Set(JSON.parse(localStorage.getItem("taxai-starred") ?? "[]") as string[]);
+      if (next) list.add(task.id);
+      else list.delete(task.id);
+      localStorage.setItem("taxai-starred", JSON.stringify([...list]));
+    } catch {
+      /* 忽略存储不可用 */
     }
   };
 
@@ -395,6 +415,14 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h2 className="truncate text-[15px] font-semibold text-mist-100">{task.title}</h2>
+            <button
+              type="button"
+              onClick={toggleStar}
+              title={starred ? "取消收藏" : "收藏任务"}
+              className="action-btn shrink-0"
+            >
+              <span className={starred ? "text-amber-300" : "text-mist-600"}>{starred ? "★" : "☆"}</span>
+            </button>
             <span className={`rounded border px-1.5 py-0.5 text-[11px] font-medium ${meta.className}`}>
               {running ? (
                 <span className="inline-flex items-center gap-1">

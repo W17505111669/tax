@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentInfo, TaskInfo } from "../types.ts";
 import { IconBuilding, IconCopy, IconFlask, IconInfo, IconPanel, IconPlus, IconRefresh } from "./Icons.tsx";
 
@@ -156,6 +156,15 @@ export function Sidebar({
     localStorage.setItem("taxai-sidebar-groups", JSON.stringify(collapsed));
   }, [collapsed]);
 
+  // 收藏集合（与工作台星标共享 localStorage）
+  const starred = useMemo(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem("taxai-starred") ?? "[]") as string[]);
+    } catch {
+      return new Set<string>();
+    }
+  }, [tasks]);
+
   const searchRef = useRef<HTMLInputElement>(null);
 
   // Ctrl/Cmd+K 聚焦任务搜索
@@ -260,7 +269,9 @@ export function Sidebar({
         </div>
         {filtered.length === 0 && <div className="px-2 py-3 text-[12px] text-mist-600">无匹配任务</div>}
         {GROUP_ORDER.map((g) => {
-          const list = filtered.filter((t) => t.status === g.id);
+          const list = filtered
+            .filter((t) => t.status === g.id)
+            .sort((a, b) => Number(starred.has(b.id)) - Number(starred.has(a.id)));
           if (list.length === 0) return null;
           const closed = collapsed[g.id] ?? false;
           return (
@@ -292,6 +303,7 @@ export function Sidebar({
                         className="block w-full rounded-lg px-2.5 py-2 pr-8 text-left"
                       >
                       <span className={`block truncate text-[12.5px] ${active ? "text-mist-100" : "text-mist-300"}`}>
+                        {starred.has(task.id) && <span className="mr-1 text-amber-300">★</span>}
                         {task.title}
                       </span>
                       <span className="mt-1 flex items-center gap-1.5 text-[11px] text-mist-600">

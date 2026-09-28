@@ -22,7 +22,14 @@ interface Props {
 
 export function CompareView({ compares, onOpenTarget }: Props) {
   const [sel, setSel] = useState<number | null>(null);
-  const [kindFilter, setKindFilter] = useState<"all" | "mismatch" | "only_a" | "only_b">("all");
+  const [kindFilter, setKindFilter] = useState<"all" | "mismatch" | "only_a" | "only_b">(() => {
+    const v = localStorage.getItem("taxai-compare-kind");
+    return v === "mismatch" || v === "only_a" || v === "only_b" ? v : "all";
+  });
+
+  useEffect(() => {
+    localStorage.setItem("taxai-compare-kind", kindFilter);
+  }, [kindFilter]);
   const flat = useMemo(
     () =>
       compares.flatMap((rec) =>
