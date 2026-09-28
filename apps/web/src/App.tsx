@@ -176,6 +176,13 @@ export default function App() {
     return res.total;
   };
 
+  /** 批量联网复查政策文号：复查完刷新平台统计，证据缺口条的数字随之更新 */
+  const handleBatchRefCheck = async (ids: string[]) => {
+    const res = await api.batchRefChecks(ids);
+    await refreshPlatform();
+    return res;
+  };
+
   // 任务详情加载 + 运行期间轮询，保证状态与结果以持久化数据为准
   useEffect(() => {
     if (!activeTaskId) {
@@ -355,6 +362,7 @@ export default function App() {
                 setActiveTaskId(id);
               }}
               onBatchReopen={handleBatchReopen}
+              onBatchRefCheck={handleBatchRefCheck}
               perAgentCreatedAts={Object.fromEntries(
                 agents.map((a) => [a.id, tasks.filter((t) => t.agentId === a.id).map((t) => t.createdAt)]),
               )}

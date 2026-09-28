@@ -93,6 +93,28 @@ export const api = {
       body: JSON.stringify({ targets }),
     }),
 
+  /** 跨任务批量复查政策文号（平台看板证据缺口条一键处理，条数受服务端预算限制） */
+  batchRefChecks: (ids?: string[]) =>
+    request<{
+      tasks: number;
+      ran: number;
+      matched: number;
+      budget: number;
+      perTask: Array<{
+        id: string;
+        title: string;
+        ran: number;
+        matched: number;
+        candidate: number;
+        empty: number;
+        error: number;
+      }>;
+    }>(`/api/tasks/ref-checks-batch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    }),
+
   /** 打包交付：把整页 MD 交给服务端与本任务产物合成 zip（二进制，故不走 request） */
   bundleZip: async (taskId: string, markdown: string, fileName?: string, manifest?: unknown): Promise<Blob> => {
     const res = await fetch(`/api/tasks/${taskId}/bundle`, {

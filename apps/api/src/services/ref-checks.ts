@@ -12,6 +12,7 @@ import {
   buildRefQuery,
   gradeRefCheck,
   refKey,
+  refCheckTargets,
   refQueryVariants,
   type RefCheckEvidence,
   type RefCheckKind,
@@ -19,6 +20,8 @@ import {
   type RefCheckTarget,
   type RefCheckVerdict,
 } from "../../../web/src/ref-check.ts";
+import { traceDocRefs } from "../../../web/src/policy-trace.ts";
+import { getTask } from "./task-store.ts";
 
 /** 检索实现可注入，验证脚本用假检索器离线跑通全链路 */
 export type Searcher = (query: string, signal?: AbortSignal) => Promise<DetailedSearch>;
@@ -40,6 +43,56 @@ export const MAX_REF_CHECKS = 10;
 
 /** 单条检索超时（毫秒）：RSS 通道实测数百毫秒，给足冗余但不让界面长时间挂住 */
 export const REF_CHECK_TIMEOUT_MS = 12000;
+
+/** 批量复查的默认预算与硬上限：联网检索是慢操作，一次点按不能无限制地跑下去 */
+export const BATCH_REF_BUDGET = 12;
+export const BATCH_REF_MAX = 30;
+
+/**
+ * 某任务当前待复查的文号（与结果页复查面板同一口径：待人工确认 + 无法从留存数据核验）。
+ * 服务端独立算一遍，批量入口不依赖前端传清单。
+ */
+export function pendingRefTargets(taskId: string): RefCheckTarget[] {
+  const text = getTask(taskId)?.result ?? "";
+  if (!text.trim()) return [];
+  const rows = db
+    .prepare(`SELECT tool_name, result, ok FROM tool_calls WHERE task_id = ?`)
+    .all(taskId) as unknown as Array<{ tool_name: string; result: string | null; ok: number | null }>;
+  const parsed = rows
+    .filter((r) => r.ok !== 0)
+    .map((r) => {
+      try {
+        return r.result ? JSON.parse(r.result) : null;
+      } catch {
+        return null;
+      }
+    });
+  return refCheckTargets(traceDocRefs(text, parsed, rows.map((r) => r.tool_name)));
+}
+
+export type BatchPlanItem = { id: string; title: string; targets: RefCheckTarget[] };
+
+/**
+ * 批量复查计划：按候选顺序取每个任务的待复查文号，直到用完预算。
+ * 没有待复查文号的任务不进计划也不占预算；待办多的任务优先由调用方排序。
+ * 纯函数（待办清单由参数注入），便于离线校验预算切分。
+ */
+export function planBatchRefChecks(
+  candidates: Array<{ id: string; title: string }>,
+  pendingOf: (id: string) => RefCheckTarget[],
+  budget: number = BATCH_REF_BUDGET,
+): BatchPlanItem[] {
+  let left = Math.max(0, Math.min(budget, BATCH_REF_MAX));
+  const out: BatchPlanItem[] = [];
+  for (const c of candidates) {
+    if (left <= 0) break;
+    const targets = pendingOf(c.id).slice(0, left);
+    if (targets.length === 0) continue;
+    out.push({ id: c.id, title: c.title, targets });
+    left -= targets.length;
+  }
+  return out;
+}
 
 /** 把请求体里的条目规范化成复查目标（主键由服务端算，不信任客户端传入） */
 export function toTargets(items: unknown): RefCheckTarget[] {

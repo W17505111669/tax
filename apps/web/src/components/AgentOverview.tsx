@@ -75,6 +75,8 @@ interface Props {
   onShowAll: () => void;
   /** 批量把「已完成但仍有未复核问题」的任务改回待复核，返回成功数量 */
   onBatchReopen?: (ids: string[]) => Promise<number>;
+  /** 批量联网复查政策文号，返回本次实际复查与找到出处的处数 */
+  onBatchRefCheck?: (ids: string[]) => Promise<{ tasks: number; ran: number; matched: number; budget: number }>;
 }
 
 export function AgentOverview({
@@ -88,6 +90,7 @@ export function AgentOverview({
   onOpenTask,
   onShowAll,
   onBatchReopen,
+  onBatchRefCheck,
   lastAt,
   perAgentCreatedAts,
 }: Props) {
@@ -157,6 +160,10 @@ export function AgentOverview({
   const [batchArmed, setBatchArmed] = useState<string | null>(null);
   const [batchBusy, setBatchBusy] = useState("");
   const [batchMsg, setBatchMsg] = useState("");
+  // 批量联网复查：同样是两步确认，避免误点触发一批外网请求
+  const [refBatchArmed, setRefBatchArmed] = useState(false);
+  const [refBatchBusy, setRefBatchBusy] = useState(false);
+  const [refBatchMsg, setRefBatchMsg] = useState("");
   const armBatch = (label: string, ids: string[]) => {
     if (batchBusy !== "" || !onBatchReopen || ids.length === 0) return;
     if (batchArmed !== label) {
@@ -171,6 +178,27 @@ export function AgentOverview({
       .then((n) => setBatchMsg(`${label}：已把 ${n} 个任务转为待复核，状态事件已留痕`))
       .catch(() => setBatchMsg(`${label}：批量转换失败，请到各任务复核页逐个处理`))
       .finally(() => setBatchBusy(""));
+  };
+
+  /** 批量复查政策文号：两步确认，结果按任务落库并写入事件留痕 */
+  const armRefBatch = (ids: string[]) => {
+    if (refBatchBusy || !onBatchRefCheck || ids.length === 0) return;
+    if (!refBatchArmed) {
+      setRefBatchArmed(true);
+      setRefBatchMsg("");
+      window.setTimeout(() => setRefBatchArmed(false), 4000);
+      return;
+    }
+    setRefBatchArmed(false);
+    setRefBatchBusy(true);
+    void onBatchRefCheck(ids)
+      .then((r) =>
+        setRefBatchMsg(
+          `已联网复查 ${r.ran} 处政策文号（本次预算 ${r.budget} 处，覆盖 ${r.tasks} 个任务）：找到公开出处 ${r.matched} 处，其余为候选待确认或未检索到，明细见各任务结果页的复查面板`,
+        ),
+      )
+      .catch(() => setRefBatchMsg("批量复查失败：请检查网络后重试，或到各任务结果页逐个复查"))
+      .finally(() => setRefBatchBusy(false));
   };
 
   // 平台指标周环比：每日快照入 localStorage，与 7 天前（或最近可得）快照对比
@@ -742,7 +770,23 @@ export function AgentOverview({
                     <span className="text-[11px] text-mist-500">
                       点击任务前往结果页：引用胶囊看证据力分级，文号徽章可一键联网复查
                     </span>
+                    {onBatchRefCheck && p.evidence.docRefPending > 0 && (
+                      <button
+                        type="button"
+                        className="action-btn ml-auto !text-[11px] disabled:cursor-not-allowed disabled:opacity-40"
+                        disabled={refBatchBusy}
+                        title="用自建检索通道（Bing RSS 优先 + 相关度过滤）批量复查各任务里没有出处的政策文号，判定与证据链接按条落库并写入事件留痕；单次条数受服务端预算限制"
+                        onClick={() => armRefBatch((p?.evidence?.gaps ?? []).map((g) => g.id))}
+                      >
+                        {refBatchBusy
+                          ? "复查中…"
+                          : refBatchArmed
+                            ? `再点一次确认（${p.evidence.docRefPending} 处）`
+                            : "批量联网复查"}
+                      </button>
+                    )}
                   </div>
+                  {refBatchMsg && <div className="mt-1 text-[11px] text-jade-300">{refBatchMsg}</div>}
                   <div className="mt-1.5 space-y-1">
                     {gapByAgent.map(([agentId, list]) => (
                       <div key={agentId} className="flex flex-wrap items-center gap-1.5">

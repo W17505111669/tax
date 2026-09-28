@@ -24,8 +24,12 @@ import {
 import { traceDocRefs } from "../../web/src/policy-trace.ts";
 import { db } from "../src/db.ts";
 import {
+  BATCH_REF_BUDGET,
+  BATCH_REF_MAX,
   listRefChecks,
   MAX_REF_CHECKS,
+  pendingRefTargets,
+  planBatchRefChecks,
   runRefChecks,
   toTargets,
   type Searcher,
@@ -184,6 +188,41 @@ expect("未知 kind 归为 docref", toTargets([{ text: "x〔2015〕1号", kind: 
 expect("非数组安全返回空", toTargets(null).length, 0);
 expect("保留上下文", toTargets([{ text: "财税〔2015〕119号", context: "研发费用" }])[0]?.context, "研发费用");
 
+// 4b) 批量复查计划：预算切分、跳过无待办的任务、硬上限
+const mkTargets = (n: number, salt: string): RefCheckTarget[] =>
+  Array.from({ length: n }, (_, i) => ({
+    key: refKey("docref", `〔200${i}〕${salt}${i}号`),
+    kind: "docref" as const,
+    text: `〔200${i}〕${salt}${i}号`,
+  }));
+const pendingMap: Record<string, RefCheckTarget[]> = { a: mkTargets(3, "a"), b: [], c: mkTargets(2, "c") };
+const batchCandidates = [
+  { id: "a", title: "任务A" },
+  { id: "b", title: "任务B" },
+  { id: "c", title: "任务C" },
+];
+const pendingOf = (id: string) => pendingMap[id] ?? [];
+expect("跳过没有待办文号的任务", planBatchRefChecks(batchCandidates, pendingOf, 9).map((p) => p.id), ["a", "c"]);
+expect("预算内按顺序切分", planBatchRefChecks(batchCandidates, pendingOf, 4).map((p) => p.targets.length), [3, 1]);
+expect(
+  "预算充足时全量安排",
+  planBatchRefChecks(batchCandidates, pendingOf, 9).reduce((s, p) => s + p.targets.length, 0),
+  5,
+);
+expect("预算为 0 时不安排任务", planBatchRefChecks(batchCandidates, pendingOf, 0).length, 0);
+expect("负预算按 0 处理", planBatchRefChecks(batchCandidates, pendingOf, -3).length, 0);
+expect("默认预算在上限之内", BATCH_REF_BUDGET > 0 && BATCH_REF_BUDGET <= BATCH_REF_MAX, true);
+expect(
+  "超过硬上限时按上限截断",
+  planBatchRefChecks(batchCandidates, pendingOf, 9999).reduce((s, p) => s + p.targets.length, 0) <= BATCH_REF_MAX,
+  true,
+);
+expect(
+  "计划保留任务标题",
+  planBatchRefChecks(batchCandidates, pendingOf, 9).map((p) => p.title),
+  ["任务A", "任务C"],
+);
+
 // 5) 服务端：假检索器跑通全链路并落库
 const TASK = "__verify_refcheck__";
 db.prepare(`DELETE FROM ref_checks WHERE task_id = ?`).run(TASK);
@@ -279,6 +318,16 @@ for (const t of listTasks()) {
   const pending = refCheckTargets(tr);
   pendingTotal += pending.length;
   if (pending.length > 0) tasksPending += 1;
+  // 服务端独立算出的待复查清单必须与前端口径一致（批量入口不依赖前端传清单）
+  const fromService = pendingRefTargets(t.id);
+  checks += 1;
+  if (fromService.length !== pending.length) {
+    failures.push(`${t.id.slice(0, 8)} 服务端待复查清单 ${fromService.length} 处 ≠ 前端口径 ${pending.length} 处`);
+  }
+  checks += 1;
+  if (fromService.some((x, i) => x.key !== pending[i]?.key)) {
+    failures.push(`${t.id.slice(0, 8)} 服务端待复查清单主键顺序与前端口径不一致`);
+  }
   const recs = listRefChecks(t.id);
   storedTotal += recs.length;
   for (const rec of recs) {

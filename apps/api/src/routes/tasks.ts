@@ -19,7 +19,14 @@ import {
 import { listAmountChecks, setAmountCheck } from "../services/amount-checks.ts";
 import { collectBundleEntries, createBundleZip } from "../services/bundle-zip.ts";
 import { checkLink, listLinkChecks, saveLinkChecks } from "../services/link-checks.ts";
-import { listRefChecks, runRefChecks, toTargets } from "../services/ref-checks.ts";
+import {
+  BATCH_REF_BUDGET,
+  listRefChecks,
+  pendingRefTargets,
+  planBatchRefChecks,
+  runRefChecks,
+  toTargets,
+} from "../services/ref-checks.ts";
 import {
   appendEvent,
   createTask,
@@ -378,6 +385,65 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
       ran: fresh.length,
       matched: count("matched"),
     };
+  });
+
+  /**
+   * 跨任务批量复查：平台看板的证据缺口条一键处理。
+   * 待复查清单由服务端按任务重新计算（不信任客户端），总条数受预算限制，逐个任务写入事件留痕。
+   */
+  app.post("/api/tasks/ref-checks-batch", async (req) => {
+    const body = (req.body ?? {}) as { ids?: string[]; budget?: number };
+    const wanted = Array.isArray(body.ids) && body.ids.length > 0 ? new Set(body.ids) : null;
+    const candidates = listTasks()
+      .filter((t) => !wanted || wanted.has(t.id))
+      .map((t) => ({ id: t.id, title: t.title }));
+    const budget = typeof body.budget === "number" && body.budget > 0 ? body.budget : BATCH_REF_BUDGET;
+    const plan = planBatchRefChecks(candidates, pendingRefTargets, budget);
+    const perTask: Array<{
+      id: string;
+      title: string;
+      ran: number;
+      matched: number;
+      candidate: number;
+      empty: number;
+      error: number;
+    }> = [];
+    let ran = 0;
+    let matched = 0;
+    for (const item of plan) {
+      const fresh = await runRefChecks(item.id, item.targets);
+      const count = (v: string) => fresh.filter((c) => c.verdict === v).length;
+      ran += fresh.length;
+      matched += count("matched");
+      appendEvent(
+        item.id,
+        "agent_status",
+        `批量联网复查：${fresh.length} 处政策文号 · 找到公开出处 ${count("matched")} 处 · 候选待确认 ${count(
+          "candidate",
+        )} 处 · 未检索到 ${count("empty")} 处`,
+        {
+          refChecks: {
+            total: fresh.length,
+            matched: count("matched"),
+            candidate: count("candidate"),
+            empty: count("empty"),
+            error: count("error"),
+            batch: true,
+            results: fresh.map((c) => ({ key: c.key, text: c.text, verdict: c.verdict, url: c.evidence?.url ?? null })),
+          },
+        },
+      );
+      perTask.push({
+        id: item.id,
+        title: item.title,
+        ran: fresh.length,
+        matched: count("matched"),
+        candidate: count("candidate"),
+        empty: count("empty"),
+        error: count("error"),
+      });
+    }
+    return { tasks: perTask.length, ran, matched, budget, perTask };
   });
 
   /**
