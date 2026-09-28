@@ -74,6 +74,20 @@ export const api = {
       `/api/tasks/${taskId}/link-checks`,
     ),
 
+  /** 打包交付：把整页 MD 交给服务端与本任务产物合成 zip（二进制，故不走 request） */
+  bundleZip: async (taskId: string, markdown: string, fileName?: string): Promise<Blob> => {
+    const res = await fetch(`/api/tasks/${taskId}/bundle`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ markdown, fileName }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(text ? text.slice(0, 200) : `打包失败 HTTP ${res.status}`);
+    }
+    return res.blob();
+  },
+
   /** 重新解析单份上传资料（状态卡在待解析或解析失败时的补救入口） */
   reparseFile: (taskId: string, fileId: string) =>
     request<{ ok: boolean; warning: string | null; doc: unknown }>(

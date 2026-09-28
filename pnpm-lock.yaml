@@ -78,6 +78,9 @@ importers:
       fastify:
         specifier: ^5.3.3
         version: 5.12.5
+      jszip:
+        specifier: 3.10.2
+        version: 3.10.2
       linkedom:
         specifier: ^0.18.13
         version: 0.18.13

@@ -17,6 +17,7 @@ import {
   selectReopenTargets,
 } from "../services/issues.ts";
 import { listAmountChecks, setAmountCheck } from "../services/amount-checks.ts";
+import { collectBundleEntries, createBundleZip } from "../services/bundle-zip.ts";
 import { checkLink, listLinkChecks, saveLinkChecks } from "../services/link-checks.ts";
 import {
   appendEvent,
@@ -272,6 +273,25 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
 
   /** 上传策略：前端预检与服务端校验共用同一份配置，避免两处规则漂移 */
   app.get("/api/upload-policy", async () => ({ allowedExtensions, maxUploadBytes }));
+
+  /**
+   * 打包交付：客户端生成的整页交付 MD + 本任务全部产物 → zip。
+   * MD 由前端组装（口径与「导出整页」完全一致），服务端只负责合包与产物读取。
+   */
+  app.post("/api/tasks/:id/bundle", { bodyLimit: 8 * 1024 * 1024 }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as { markdown?: string; fileName?: string };
+    const markdown = typeof body.markdown === "string" ? body.markdown : "";
+    if (markdown.trim() === "") return reply.code(400).send({ error: "需要 markdown 内容" });
+    const entries = await collectBundleEntries(id, markdown);
+    const zip = await createBundleZip(entries);
+    const base = (body.fileName ?? "交付包").replace(/[\\/:*?"<>|\r\n]/g, "_").slice(0, 80);
+    appendEvent(id, "agent_status", `交付包已打包：${entries.length} 个文件（含整页交付 MD）`);
+    return reply
+      .type("application/zip")
+      .header("Content-Disposition", `attachment; filename="bundle.zip"; filename*=UTF-8''${encodeURIComponent(`${base}.zip`)}`)
+      .send(Buffer.from(zip));
+  });
 
   /** 标记 / 撤销某处「待人工确认」金额；写入事件留痕，键为「值（分）|原文片段」 */
   app.post("/api/tasks/:id/amount-checks", async (req, reply) => {

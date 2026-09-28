@@ -1111,6 +1111,32 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     "",
   ];
 
+  // 打包下载：整页 MD 交服务端与本任务产物合成 zip；失败时退回单文件 MD，保证材料总能拿到
+  const [zipBusy, setZipBusy] = useState(false);
+  const [zipNote, setZipNote] = useState("");
+  const exportBundleZip = () => {
+    if (zipBusy) return;
+    const stamp = new Date().toISOString().slice(0, 10);
+    const md = bundleLines().join("\n");
+    setZipBusy(true);
+    setZipNote("");
+    void api
+      .bundleZip(task.id, md, `${task.title}-交付包-${stamp}`)
+      .then((blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${task.title}-交付包-${stamp}.zip`;
+        a.click();
+        URL.revokeObjectURL(url);
+      })
+      .catch((err: unknown) => {
+        download(`${task.title}-整页-${stamp}.md`, md);
+        setZipNote(`打包失败（${err instanceof Error ? err.message : String(err)}），已改为下载整页 MD`);
+      })
+      .finally(() => setZipBusy(false));
+  };
+
   // 切换页签时回到底部并恢复钉底跟随
   useEffect(() => {
     if (tab === "timeline") {
@@ -1847,6 +1873,9 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                 onCopyBundle={() =>
                   void navigator.clipboard?.writeText(bundleLines().join("\n")).catch(() => undefined)
                 }
+                onExportZip={exportBundleZip}
+                zipBusy={zipBusy}
+                zipNote={zipNote}
                 onExportBundle={() => {
                   const lines = bundleLines();
                   const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
@@ -2945,6 +2974,9 @@ function ResultView({
   linkCheckedAt,
   linkSummary,
   onCheckLinks,
+  onExportZip,
+  zipBusy,
+  zipNote,
 }: {
   result: string;
   error: string | null;
@@ -2963,6 +2995,10 @@ function ResultView({
   fs: "sm" | "md" | "lg";
   onFs: (v: "sm" | "md" | "lg") => void;
   onExportBundle: () => void;
+  /** 打包下载（zip）：整页 MD + 本任务产物 */
+  onExportZip: () => void;
+  zipBusy: boolean;
+  zipNote: string;
   /** 引用链接核验：结果、进行中状态、最近核验时间与触发回调 */
   linkChecks: Record<string, LinkCheck>;
   linkBusy: boolean;
@@ -3053,6 +3089,21 @@ function ResultView({
           <IconDownload className="h-3.5 w-3.5" />
           导出整页
         </button>
+        <button
+          type="button"
+          className="action-btn disabled:cursor-not-allowed disabled:opacity-40"
+          onClick={onExportZip}
+          disabled={zipBusy}
+          title="把整页交付 MD 与本任务全部产物打成一个 zip（服务端合包，产物放在「产物/」目录下）"
+        >
+          <IconDownload className="h-3.5 w-3.5" />
+          {zipBusy ? "打包中…" : "打包下载"}
+        </button>
+        {zipNote && (
+          <span className="text-[10.5px] text-rose-300" title={zipNote}>
+            打包失败，已退回 MD
+          </span>
+        )}
         <button type="button" className="action-btn" onClick={onDownloadReport}>
           <IconDownload className="h-3.5 w-3.5" />
           下载报告
