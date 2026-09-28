@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentInfo, TaskInfo } from "../types.ts";
 import { IconBuilding, IconCopy, IconFlask, IconInfo, IconPanel, IconPlus, IconRefresh, IconX } from "./Icons.tsx";
+import { loadTags } from "../tags.ts";
 
 interface Props {
   agents: AgentInfo[];
@@ -165,6 +166,9 @@ export function Sidebar({
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [starOnly, setStarOnly] = useState(false);
   const [weekOnly, setWeekOnly] = useState(false);
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const tagsMap = loadTags();
+  const allTags = [...new Set(Object.values(tagsMap).flat())];
   const [sortTools, setSortTools] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
     try {
@@ -308,7 +312,12 @@ export function Sidebar({
             {q !== "" && (task.id.toLowerCase().includes(q) || task.caseId.toLowerCase().includes(q)) && (
               <span className="font-mono text-[9.5px] text-glow-300">{task.id.slice(0, 8)}</span>
             )}
-            {(task.toolCount ?? 0) > 0 && <span className="shrink-0">· 工具 {task.toolCount}</span>}
+           {(task.toolCount ?? 0) > 0 && <span className="shrink-0">· 工具 {task.toolCount}</span>}
+            {(tagsMap[task.id] ?? []).slice(0, 3).map((t) => (
+              <span key={t} className="shrink-0 rounded bg-glow-500/10 px-1 text-[9px] text-glow-300">
+                #{t}
+              </span>
+            ))}
                         {(task.runCount ?? 1) > 1 && (
                           <span className="font-mono text-[9.5px] text-glow-300" title={`共 ${task.runCount} 次运行（含续跑）`}>
                             ↻{task.runCount}
@@ -363,6 +372,7 @@ export function Sidebar({
       (statusFilter === "all" || t.status === statusFilter) &&
       (!starOnly || starred.has(t.id)) &&
       (!weekOnly || Date.now() - Date.parse(t.createdAt) < 7 * 86400000) &&
+      (!tagFilter || (tagsMap[t.id] ?? []).includes(tagFilter)) &&
       (q === "" ||
         t.title.toLowerCase().includes(q) ||
         (t.instruction ?? "").toLowerCase().includes(q) ||
@@ -558,6 +568,24 @@ export function Sidebar({
               本周
             </button>
           </div>
+          {allTags.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {allTags.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setTagFilter((v) => (v === t ? null : t))}
+                  className={`rounded-full border px-1.5 py-0.5 text-[10px] transition-colors ${
+                    tagFilter === t
+                      ? "border-glow-500 bg-glow-500/15 text-glow-300"
+                      : "border-line bg-night-850 text-mist-600 hover:text-mist-100"
+                  }`}
+                >
+                  #{t}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         {filtered.length === 0 && <div className="px-2 py-3 text-[12px] text-mist-600">无匹配任务</div>}
         {(() => {

@@ -5,6 +5,7 @@ import type { AgentInfo, ArtifactInfo, CompareRecord, FileInfo, ReviewRecord, Ta
 import { useTaskEvents } from "../hooks/useTaskEvents.ts";
 import { MarkdownView } from "./MarkdownView.tsx";
 import { readerKey, SideReader, type ReaderTarget } from "./SideReader.tsx";
+import { loadTags, saveTags } from "../tags.ts";
 import { CompareView } from "./CompareView.tsx";
 import { ThemeSwitch } from "./ThemeSwitch.tsx";
 import { ReviewView } from "./ReviewView.tsx";
@@ -118,6 +119,16 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
   const [copied, setCopied] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const [metaCopied, setMetaCopied] = useState(false);
+  const [tags, setTags] = useState<string[]>(() => loadTags()[task.id] ?? []);
+  const [tagInput, setTagInput] = useState("");
+
+  const mutateTags = (next: string[]) => {
+    setTags(next);
+    const map = loadTags();
+    if (next.length === 0) delete map[task.id];
+    else map[task.id] = next;
+    saveTags(map);
+  };
   const [starred, setStarred] = useState<boolean>(() => {
     try {
       return (JSON.parse(localStorage.getItem("taxai-starred") ?? "[]") as string[]).includes(task.id);
@@ -627,6 +638,37 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
                 {agent.model}
               </span>
             )}
+            <span className="flex min-w-0 items-center gap-1">
+              {tags.map((t) => (
+                <span
+                  key={t}
+                  className="inline-flex items-center gap-0.5 rounded-full border border-glow-500/35 bg-glow-500/10 px-1.5 py-0.5 text-[10px] text-glow-300"
+                >
+                  {t}
+                  <button
+                    type="button"
+                    className="hover:text-rose-300"
+                    title="移除标签"
+                    onClick={() => mutateTags(tags.filter((x) => x !== t))}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              <input
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && tagInput.trim() && !tags.includes(tagInput.trim())) {
+                    mutateTags([...tags, tagInput.trim()]);
+                    setTagInput("");
+                  }
+                }}
+                placeholder="+标签"
+                title="输入标签后回车添加"
+                className="w-16 rounded border border-line bg-night-850 px-1 py-0.5 text-[10px] text-mist-300 outline-none focus:glow-ring"
+              />
+            </span>
             <span className="text-line">|</span>
             <button
               type="button"
