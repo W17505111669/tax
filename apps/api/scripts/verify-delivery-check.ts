@@ -32,6 +32,8 @@ const base: CheckInput = {
   linkCheckAgeHours: null,
   amountTotal: 12,
   amountUntraced: 0,
+  filesTotal: 2,
+  filesFailed: 0,
 };
 
 expect("全部达标 → 可交付", deliveryCheck(base).verdict, "可交付");
@@ -97,6 +99,14 @@ expect(
 expect("核验未过期不给说明", deliveryCheck({ ...base, linkCheck: links(), linkCheckAgeHours: 10 }).infos, 0);
 expect("未核验时不判断时效", deliveryCheck({ ...base, linkCheckAgeHours: 999 }).infos, 0);
 expect("时效说明不影响判定", deliveryCheck({ ...base, linkCheck: links(), linkCheckAgeHours: 96 }).verdict, "可交付");
+expect("资料全部解析成功 → 正向条目", deliveryCheck(base).items.some((x) => x.text.includes("上传资料 2 份")), true);
+expect("有资料解析失败 → 提醒", deliveryCheck({ ...base, filesFailed: 1 }).verdict, "谨慎交付");
+expect(
+  "解析失败提示含份数",
+  deliveryCheck({ ...base, filesFailed: 1 }).items.some((x) => x.text.includes("1 份上传资料解析失败")),
+  true,
+);
+expect("无资料时不产生资料条目", deliveryCheck({ ...base, filesTotal: 0 }).items.some((x) => x.text.includes("上传资料")), false);
 expect("多项阻断同时存在", deliveryCheck({ ...base, status: "processing", resultChars: 0 }).blocks, 2);
 expect("失败叠加空结论", deliveryCheck({ ...base, status: "failed", resultChars: 0 }).blocks, 2);
 

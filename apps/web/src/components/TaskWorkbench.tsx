@@ -33,6 +33,8 @@ import {
   type LinkSummary,
 } from "../link-check.ts";
 import {
+  fileTable,
+  parseDetail,
   parsedByFileName,
   parseStatusText,
   summarizeParsed,
@@ -946,11 +948,28 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     linkCheckAgeHours: ageHours(linkCheckedAt),
     amountTotal: amountTrace.total,
     amountUntraced: amountPending.length,
+    filesTotal: files.length,
+    filesFailed: files.filter((f) => (reparse[f.id]?.status ?? f.parseStatus) === "failed").length,
   });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const delivery = useMemo(
     () => deliveryCheck(deliveryInput()),
-    [reopened, task.status, finalResult, artifacts, artSrc, toolCalls, pendingReviews, citations, linkSummary, linkCheckedAt],
+    [
+      reopened,
+      task.status,
+      finalResult,
+      artifacts,
+      artSrc,
+      toolCalls,
+      pendingReviews,
+      citations,
+      linkSummary,
+      linkCheckedAt,
+      files,
+      reparse,
+      amountTrace,
+      amountPending,
+    ],
   );
 
   // 交付包里的工具调用清单：按运行分组，含结果、耗时与入参摘要（表格单元格已做竖线/换行安全化）
@@ -1023,6 +1042,10 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
           "",
         ]
       : []),
+    "## 业务资料清单",
+    "",
+    ...fileTable(files, fileParsed),
+    "",
     "## 生成产物与溯源",
     "",
     ...(artifacts.length > 0
@@ -1920,16 +1943,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                 const p = local?.summary ?? fileParsed.get(f.fileName);
                 const status = local?.status ?? f.parseStatus;
                 const warning = local?.warning ?? p?.warning ?? "";
-                const detail =
-                  p?.kind === "sheets"
-                    ? `${p.sheetCount} 个工作表 · ${p.rowCount} 行 · 最多 ${p.columnCount} 列`
-                    : p?.kind === "ocr"
-                      ? `OCR ${p.ocrProvider || "引擎"} · 置信度 ${
-                          p.ocrConfidence !== null ? `${p.ocrConfidence.toFixed(1)}%` : "—"
-                        }`
-                      : p
-                        ? "已解析"
-                        : "尚无解析结果";
+                const detail = parseDetail(p);
                 return (
                   <li key={f.id} className="flex items-stretch gap-1">
                     <button

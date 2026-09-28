@@ -25,6 +25,9 @@ export type CheckInput = {
   amountTotal: number;
   /** 其中在工具结果与客户指令里都找不到出处的处数 */
   amountUntraced: number;
+  /** 上传资料总数与其中解析失败的份数 */
+  filesTotal: number;
+  filesFailed: number;
 };
 
 /** info 只作说明，不影响交付判定（例如反爬导致的「拒绝自动访问」） */
@@ -85,6 +88,15 @@ export function deliveryCheck(i: CheckInput): CheckResult {
     });
   } else if (i.amountTotal > 0) {
     items.push({ level: "ok", text: `结论金额 ${i.amountTotal} 处均可溯源到工具结果或客户指令` });
+  }
+
+  if (i.filesFailed > 0) {
+    items.push({
+      level: "warn",
+      text: `${i.filesFailed} 份上传资料解析失败，结论可能缺少这部分依据，请重新解析或改用可读版本`,
+    });
+  } else if (i.filesTotal > 0) {
+    items.push({ level: "ok", text: `上传资料 ${i.filesTotal} 份，全部解析成功` });
   }
 
   if (i.citations > 0) items.push({ level: "ok", text: `联网引用 ${i.citations} 条` });

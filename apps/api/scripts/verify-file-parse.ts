@@ -4,6 +4,7 @@
  * 运行：pnpm verify:fileparse
  */
 import { parsedByFileName, parseStatusText, summarizeParsed } from "../../web/src/file-parse.ts";
+import { fileTable, parseDetail } from "../../web/src/file-parse.ts";
 import { db } from "../src/db.ts";
 import { listFiles, listTasks } from "../src/services/task-store.ts";
 
@@ -73,6 +74,41 @@ expect(
 expect("页数被保留", summarizeParsed({ fileName: "a.pdf", pages: 3 }).pages, 3);
 expect("无提示时为空串", summarizeParsed({ fileName: "a.xlsx", sheets: [] }).warning, "");
 expect("无页数时为 null", summarizeParsed({ fileName: "a.xlsx", sheets: [] }).pages, null);
+
+// 4c) 一句话描述与交付清单表（资料行与整页 MD 共用同一措辞）
+expect("表格类描述", parseDetail(xls), "2 个工作表 · 15 行 · 最多 3 列");
+expect("扫描件描述", parseDetail(img), "OCR tesseract · 置信度 92.3%");
+expect("无摘要时的描述", parseDetail(undefined), "尚无解析结果");
+expect("纯文本不归为 OCR", summarizeParsed({ fileName: "a.txt", ok: true, textPreview: "正文" }).kind, "text");
+expect("纯文本描述", parseDetail(summarizeParsed({ fileName: "a.txt", ok: true, textPreview: "正文" })), "已解析（含文本摘录）");
+expect("解析失败描述", parseDetail(summarizeParsed({ fileName: "a.bin", ok: false })), "解析失败");
+
+const table = fileTable(
+  [
+    {
+      fileName: "辅助账.xlsx",
+      fileType: "xlsx",
+      byteSize: 7010,
+      createdAt: "2026-09-28T08:04:28.000Z",
+      parseStatus: "parsed",
+    },
+    { fileName: "坏文件.bin", fileType: "bin", byteSize: 10, parseStatus: "failed" },
+  ],
+  new Map([["辅助账.xlsx", xls]]),
+);
+expect("清单表头", table[0], "| # | 文件 | 类型 | 大小 | 上传时间 | 解析状态 | 解析结果 |");
+expect("清单行数（表头+分隔+2 行+空行）", table.length, 5);
+expect("首行含解析摘要", table[2]?.includes("2 个工作表 · 15 行"), true);
+expect("首行含大小与状态", [table[2]?.includes("6.8 KB"), table[2]?.includes("已解析")], [true, true]);
+expect("失败状态中文化", table[3]?.includes("解析失败"), true);
+expect("无资料时给出说明", fileTable([], new Map())[0], "（本任务未上传业务资料）");
+expect(
+  "含竖线的文件名被转义",
+  fileTable([{ fileName: "a|b.xlsx", fileType: "xlsx", byteSize: 1, parseStatus: "parsed" }], new Map())[2]?.includes(
+    "a\\|b.xlsx",
+  ),
+  true,
+);
 // 5) 按文件名汇总：只认 parse_uploaded_files，同名以后一次为准
 const map = parsedByFileName([
   { toolName: "generate_workpaper", result: { parsed: [{ fileName: "不该被采纳.xlsx" }] } },
