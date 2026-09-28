@@ -31,6 +31,15 @@ interface ReaderState {
   loadedAt?: string | null;
 }
 
+interface ViewState {
+  zoom?: number;
+  rot?: number;
+  fitWidth?: boolean;
+  showLines?: boolean;
+  find?: string;
+  sort?: Record<string, { col: string; dir: 1 | -1 }>;
+}
+
 const INITIAL: ReaderState = {
   loading: false,
   error: null,
@@ -196,38 +205,61 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
     setEditingKey(null);
   };
 
-  // 粘贴并恢复视图状态（与「复制状态」配对；排序键重映射到当前标签）
+  const active = tabs[activeIndex] ?? null;
+  const activeKey = active ? readerKey(active) : "";
+  const state = states[activeKey] ?? INITIAL;
+  const activeName = active && "name" in active ? active.name : "";
+
+  const stateObj = (): ViewState => ({
+    zoom,
+    rot,
+    fitWidth,
+    showLines,
+    find: findQuery,
+    sort: Object.fromEntries(Object.entries(sort).filter(([k]) => k.startsWith(`${activeKey}:`))),
+  });
+
+  // 恢复视图状态（粘贴 / ?vs= 短码共用；排序键重映射到当前标签）
+  const applyStateObj = (s: ViewState) => {
+    if (typeof s.zoom === "number") setZoom(Math.min(3, Math.max(0.5, s.zoom)));
+    if (typeof s.rot === "number") setRot(((s.rot % 360) + 360) % 360);
+    if (typeof s.fitWidth === "boolean") setFitWidth(s.fitWidth);
+    if (typeof s.showLines === "boolean") setShowLines(s.showLines);
+    if (typeof s.find === "string") setFindQuery(s.find);
+    const sortEntries = s.sort && typeof s.sort === "object" ? Object.entries(s.sort) : [];
+    if (sortEntries.length > 0) {
+      setSort((prev) => {
+        const next = { ...prev };
+        for (const [k, v] of sortEntries) {
+          const sheetPart = k.slice(k.indexOf(":") + 1);
+          next[`${activeKey}:${sheetPart}`] = v;
+        }
+        return next;
+      });
+    }
+  };
+
   const pasteState = async () => {
     try {
-      const raw = await navigator.clipboard.readText();
-      const s = JSON.parse(raw) as {
-        zoom?: number;
-        rot?: number;
-        fitWidth?: boolean;
-        showLines?: boolean;
-        find?: string;
-        sort?: Record<string, { col: string; dir: 1 | -1 }>;
-      };
-      if (typeof s.zoom === "number") setZoom(Math.min(3, Math.max(0.5, s.zoom)));
-      if (typeof s.rot === "number") setRot(((s.rot % 360) + 360) % 360);
-      if (typeof s.fitWidth === "boolean") setFitWidth(s.fitWidth);
-      if (typeof s.showLines === "boolean") setShowLines(s.showLines);
-      if (typeof s.find === "string") setFindQuery(s.find);
-      const sortEntries = s.sort && typeof s.sort === "object" ? Object.entries(s.sort) : [];
-      if (sortEntries.length > 0) {
-        setSort((prev) => {
-          const next = { ...prev };
-          for (const [k, v] of sortEntries) {
-            const sheetPart = k.slice(k.indexOf(":") + 1);
-            next[`${activeKey}:${sheetPart}`] = v;
-          }
-          return next;
-        });
-      }
+      applyStateObj(JSON.parse(await navigator.clipboard.readText()) as ViewState);
     } catch {
       /* 剪贴板内容非法时忽略 */
     }
   };
+
+  // 打开带 ?vs= 短码的链接时自动应用视图状态（每个标签一次）
+  const vsAppliedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const vs = new URLSearchParams(window.location.search).get("vs");
+    if (!vs || !activeKey || vsAppliedRef.current.has(activeKey)) return;
+    vsAppliedRef.current.add(activeKey);
+    try {
+      applyStateObj(JSON.parse(decodeURIComponent(atob(vs))) as ViewState);
+    } catch {
+      /* 短码非法时忽略 */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeKey]);
 
   // Text preview in-page search highlight
   const findTrim = findQuery.trim();
@@ -245,10 +277,6 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
       ),
     );
   };
-  const active = tabs[activeIndex] ?? null;
-  const activeKey = active ? readerKey(active) : "";
-  const state = states[activeKey] ?? INITIAL;
-  const activeName = active && "name" in active ? active.name : "";
   const secondIdxSafe = tabs.length > 0 ? Math.min(secondIdx, tabs.length - 1) : 0;
   const secondTab = tabs[secondIdxSafe] ?? null;
   const secondKey = secondTab ? readerKey(secondTab) : "";
@@ -800,6 +828,19 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
             }
           >
             复制状态
+          </button>
+          <button
+            type="button"
+            className="action-btn"
+            title="复制带视图状态短码的链接（?vs=…）"
+            onClick={() => {
+              const code = btoa(encodeURIComponent(JSON.stringify(stateObj())));
+              void navigator.clipboard
+                ?.writeText(`${window.location.origin}${window.location.pathname}?vs=${code}${window.location.hash}`)
+                .catch(() => undefined);
+            }}
+          >
+            复制短链
           </button>
           <button type="button" className="action-btn" title="从剪贴板恢复视图状态" onClick={() => void pasteState()}>
             粘贴状态
