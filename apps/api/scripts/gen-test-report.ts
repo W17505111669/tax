@@ -116,6 +116,11 @@ const VERIFY_SCRIPTS: Array<{ name: string; cmd: string; scope: string }> = [
     scope: "联网检索留痕与引用提取（各工具结果形状 / 去重上限 / 只留元数据时如实说明 / 真实任务走查）",
   },
   {
+    name: "verify:refcheck",
+    cmd: "pnpm verify:refcheck",
+    scope: "政策文号联网复查（发文机关前缀与检索词构造 / 四级判定 / 落库往返与覆盖 / 真实任务走查）",
+  },
+  {
     name: "verify:upload",
     cmd: "pnpm verify:upload",
     scope: "上传预检规则（扩展名 / 大小 / 空文件 / 批量分组 / 提示文案）",

@@ -38,6 +38,17 @@ export type CheckInput = {
   docRefTraced: number;
   docRefUnverifiable: number;
   docRefUntraced: number;
+  /** 政策文号联网复查汇总；null 表示从未复查 */
+  docRefRecheck: {
+    total: number;
+    matched: number;
+    candidate: number;
+    empty: number;
+    error: number;
+    checkedAt: string | null;
+  } | null;
+  /** 复查之后仍没有出处的文号处数（待确认 + 无法核验 − 已找到公开出处） */
+  docRefPending: number;
 };
 
 /** info 只作说明，不影响交付判定（例如反爬导致的「拒绝自动访问」） */
@@ -109,10 +120,17 @@ export function deliveryCheck(i: CheckInput): CheckResult {
     items.push({ level: "ok", text: `上传资料 ${i.filesTotal} 份，全部解析成功` });
   }
 
+  // 已经联网复查到公开出处的文号不再算风险：只有确实还没出处的才提醒
+  const refsCovered =
+    i.docRefRecheck !== null &&
+    i.docRefPending === 0 &&
+    i.docRefRecheck.matched >= i.docRefUntraced + i.docRefUnverifiable;
   if (i.docRefUntraced > 0) {
     items.push({
-      level: "warn",
-      text: `${i.docRefUntraced} 处政策文号未在工具结果中找到出处，需人工确认依据后再交付`,
+      level: refsCovered ? "info" : "warn",
+      text: refsCovered
+        ? `${i.docRefUntraced} 处政策文号未在工具结果中找到出处，已全部联网复查到公开出处（证据链接见「政策文号溯源」节的复查表）`
+        : `${i.docRefUntraced} 处政策文号未在工具结果中找到出处，需人工确认依据后再交付`,
     });
   }
   if (i.docRefUnverifiable > 0) {
@@ -123,6 +141,31 @@ export function deliveryCheck(i: CheckInput): CheckResult {
   }
   if (i.docRefTotal > 0 && i.docRefUntraced === 0 && i.docRefUnverifiable === 0) {
     items.push({ level: "ok", text: `政策文号 ${i.docRefTotal} 处均可溯源到工具结果` });
+  }
+  if (i.docRefRecheck) {
+    const r = i.docRefRecheck;
+    if (r.matched > 0) {
+      items.push({
+        level: "ok",
+        text: `${r.matched} 处政策文号已联网复查到公开出处${
+          i.docRefPending > 0 ? `，复查后仍有 ${i.docRefPending} 处没有出处` : ""
+        }`,
+      });
+    }
+    if (r.candidate > 0) {
+      items.push({
+        level: "info",
+        text: `${r.candidate} 处文号复查只找到候选页面（标题与摘要里没有出现该文号），请点开候选页人工确认`,
+      });
+    }
+    if (r.empty > 0 || r.error > 0) {
+      items.push({
+        level: "info",
+        text: `${r.empty} 处文号复查未检索到可用结果${
+          r.error > 0 ? `、${r.error} 处检索失败` : ""
+        }，请改用政策快照检索或人工核对`,
+      });
+    }
   }
 
   // 「没有引用清单」有两种情况：检索过但扩展只留元数据（如实说明），或根本没检索（提醒）

@@ -62,6 +62,15 @@ export type ManifestInput = {
     tools: string[];
   } | null;
   linkCheck: { summary: LinkSummary | null; checkedAt: string | null };
+  /** 政策文号联网复查汇总；从未复查时为 null */
+  refChecks: {
+    total: number;
+    matched: number;
+    candidate: number;
+    empty: number;
+    error: number;
+    checkedAt: string | null;
+  } | null;
   amounts: { total: number; traced: number; fromInput: number; pending: number; acked: number };
   review: { issues: number; done: number; pending: number; notRequired: number };
   generatedAt?: string;
@@ -135,6 +144,14 @@ export function manifestIssues(m: BundleManifest): string[] {
     if (se.reportedResults < 0) out.push("检索自报命中数为负");
   } else if (m.citations.length > 0) {
     out.push("有联网引用却缺少检索留痕汇总");
+  }
+
+  const rc = m.refChecks;
+  if (rc) {
+    if (rc.total !== rc.matched + rc.candidate + rc.empty + rc.error) {
+      out.push("文号复查四类之和不等于复查总数");
+    }
+    if (rc.total > 0 && rc.checkedAt === null) out.push("有复查记录却没有复查时间");
   }
 
   for (const f of m.files) {

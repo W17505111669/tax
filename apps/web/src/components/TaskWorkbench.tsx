@@ -7,6 +7,7 @@ import type {
   CompareRecord,
   FileInfo,
   LinkCheck,
+  RefCheckRecord,
   ReviewRecord,
   TaskInfo,
   TaskIssue,
@@ -44,6 +45,13 @@ import {
 import { buildManifest } from "../manifest.ts";
 import { traceDocRefs } from "../policy-trace.ts";
 import { gradeCitation, GRADE_HINT, GRADE_TEXT, summarizeGrades } from "../citation-grade.ts";
+import {
+  pendingAfterRecheck,
+  refCheckTargets,
+  REF_VERDICT_HINT,
+  REF_VERDICT_TEXT,
+  summarizeRefChecks,
+} from "../ref-check.ts";
 import {
   extractCitations,
   SEARCH_TOOL_NAMES as SEARCH_TOOLS,
@@ -102,6 +110,14 @@ const STATUS_META: Record<string, { label: string; className: string }> = {
   waiting_review: { label: "待复核", className: "border-sky-400/40 bg-sky-400/10 text-sky-300" },
   completed: { label: "已完成", className: "border-jade-400/40 bg-jade-400/10 text-jade-400" },
   failed: { label: "已中断", className: "border-rose-400/40 bg-rose-400/10 text-rose-300" },
+};
+
+/** 文号复查四级判定的配色（与引用核验四级同一套语义色） */
+const REF_VERDICT_CLASS: Record<string, string> = {
+  matched: "bg-jade-400/15 text-jade-300",
+  candidate: "bg-sky-400/15 text-sky-300",
+  empty: "bg-amber-400/15 text-amber-300",
+  error: "bg-rose-400/15 text-rose-300",
 };
 
 interface Citation {
@@ -163,6 +179,10 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   const [linkChecks, setLinkChecks] = useState<Record<string, LinkCheck>>({});
   const [linkCheckedAt, setLinkCheckedAt] = useState<string | null>(null);
   const [linkBusy, setLinkBusy] = useState(false);
+  // 政策文号联网复查：结果按任务持久化，面板按需展开
+  const [refChecks, setRefChecks] = useState<Record<string, RefCheckRecord>>({});
+  const [refBusy, setRefBusy] = useState(false);
+  const [refPanelOpen, setRefPanelOpen] = useState(false);
   const [pendingReviews, setPendingReviews] = useState(0);
   const [readerOpen, setReaderOpen] = useState(false);
   const [readerTabs, setReaderTabs] = useState<ReaderTarget[]>([]);
@@ -436,12 +456,22 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     setLinkChecks({});
     setLinkCheckedAt(null);
     setLinkBusy(false);
+    setRefChecks({});
+    setRefBusy(false);
+    setRefPanelOpen(false);
     void api
       .listLinkChecks(task.id)
       .then((res) => {
         if (cancelled) return;
         setLinkChecks(Object.fromEntries(res.results.map((r) => [r.url, r])));
         setLinkCheckedAt(res.checkedAt);
+      })
+      .catch(() => undefined);
+    void api
+      .listRefChecks(task.id)
+      .then((res) => {
+        if (cancelled) return;
+        setRefChecks(Object.fromEntries(res.checks.map((c) => [c.key, c])));
       })
       .catch(() => undefined);
     return () => {
@@ -462,6 +492,26 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       })
       .catch(() => undefined)
       .finally(() => setLinkBusy(false));
+  };
+
+  /**
+   * 政策文号联网复查：把「无法从留存数据核验」的文号交给服务端用自建检索通道再查一遍，
+   * 判定与证据链接按条落库（刷新不丢），并写入事件留痕（交付包随之变为待重新打包）。
+   */
+  const runRefCheck = (targets: Array<{ key: string; kind: "docref" | "citation"; text: string; context?: string }>) => {
+    if (refBusy || targets.length === 0) return;
+    setRefBusy(true);
+    void api
+      .runRefChecks(
+        task.id,
+        targets.map((t) => ({ kind: t.kind, text: t.text, context: t.context })),
+      )
+      .then((res) => {
+        setRefChecks(Object.fromEntries(res.checks.map((c) => [c.key, c])));
+        setRefPanelOpen(true);
+      })
+      .catch(() => undefined)
+      .finally(() => setRefBusy(false));
   };
 
   const handleReopenReview = () => {
@@ -964,6 +1014,14 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     [finalResult, toolCalls],
   );
 
+  // 待复查的文号（待人工确认 + 无法核验）与已有复查结果的汇总
+  const refTargets = useMemo(() => refCheckTargets(refTrace), [refTrace]);
+  const refSummary = useMemo(() => summarizeRefChecks(Object.values(refChecks)), [refChecks]);
+  const refPending = useMemo(
+    () => pendingAfterRecheck(refTrace.untraced.length + refTrace.unverifiable, refSummary),
+    [refTrace, refSummary],
+  );
+
   // 交付自检输入：结论字数、产物与溯源、工具调用结果、待复核与联网引用
   const deliveryInput = (): CheckInput => ({
     status: reopened ? "waiting_review" : task.status,
@@ -987,6 +1045,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     docRefTraced: refTrace.traced,
     docRefUnverifiable: refTrace.unverifiable,
     docRefUntraced: refTrace.untraced.length,
+    docRefRecheck: refSummary.total > 0 ? refSummary : null,
+    docRefPending: refPending,
   });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const delivery = useMemo(
@@ -1009,6 +1069,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       amountTrace,
       amountPending,
       refTrace,
+      refSummary,
+      refPending,
     ],
   );
 
@@ -1147,6 +1209,29 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
             ? "（联网检索扩展只持久化查询元数据，上述「无法核验」的文号建议改用政策快照检索或附检索页面截图）"
             : "（全部政策文号都能在工具结果中找到出处）",
         ]),
+    ...(refSummary.total > 0
+      ? [
+          "",
+          `- 联网复查：已复查 ${refSummary.total} 处 · 找到公开出处 ${refSummary.matched} 处 · 候选待确认 ${
+            refSummary.candidate
+          } 处 · 未检索到 ${refSummary.empty} 处 · 检索失败 ${refSummary.error} 处${
+            refSummary.checkedAt
+              ? `（${new Date(refSummary.checkedAt).toLocaleString("zh-CN", { hour12: false })}）`
+              : ""
+          }`,
+          "",
+          "| # | 文号 | 复查判定 | 检索词 | 证据 |",
+          "| --- | --- | --- | --- | --- |",
+          ...Object.values(refChecks).map(
+            (c, i) =>
+              `| ${i + 1} | ${mdCell(c.text)} | ${REF_VERDICT_TEXT[c.verdict]} | ${mdCell(c.query)} | ${
+                c.evidence ? `[${mdCell(c.evidence.title)}](${c.evidence.url})` : "—"
+              } |`,
+          ),
+          "",
+          ...Object.values(refChecks).flatMap((c) => (c.note ? [`- ${mdCell(c.text)}：${c.note}`] : [])),
+        ]
+      : []),
     "",
     "## 结论金额溯源",
     "",
@@ -1240,6 +1325,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       }),
       citationGrades: citations.length > 0 ? citationGrades : null,
       searches: searches.calls > 0 ? searches : null,
+      refChecks: refSummary.total > 0 ? refSummary : null,
       linkCheck: { summary: linkCheckedAt ? linkSummary : null, checkedAt: linkCheckedAt },
       amounts: {
         total: amountTrace.total,
@@ -1270,8 +1356,11 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     for (const l of Object.values(linkChecks)) {
       if (l.checkedAt) changes.push({ at: l.checkedAt, label: `链接核验 ${l.url}` });
     }
+    for (const c of Object.values(refChecks)) {
+      if (c.checkedAt) changes.push({ at: c.checkedAt, label: `文号复查 ${c.text}` });
+    }
     return bundleFreshness(packedAt, changes);
-  }, [timeline, artifacts, reviews, amountChecks, linkChecks]);
+  }, [timeline, artifacts, reviews, amountChecks, linkChecks, refChecks]);
 
   const exportBundleZip = () => {
     if (zipBusy) return;
@@ -1931,11 +2020,13 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                           </span>
                         )}
                         {refTrace.total > 0 && (
-                          <span
-                            className={`rounded px-1.5 py-0.5 text-[10.5px] ${
-                              refTrace.untraced.length > 0
-                                ? "bg-amber-400/15 text-amber-300"
-                                : "bg-jade-400/15 text-jade-300"
+                          <button
+                            type="button"
+                            onClick={() => setRefPanelOpen((v) => !v)}
+                            className={`rounded px-1.5 py-0.5 text-[10.5px] transition-colors ${
+                              refPending > 0
+                                ? "bg-amber-400/15 text-amber-300 hover:bg-amber-400/25"
+                                : "bg-jade-400/15 text-jade-300 hover:bg-jade-400/25"
                             }`}
                             title={`政策文号溯源：共 ${refTrace.total} 处，工具结果可溯源 ${refTrace.traced} 处，无法从留存数据核验 ${
                               refTrace.unverifiable
@@ -1946,12 +2037,17 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                                     .map((r) => `· ${r.text}：…${r.context}…`)
                                     .join("\n")}`
                                 : ""
-                            }`}
+                            }${
+                              refSummary.total > 0
+                                ? `\n已联网复查 ${refSummary.total} 处：找到公开出处 ${refSummary.matched} · 候选待确认 ${refSummary.candidate} · 未检索到 ${refSummary.empty} · 检索失败 ${refSummary.error}`
+                                : ""
+                            }\n点击${refPanelOpen ? "收起" : "展开"}复查面板`}
                           >
                             文号溯源 {refTrace.traced}/{refTrace.total}
                             {refTrace.unverifiable > 0 ? ` · 无法核验 ${refTrace.unverifiable}` : ""}
                             {refTrace.untraced.length > 0 ? ` · 待确认 ${refTrace.untraced.length}` : ""}
-                          </span>
+                            {refSummary.matched > 0 ? ` · 复查到出处 ${refSummary.matched}` : ""}
+                          </button>
                         )}
                         <button
                           type="button"
@@ -1982,6 +2078,98 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                           </button>
                         ))}
                       </div>
+                    )}
+                  </div>
+                )}
+                {refPanelOpen && (
+                  <div className="mb-4 rounded-md border border-glow-500/35 bg-glow-500/5 px-3 py-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="kicker">政策文号复查</span>
+                      <span className="rounded bg-night-700 px-1.5 py-0.5 font-mono text-[10px] text-mist-500">
+                        待复查 {refTargets.length}
+                      </span>
+                      {refSummary.total > 0 && (
+                        <span className="text-[10.5px] text-mist-600">
+                          已复查 {refSummary.total} · 找到出处 {refSummary.matched} · 候选 {refSummary.candidate} ·
+                          未检索到 {refSummary.empty} · 失败 {refSummary.error}
+                          {refSummary.checkedAt
+                            ? ` · ${new Date(refSummary.checkedAt).toLocaleString("zh-CN", { hour12: false })}`
+                            : ""}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        className="action-btn ml-auto disabled:cursor-not-allowed disabled:opacity-40"
+                        disabled={refBusy || refTargets.length === 0}
+                        onClick={() => runRefCheck(refTargets.slice(0, 10))}
+                        title="用自建检索通道（Bing RSS 优先 + 相关度过滤）逐条复查没有出处的文号，判定与证据链接落库留痕并写入事件；一次最多 10 条"
+                      >
+                        {refBusy ? "复查中…" : `联网复查${refTargets.length > 0 ? `（${Math.min(refTargets.length, 10)} 处）` : ""}`}
+                      </button>
+                      <button type="button" className="action-btn" onClick={() => setRefPanelOpen(false)}>
+                        收起
+                      </button>
+                    </div>
+                    {refTargets.length === 0 ? (
+                      <p className="mt-1.5 text-[11px] leading-5 text-mist-600">
+                        {refSummary.total > 0
+                          ? "结论里的文号现在都能在工具结果中找到出处，无需复查。"
+                          : "结论里的文号都能在工具结果中找到出处，无需复查。"}
+                      </p>
+                    ) : (
+                      <ul className="mt-2 space-y-1.5">
+                        {refTargets.slice(0, 10).map((t) => {
+                          const rec = refChecks[t.key];
+                          return (
+                            <li key={t.key} className="rounded bg-night-800 px-2 py-1.5">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-mono text-[11.5px] text-mist-100">{t.text}</span>
+                                {rec ? (
+                                  <span
+                                    className={`rounded px-1.5 py-0.5 text-[10px] ${REF_VERDICT_CLASS[rec.verdict] ?? "bg-night-700 text-mist-500"}`}
+                                    title={`${REF_VERDICT_HINT[rec.verdict]}\n检索词：${rec.query}\n判定说明：${rec.note}`}
+                                  >
+                                    {REF_VERDICT_TEXT[rec.verdict]}
+                                  </span>
+                                ) : (
+                                  <span className="rounded bg-night-700 px-1.5 py-0.5 text-[10px] text-mist-600">
+                                    未复查
+                                  </span>
+                                )}
+                                {rec?.evidence && (
+                                  <button
+                                    type="button"
+                                    className="action-btn"
+                                    title={`${rec.evidence.title}\n${rec.evidence.url}\n证据力：${rec.evidence.gradeReason || rec.evidence.grade}\n点按在侧边阅读器打开`}
+                                    onClick={() => openReader({ kind: "url", url: rec.evidence!.url })}
+                                  >
+                                    <IconExternal className="h-3 w-3" />
+                                    证据
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  className="action-btn ml-auto disabled:cursor-not-allowed disabled:opacity-40"
+                                  disabled={refBusy}
+                                  title={rec ? "重新复查这一处文号" : "联网复查这一处文号"}
+                                  onClick={() => runRefCheck([t])}
+                                >
+                                  {rec ? "重新复查" : "复查"}
+                                </button>
+                              </div>
+                              <p className="mt-1 text-[11px] leading-5 text-mist-600">…{t.context}…</p>
+                              {rec && rec.note && (
+                                <p className="mt-0.5 text-[10.5px] leading-5 text-mist-500">{rec.note}</p>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                    {refTargets.length > 10 && (
+                      <p className="mt-1.5 text-[10.5px] text-mist-600">
+                        另有 {refTargets.length - 10} 处文号未列出（单次复查上限 10 处），可在整页交付 MD 的「政策文号溯源」节查看完整清单。
+                      </p>
                     )}
                   </div>
                 )}

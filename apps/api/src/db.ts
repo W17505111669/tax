@@ -86,8 +86,41 @@ db.exec(`
     checked_at TEXT NOT NULL,
     PRIMARY KEY (task_id, url)
   );
+
+  CREATE TABLE IF NOT EXISTS ref_checks (
+    task_id TEXT NOT NULL,
+    ref_key TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    text TEXT NOT NULL,
+    query TEXT NOT NULL,
+    verdict TEXT NOT NULL,
+    note TEXT,
+    evidence_title TEXT,
+    evidence_url TEXT,
+    evidence_grade TEXT,
+    evidence_snippet TEXT,
+    attempts TEXT,
+    checked_at TEXT NOT NULL,
+    PRIMARY KEY (task_id, ref_key)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_refchecks_task ON ref_checks(task_id);
 `);
 
 export function nowIso(): string {
   return new Date().toISOString();
 }
+
+/**
+ * 轻量迁移：给已存在的旧表补上新增列。
+ * CREATE TABLE IF NOT EXISTS 不会改动已建好的表，开发库升级时会缺列；
+ * 本项目表结构仍在演进，逐列补齐比整库重建安全。
+ */
+export function ensureColumn(table: string, column: string, ddl: string): boolean {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as unknown as Array<{ name: string }>;
+  if (rows.length === 0 || rows.some((r) => r.name === column)) return false;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+  return true;
+}
+
+ensureColumn("ref_checks", "evidence_snippet", "evidence_snippet TEXT");

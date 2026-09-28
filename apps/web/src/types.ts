@@ -112,6 +112,30 @@ export interface LinkCheck {
   checkedAt?: string;
 }
 
+/** 政策文号联网复查：证据条目（标题、地址、摘要与证据力分级） */
+export interface RefCheckEvidence {
+  title: string;
+  url: string;
+  snippet: string;
+  grade: string;
+  gradeReason: string;
+}
+
+/** 政策文号联网复查记录（服务端持久化，刷新后可恢复） */
+export interface RefCheckRecord {
+  key: string;
+  kind: "docref" | "citation";
+  text: string;
+  /** 实际发出的检索词 */
+  query: string;
+  verdict: import("./ref-check.ts").RefCheckVerdict;
+  note: string;
+  evidence: RefCheckEvidence | null;
+  /** 逐引擎尝试过程（取数方式、状态、条数与原因） */
+  attempts: unknown[];
+  checkedAt: string;
+}
+
 export interface SheetPreview {
   name: string;
   headers: string[];

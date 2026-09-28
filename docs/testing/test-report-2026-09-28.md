@@ -42,6 +42,7 @@
 | `pnpm verify:websearch` | 联网检索可信度（词元切分 / 相关度门槛 / 入口页过滤 / 验证页识别 / 历史数据回放） | PASS |
 | `pnpm verify:citegrade` | 联网引用证据力分级（官方原文 / 专业来源 / 首页百科检索页 + 两套实现口径交叉核对） | PASS |
 | `pnpm verify:searchev` | 联网检索留痕与引用提取（各工具结果形状 / 去重上限 / 只留元数据时如实说明 / 真实任务走查） | PASS |
+| `pnpm verify:refcheck` | 政策文号联网复查（发文机关前缀与检索词构造 / 四级判定 / 落库往返与覆盖 / 真实任务走查） | PASS |
 | `pnpm verify:upload` | 上传预检规则（扩展名 / 大小 / 空文件 / 批量分组 / 提示文案） | PASS |
 
 ## 三、真实任务台账

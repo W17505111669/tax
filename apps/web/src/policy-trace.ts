@@ -17,6 +17,8 @@ export type RefTraceResult = {
   traced: number;
   /** 找不到出处，但本任务用过「只持久化元数据」的联网检索工具，因此无法从留存数据核验 */
   unverifiable: number;
+  /** 与 unverifiable 同一批文号的明细，供「联网复查」逐条使用 */
+  unverifiableRefs: DocRef[];
   /** 找不到出处且本任务没有上述检索工具 → 需要人工确认（可能来自模型知识） */
   untraced: DocRef[];
 };
@@ -104,6 +106,7 @@ export function traceDocRefs(
     total: refs.length,
     traced: refs.length - missing.length,
     unverifiable: metadataOnly ? missing.length : 0,
+    unverifiableRefs: metadataOnly ? missing : [],
     untraced: metadataOnly ? [] : missing,
   };
 }

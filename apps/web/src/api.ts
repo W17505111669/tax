@@ -74,6 +74,25 @@ export const api = {
       `/api/tasks/${taskId}/link-checks`,
     ),
 
+  /** 已持久化的政策文号复查结果 */
+  listRefChecks: (taskId: string) =>
+    request<{ checks: import("./types.ts").RefCheckRecord[]; checkedAt: string | null }>(
+      `/api/tasks/${taskId}/ref-checks`,
+    ),
+
+  /** 触发政策文号联网复查（自建检索通道，结果落库并写入事件留痕） */
+  runRefChecks: (taskId: string, targets: Array<{ kind?: "docref" | "citation"; text: string; context?: string }>) =>
+    request<{
+      checks: import("./types.ts").RefCheckRecord[];
+      checkedAt: string | null;
+      ran: number;
+      matched: number;
+    }>(`/api/tasks/${taskId}/ref-checks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targets }),
+    }),
+
   /** 打包交付：把整页 MD 交给服务端与本任务产物合成 zip（二进制，故不走 request） */
   bundleZip: async (taskId: string, markdown: string, fileName?: string, manifest?: unknown): Promise<Blob> => {
     const res = await fetch(`/api/tasks/${taskId}/bundle`, {

@@ -30,6 +30,7 @@ pnpm verify:extract  # 合同/发票字段确定性抽取验证
 pnpm verify:websearch # 联网检索可信度：相关度门槛 / 入口页过滤 / 验证页识别 / 历史数据回放
 pnpm verify:citegrade # 联网引用证据力分级：官方原文 / 专业来源 / 首页百科检索页
 pnpm verify:searchev # 联网检索留痕：区分「留下来源」与「只留查询元数据」，引用提取口径统一
+pnpm verify:refcheck # 政策文号联网复查：检索词构造 / 四级判定 / 落库往返与覆盖
 pnpm report:test     # 生成测试报告（实时跑验证矩阵 + 汇总真实任务台账与准确率）
 pnpm gen:materials   # 生成两个作品的比赛说明文档（docs/competition/，含真实运行统计）
 pnpm gen:ppt         # 生成答辩 PPT 大纲（每作品 10 页，含讲稿要点与画面元素）
@@ -37,7 +38,7 @@ pnpm demo:script     # 生成录屏分镜表（docs/competition/录屏分镜表.
 pnpm case:run <id>   # 案例回归：上传→执行→与人工参考底稿比对→案例报告（data/cases/）
 pnpm verify:agents   # Phase 1：两个 Agent 的系统提示词与工具集相互独立
 pnpm -r typecheck    # 全仓类型检查
-pnpm qa:all          # 全量质量门：30 项 verify + 测试报告 + 比赛材料 + 证据包
+pnpm qa:all          # 全量质量门：31 项 verify + 测试报告 + 比赛材料 + 证据包
 ```
 
 验证记录见 [docs/testing/phase0-verification.md](docs/testing/phase0-verification.md)。

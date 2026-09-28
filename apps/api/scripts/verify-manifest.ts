@@ -14,9 +14,11 @@ import { reviewCounts } from "../../web/src/review-export.ts";
 import { traceDocRefs } from "../../web/src/policy-trace.ts";
 import { gradeCitation, summarizeGrades } from "../../web/src/citation-grade.ts";
 import { extractCitations, searchEvidence } from "../../web/src/search-evidence.ts";
+import { pendingAfterRecheck, summarizeRefChecks } from "../../web/src/ref-check.ts";
 import { db } from "../src/db.ts";
 import { dirs } from "../src/config.ts";
 import { listAmountChecks } from "../src/services/amount-checks.ts";
+import { listRefChecks } from "../src/services/ref-checks.ts";
 import { extractIssues, listReviews, pendingReviewIssues } from "../src/services/issues.ts";
 import { getTask, listFiles, listTasks } from "../src/services/task-store.ts";
 
@@ -70,6 +72,8 @@ const delivery = deliveryCheck({
   docRefTraced: 1,
   docRefUnverifiable: 1,
   docRefUntraced: 0,
+  docRefRecheck: null,
+  docRefPending: 1,
 });
 
 const base: ManifestInput = {
@@ -138,6 +142,14 @@ const base: ManifestInput = {
   linkCheck: {
     summary: { total: 2, ok: 1, blocked: 1, dead: 0, unreachable: 0 },
     checkedAt: "2026-09-28T03:00:00.000Z",
+  },
+  refChecks: {
+    total: 2,
+    matched: 1,
+    candidate: 1,
+    empty: 0,
+    error: 0,
+    checkedAt: "2026-09-29T02:00:00.000Z",
   },
   amounts: { total: 10, traced: 8, fromInput: 1, pending: 1, acked: 0 },
   review: { issues: 3, done: 3, pending: 0, notRequired: 0 },
@@ -230,6 +242,17 @@ expect(
   true,
 );
 expect(
+  "文号复查四类之和不符会发现",
+  manifestIssues({ ...m, refChecks: { ...m.refChecks!, total: 5 } }).some((s) => s.includes("复查四类之和")),
+  true,
+);
+expect(
+  "有复查却无时间会发现",
+  manifestIssues({ ...m, refChecks: { ...m.refChecks!, checkedAt: null } }).some((s) => s.includes("没有复查时间")),
+  true,
+);
+expect("从未复查时为 null 不算问题", manifestIssues({ ...m, refChecks: null }).some((s) => s.includes("复查")), false);
+expect(
   "无引用时分级汇总为 null 不算分级问题",
   manifestIssues({
     ...m,
@@ -298,6 +321,23 @@ for (const t of listTasks()) {
   const cites = citationsOf(calls);
   const grades = summarizeGrades(cites);
   const searches = searchEvidence(calls);
+  const refRecs = listRefChecks(t.id);
+  const refSum = summarizeRefChecks(refRecs);
+  const refPending = pendingAfterRecheck(refs.untraced.length + refs.unverifiable, refSum);
+  checks += 1;
+  if (refSum.total !== refSum.matched + refSum.candidate + refSum.empty + refSum.error) {
+    failures.push(`${t.id.slice(0, 8)} 文号复查四类之和不等于总数`);
+  }
+  checks += 1;
+  if (refPending > refs.untraced.length + refs.unverifiable) {
+    failures.push(`${t.id.slice(0, 8)} 复查后待处理文号数反而变多`);
+  }
+  for (const rec of refRecs) {
+    checks += 1;
+    if (rec.key !== `docref:${rec.text.replace(/\s+/g, "").replace(/[〔【]/g, "[").replace(/[〕】]/g, "]")}`) {
+      failures.push(`${t.id.slice(0, 8)} 复查记录主键与文本不符：${rec.key}`);
+    }
+  }
   checks += 1;
   if (searches.calls !== searches.withUrls + searches.metadataOnly) {
     failures.push(`${t.id.slice(0, 8)} 检索留痕两类之和 ${searches.withUrls + searches.metadataOnly} ≠ 调用数 ${searches.calls}`);
@@ -342,6 +382,8 @@ for (const t of listTasks()) {
       docRefTraced: refs.traced,
       docRefUnverifiable: refs.unverifiable,
       docRefUntraced: refs.untraced.length,
+      docRefRecheck: refSum.total > 0 ? refSum : null,
+      docRefPending: refPending,
     }),
     files: listFiles(t.id).map((f) => ({
       name: f.fileName,
@@ -374,6 +416,7 @@ for (const t of listTasks()) {
     citations: cites,
     citationGrades: cites.length > 0 ? grades : null,
     searches: searches.calls > 0 ? searches : null,
+    refChecks: refSum.total > 0 ? refSum : null,
     linkCheck: { summary: null, checkedAt: null },
     amounts: {
       total: amounts.total,

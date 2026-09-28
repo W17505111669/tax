@@ -19,6 +19,7 @@ import {
 import { listAmountChecks, setAmountCheck } from "../services/amount-checks.ts";
 import { collectBundleEntries, createBundleZip } from "../services/bundle-zip.ts";
 import { checkLink, listLinkChecks, saveLinkChecks } from "../services/link-checks.ts";
+import { listRefChecks, runRefChecks, toTargets } from "../services/ref-checks.ts";
 import {
   appendEvent,
   createTask,
@@ -333,6 +334,50 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
       `引用链接核验：${results.filter((r) => r.ok).length}/${results.length} 条返回 2xx/3xx`,
     );
     return { checkedAt, total: results.length, ok: results.filter((r) => r.ok).length, results: listLinkChecks(id) };
+  });
+
+  /** 已持久化的政策文号复查结果（刷新页面不丢） */
+  app.get("/api/tasks/:id/ref-checks", async (req) => {
+    const { id } = req.params as { id: string };
+    const checks = listRefChecks(id);
+    const checkedAt = checks.reduce((m, c) => (c.checkedAt > m ? c.checkedAt : m), "");
+    return { checks, checkedAt: checkedAt || null };
+  });
+
+  /**
+   * 触发政策文号联网复查：用自建检索通道（Bing RSS 优先 + 相关度过滤）复查结论里没有出处的文号，
+   * 判定结果与证据链接按条落库，并写入事件留痕（同时让交付包变为待重新打包）。
+   */
+  app.post("/api/tasks/:id/ref-checks", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as { targets?: unknown };
+    const targets = toTargets(body.targets);
+    if (targets.length === 0) return reply.code(400).send({ error: "需要 targets（1-10 条，每条含 text）" });
+    const fresh = await runRefChecks(id, targets);
+    const count = (v: string) => fresh.filter((c) => c.verdict === v).length;
+    appendEvent(
+      id,
+      "agent_status",
+      `政策文号复查：${fresh.length} 处 · 找到公开出处 ${count("matched")} · 候选待确认 ${count(
+        "candidate",
+      )} · 未检索到 ${count("empty")} · 检索失败 ${count("error")}`,
+      {
+        refChecks: {
+          total: fresh.length,
+          matched: count("matched"),
+          candidate: count("candidate"),
+          empty: count("empty"),
+          error: count("error"),
+          results: fresh.map((c) => ({ key: c.key, text: c.text, verdict: c.verdict, url: c.evidence?.url ?? null })),
+        },
+      },
+    );
+    return {
+      checks: listRefChecks(id),
+      checkedAt: fresh[0]?.checkedAt ?? null,
+      ran: fresh.length,
+      matched: count("matched"),
+    };
   });
 
   /**

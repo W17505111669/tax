@@ -41,6 +41,8 @@ const base: CheckInput = {
   docRefTraced: 0,
   docRefUnverifiable: 0,
   docRefUntraced: 0,
+  docRefRecheck: null,
+  docRefPending: 0,
 };
 
 expect("全部达标 → 可交付", deliveryCheck(base).verdict, "可交付");
@@ -182,6 +184,94 @@ expect(
     (x) => x.level === "ok" && x.text.includes("政策文号 4 处"),
   ),
   true,
+);
+
+// 政策文号联网复查：查到公开出处的部分不再算风险
+const recheck = (over: Partial<NonNullable<CheckInput["docRefRecheck"]>> = {}) => ({
+  total: 2,
+  matched: 2,
+  candidate: 0,
+  empty: 0,
+  error: 0,
+  checkedAt: "2026-09-29T02:00:00.000Z",
+  ...over,
+});
+expect(
+  "复查到出处后待确认降为说明",
+  deliveryCheck({
+    ...base,
+    docRefTotal: 3,
+    docRefTraced: 1,
+    docRefUntraced: 2,
+    docRefRecheck: recheck(),
+    docRefPending: 0,
+  }).verdict,
+  "可交付",
+);
+expect(
+  "降级后的文案说明已复查到出处",
+  deliveryCheck({
+    ...base,
+    docRefTotal: 3,
+    docRefTraced: 1,
+    docRefUntraced: 2,
+    docRefRecheck: recheck(),
+    docRefPending: 0,
+  }).items.some((x) => x.level === "info" && x.text.includes("已全部联网复查到公开出处")),
+  true,
+);
+expect(
+  "复查只覆盖一部分时仍是提醒",
+  deliveryCheck({
+    ...base,
+    docRefTotal: 4,
+    docRefTraced: 1,
+    docRefUntraced: 3,
+    docRefRecheck: recheck({ total: 1, matched: 1 }),
+    docRefPending: 2,
+  }).verdict,
+  "谨慎交付",
+);
+expect(
+  "复查正向条目含剩余处数",
+  deliveryCheck({
+    ...base,
+    docRefUntraced: 3,
+    docRefRecheck: recheck({ total: 1, matched: 1 }),
+    docRefPending: 2,
+  }).items.some((x) => x.level === "ok" && x.text.includes("仍有 2 处没有出处")),
+  true,
+);
+expect(
+  "只找到候选页时仅作说明",
+  deliveryCheck({ ...base, docRefRecheck: recheck({ matched: 0, candidate: 2 }) }).items.some(
+    (x) => x.level === "info" && x.text.includes("2 处文号复查只找到候选页面"),
+  ),
+  true,
+);
+expect(
+  "未检索到不降级",
+  deliveryCheck({ ...base, docRefRecheck: recheck({ matched: 0, empty: 2 }) }).verdict,
+  "可交付",
+);
+expect(
+  "检索失败仅作说明",
+  deliveryCheck({ ...base, docRefRecheck: recheck({ matched: 0, error: 2 }) }).items.some(
+    (x) => x.level === "info" && x.text.includes("2 处检索失败"),
+  ),
+  true,
+);
+expect(
+  "无法核验的文号复查到出处后不再提醒",
+  deliveryCheck({
+    ...base,
+    docRefTotal: 3,
+    docRefTraced: 1,
+    docRefUnverifiable: 2,
+    docRefRecheck: recheck(),
+    docRefPending: 0,
+  }).verdict,
+  "可交付",
 );
 expect("多项阻断同时存在", deliveryCheck({ ...base, status: "processing", resultChars: 0 }).blocks, 2);
 expect("失败叠加空结论", deliveryCheck({ ...base, status: "failed", resultChars: 0 }).blocks, 2);
