@@ -187,6 +187,16 @@ details.tool-row .chev {
   color: var(--color-mist-100);
 }
 
+/* 交付包已过期时的「重新打包」按钮：与交付区的琥珀提示同色，按钮本身也要看得出不是最新 */
+.action-btn-warn {
+  color: #fcd34d;
+  box-shadow: inset 0 0 0 1px rgb(252 211 77 / 0.32);
+}
+.action-btn-warn:hover {
+  color: #fde68a;
+  box-shadow: inset 0 0 0 1px rgb(252 211 77 / 0.6);
+}
+
 .action-btn:focus-visible,
 .seg-tab:focus-visible,
 .rail-btn:focus-visible {

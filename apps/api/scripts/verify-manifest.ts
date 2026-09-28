@@ -13,6 +13,7 @@ import { parseDetail, parsedByFileName } from "../../web/src/file-parse.ts";
 import { reviewCounts } from "../../web/src/review-export.ts";
 import { traceDocRefs } from "../../web/src/policy-trace.ts";
 import { gradeCitation, summarizeGrades } from "../../web/src/citation-grade.ts";
+import { extractCitations, searchEvidence } from "../../web/src/search-evidence.ts";
 import { db } from "../src/db.ts";
 import { dirs } from "../src/config.ts";
 import { listAmountChecks } from "../src/services/amount-checks.ts";
@@ -29,32 +30,22 @@ function expect(name: string, actual: unknown, want: unknown): void {
   if (a !== w) failures.push(`${name}: 实际 ${a}，期望 ${w}`);
 }
 
-const SEARCH_TOOLS = new Set([
-  "web_search",
-  "search_public_cases",
-  "fetch_content",
-  "fetch_public_document",
-  "get_search_content",
-]);
-
 type ManifestCitation = ManifestInput["citations"][number];
 
-/** 与前端同一口径地从工具结果里收集联网引用并分级（最多 12 条，去重） */
+/** 与前端同一口径：引用提取走 search-evidence.ts，验证脚本不另写一套 */
 function citationsOf(calls: Array<{ toolName: string; result: unknown }>): ManifestCitation[] {
-  const out: ManifestCitation[] = [];
-  for (const c of calls) {
-    if (!SEARCH_TOOLS.has(c.toolName)) continue;
-    const results = (c.result as { results?: Array<{ title?: string; url?: string }> } | null)?.results;
-    if (!results) continue;
-    for (const r of results) {
-      if (!r.url || out.some((x) => x.url === r.url)) continue;
-      const title = r.title ?? r.url;
-      const g = gradeCitation(r.url, title);
-      out.push({ title, url: r.url, verdict: "unchecked", status: null, grade: g.grade, gradeReason: g.reason });
-      if (out.length >= 12) return out;
-    }
-  }
-  return out;
+  return extractCitations(calls).map((c) => {
+    const g = gradeCitation(c.url, c.title);
+    return {
+      title: c.title,
+      url: c.url,
+      verdict: "unchecked",
+      status: null,
+      grade: g.grade,
+      gradeReason: g.reason,
+      via: c.via,
+    };
+  });
 }
 
 const delivery = deliveryCheck({
@@ -68,6 +59,7 @@ const delivery = deliveryCheck({
   pendingReview: 0,
   citations: 2,
   citationGrades: { total: 2, official: 1, professional: 1, weak: 0 },
+  searches: { calls: 2, withUrls: 2, metadataOnly: 0, reportedResults: 0 },
   linkCheck: { total: 2, ok: 1, blocked: 1, dead: 0, unreachable: 0 },
   linkCheckAgeHours: 1,
   amountTotal: 10,
@@ -121,6 +113,7 @@ const base: ManifestInput = {
       status: 200,
       grade: "official",
       gradeReason: "政府/税务机关站点的具体文件页",
+      via: "fetch_content",
     },
     {
       title: "案例",
@@ -129,9 +122,19 @@ const base: ManifestInput = {
       status: 403,
       grade: "professional",
       gradeReason: "专业机构或社区的具体文章页",
+      via: "search_public_cases",
     },
   ],
   citationGrades: { total: 2, official: 1, professional: 1, weak: 0 },
+  searches: {
+    calls: 3,
+    withUrls: 2,
+    metadataOnly: 1,
+    reportedResults: 6,
+    queries: ["研发费用加计扣除 留存备查资料"],
+    providers: ["exa"],
+    tools: ["search_public_cases", "fetch_content", "web_search"],
+  },
   linkCheck: {
     summary: { total: 2, ok: 1, blocked: 1, dead: 0, unreachable: 0 },
     checkedAt: "2026-09-28T03:00:00.000Z",
@@ -197,6 +200,33 @@ expect(
   manifestIssues({ ...m, citations: [{ ...m.citations[0]!, grade: "maybe" }] }).some((s) =>
     s.includes("证据力分级取值非法"),
   ),
+  true,
+);
+expect(
+  "检索留痕两类之和不符会发现",
+  manifestIssues({ ...m, searches: { ...m.searches!, calls: 9 } }).some((s) => s.includes("两类之和不等于调用数")),
+  true,
+);
+expect(
+  "有检索却无工具名会发现",
+  manifestIssues({ ...m, searches: { ...m.searches!, tools: [] } }).some((s) => s.includes("没有工具名")),
+  true,
+);
+expect(
+  "有引用却没有留下来源的检索会发现",
+  manifestIssues({ ...m, searches: { ...m.searches!, withUrls: 0, metadataOnly: 3 } }).some((s) =>
+    s.includes("没有任何留下来源的检索调用"),
+  ),
+  true,
+);
+expect(
+  "有引用却缺检索留痕会发现",
+  manifestIssues({ ...m, searches: null }).some((s) => s.includes("缺少检索留痕汇总")),
+  true,
+);
+expect(
+  "引用缺来源工具会发现",
+  manifestIssues({ ...m, citations: [{ ...m.citations[0]!, via: "" }] }).some((s) => s.includes("缺少来源工具")),
   true,
 );
 expect(
@@ -267,6 +297,14 @@ for (const t of listTasks()) {
   const toolFailed = calls.filter((c) => c.ok === false).length;
   const cites = citationsOf(calls);
   const grades = summarizeGrades(cites);
+  const searches = searchEvidence(calls);
+  checks += 1;
+  if (searches.calls !== searches.withUrls + searches.metadataOnly) {
+    failures.push(`${t.id.slice(0, 8)} 检索留痕两类之和 ${searches.withUrls + searches.metadataOnly} ≠ 调用数 ${searches.calls}`);
+  }
+  if (searches.withUrls === 0 && cites.length > 0) {
+    failures.push(`${t.id.slice(0, 8)} 有 ${cites.length} 条引用却没有留下来源的检索调用`);
+  }
   gradeTotals.total += grades.total;
   gradeTotals.official += grades.official;
   gradeTotals.professional += grades.professional;
@@ -293,6 +331,7 @@ for (const t of listTasks()) {
       pendingReview: pendingReviewIssues(t.id).length,
       citations: cites.length,
       citationGrades: cites.length > 0 ? grades : null,
+      searches: searches.calls > 0 ? searches : null,
       linkCheck: null,
       linkCheckAgeHours: null,
       amountTotal: amounts.total,
@@ -334,6 +373,7 @@ for (const t of listTasks()) {
     },
     citations: cites,
     citationGrades: cites.length > 0 ? grades : null,
+    searches: searches.calls > 0 ? searches : null,
     linkCheck: { summary: null, checkedAt: null },
     amounts: {
       total: amounts.total,

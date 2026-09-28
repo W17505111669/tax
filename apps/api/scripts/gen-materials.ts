@@ -74,6 +74,9 @@ function build(agent: TaxAgentConfig, extra: Array<{ name: string; label: string
   lines.push(
     `- 引用可分级：联网检索结果先按检索词相关度过滤（中文二元组 + 数字整词切分，命中词元数低于门槛即丢弃，门槛可用 TAXAI_SEARCH_MIN_RELEVANCE 调整，政府与税务机关站点放宽一档），门户首页 / 栏目入口 / 登录页与重复地址一律不进结果；引擎触发安全验证或返回无关内容时降级下一引擎，全部不可用则如实回报「未检索到」并逐引擎说明原因，不把无关网页塞进结论与引用清单。界面再把每条引用按证据力分为官方原文（政府/税务机关站点的具体文件页）/ 专业来源（机构或社区的具体文章页）/ 证据力弱（门户首页、百科词条、检索结果页）三级并给出判定理由，弱证据在引用芯片上转琥珀色、进入交付自检提醒与整页 MD，manifest.json 同步记录分级汇总，避免「拿百科词条当政策依据」`,
   );
+  lines.push(
+    `- 检索可留痕：界面区分「留下了来源」与「只留下查询元数据」两类联网检索。自建 search_public_cases / fetch_public_document 与扩展 fetch_content 都会留下标题与 URL（fetch_content 读过的政策法规库原文页此前不进引用清单，现已按同一口径纳入，真实任务引用从 29 条升到 40 条、其中政府与税务机关站点 23 条）；社区扩展 web_search 只写回查询词、条数、检索 ID 与 provider，因此「没有引用清单」不再被误报成「没有联网核验」，而是如实说明「执行过 N 次检索、扩展自报命中 M 条、未留存标题与 URL」，并给出补救动作（结论附检索词与检索时间，或改用自建工具留存来源）。引用清单上限 20 条并按 URL 去重，交付自检据此分为提醒与说明两级，manifest.json 记录 calls / withUrls / metadataOnly / reportedResults 与检索词、provider`,
+  );
   lines.push("");
   lines.push(`## 四、核心流程`);
   lines.push("");

@@ -46,9 +46,21 @@ export type ManifestInput = {
     /** 证据力分级：official 官方原文 / professional 专业来源 / weak 门户首页、百科或检索页 */
     grade: string;
     gradeReason: string;
+    /** 留下这条来源的工具名 */
+    via: string;
   }>;
   /** 联网引用证据力分级汇总；本次任务没有联网引用时为 null */
   citationGrades: { total: number; official: number; professional: number; weak: number } | null;
+  /** 联网检索留痕；本次任务没有任何联网检索类调用时为 null */
+  searches: {
+    calls: number;
+    withUrls: number;
+    metadataOnly: number;
+    reportedResults: number;
+    queries: string[];
+    providers: string[];
+    tools: string[];
+  } | null;
   linkCheck: { summary: LinkSummary | null; checkedAt: string | null };
   amounts: { total: number; traced: number; fromInput: number; pending: number; acked: number };
   review: { issues: number; done: number; pending: number; notRequired: number };
@@ -112,6 +124,17 @@ export function manifestIssues(m: BundleManifest): string[] {
     if (c.grade !== "official" && c.grade !== "professional" && c.grade !== "weak") {
       out.push(`引用 ${c.url.slice(0, 60)} 的证据力分级取值非法：${c.grade}`);
     }
+    if (!c.via) out.push(`引用 ${c.url.slice(0, 60)} 缺少来源工具`);
+  }
+
+  const se = m.searches;
+  if (se) {
+    if (se.calls !== se.withUrls + se.metadataOnly) out.push("联网检索留痕两类之和不等于调用数");
+    if (se.calls > 0 && se.tools.length === 0) out.push("有联网检索却没有工具名");
+    if (se.withUrls === 0 && m.citations.length > 0) out.push("有引用清单却没有任何留下来源的检索调用");
+    if (se.reportedResults < 0) out.push("检索自报命中数为负");
+  } else if (m.citations.length > 0) {
+    out.push("有联网引用却缺少检索留痕汇总");
   }
 
   for (const f of m.files) {

@@ -44,7 +44,21 @@ import {
 import { buildManifest } from "../manifest.ts";
 import { traceDocRefs } from "../policy-trace.ts";
 import { gradeCitation, GRADE_HINT, GRADE_TEXT, summarizeGrades } from "../citation-grade.ts";
-import { bundleFreshness, freshnessText, type BundleFreshness, type ChangeStamp } from "../bundle-freshness.ts";
+import {
+  extractCitations,
+  SEARCH_TOOL_NAMES as SEARCH_TOOLS,
+  searchEvidence,
+  searchEvidenceNote,
+  type SearchEvidence,
+} from "../search-evidence.ts";
+import {
+  bundleButtonLabel,
+  bundleButtonTitle,
+  bundleFreshness,
+  freshnessText,
+  type BundleFreshness,
+  type ChangeStamp,
+} from "../bundle-freshness.ts";
 import { reviewCounts } from "../review-export.ts";
 import {
   partitionFiles,
@@ -82,14 +96,6 @@ interface Props {
   secInto: number | null;
 }
 
-const SEARCH_TOOLS = new Set([
-  "web_search",
-  "search_public_cases",
-  "fetch_content",
-  "fetch_public_document",
-  "get_search_content",
-]);
-
 const STATUS_META: Record<string, { label: string; className: string }> = {
   created: { label: "待执行", className: "border-line bg-night-800 text-mist-500" },
   processing: { label: "执行中", className: "border-amber-400/40 bg-amber-400/10 text-amber-300" },
@@ -101,6 +107,8 @@ const STATUS_META: Record<string, { label: string; className: string }> = {
 interface Citation {
   title: string;
   url: string;
+  /** 留下这条来源的工具名（search_public_cases / fetch_content / fetch_public_document） */
+  via: string;
   /** 证据力分级：官方原文 / 专业来源 / 证据力弱（门户首页、百科词条、检索页） */
   grade: import("../citation-grade.ts").CitationGrade;
   gradeReason: string;
@@ -568,21 +576,19 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     return task.result ?? last?.detail ?? "";
   }, [timeline, task.result]);
 
-  const citations = useMemo<Citation[]>(() => {
-    const out: Citation[] = [];
-    for (const call of toolCalls) {
-      if (!SEARCH_TOOLS.has(call.toolName)) continue;
-      const results = (call.result as { results?: Array<{ title?: string; url?: string }> } | null)?.results;
-      if (!results) continue;
-      for (const r of results) {
-        if (!r.url || out.some((c) => c.url === r.url)) continue;
-        const title = r.title ?? r.url;
-        const g = gradeCitation(r.url, title);
-        out.push({ title, url: r.url, grade: g.grade, gradeReason: g.reason });
-      }
-    }
-    return out.slice(0, 12);
-  }, [toolCalls]);
+  // 联网引用：提取口径与交付包 manifest 走查共用 search-evidence.ts（含 fetch_content 留下的政策原文页）
+  const citations = useMemo<Citation[]>(
+    () =>
+      extractCitations(toolCalls).map((c) => {
+        const g = gradeCitation(c.url, c.title);
+        return { title: c.title, url: c.url, via: c.via, grade: g.grade, gradeReason: g.reason };
+      }),
+    [toolCalls],
+  );
+
+  // 检索留痕：区分「留下了来源」与「只留下查询元数据」，避免把后者误报成没有联网核验
+  const searches = useMemo(() => searchEvidence(toolCalls), [toolCalls]);
+  const searchNote = useMemo(() => searchEvidenceNote(searches, citations.length), [searches, citations.length]);
 
   // 引用证据力汇总：交付自检、整页 MD 与交付包清单共用同一口径
   const citationGrades = useMemo(() => summarizeGrades(citations), [citations]);
@@ -970,6 +976,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     pendingReview: pendingReviews,
     citations: citations.length,
     citationGrades: citations.length > 0 ? citationGrades : null,
+    searches: searches.calls > 0 ? searches : null,
     linkCheck: linkCheckedAt ? linkSummary : null,
     linkCheckAgeHours: ageHours(linkCheckedAt),
     amountTotal: amountTrace.total,
@@ -994,6 +1001,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       pendingReviews,
       citations,
       citationGrades,
+      searches,
       linkSummary,
       linkCheckedAt,
       files,
@@ -1062,12 +1070,17 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
           ...(citationGrades.weak > 0
             ? ["- 证据力弱的引用指向门户首页、百科词条或检索结果页，不能替代政策原文，交付前请替换为具体文件页"]
             : []),
+          ...(searches.metadataOnly > 0
+            ? [
+                `- 另有 ${searches.metadataOnly} 次联网检索只留存查询元数据（${searches.tools.join(" / ")}），未留存标题与 URL，未计入上方清单`,
+              ]
+            : []),
           "",
           ...citations.map(
             (c, i) => `${i + 1}. ${c.title}\n   ${c.url}\n   证据力：${GRADE_TEXT[c.grade]}（${c.gradeReason}）`,
           ),
         ]
-      : ["（本次任务无联网引用）"]),
+      : [searchNote ?? "（本次任务无联网引用）"]),
     "",
     ...(linkCheckedAt
       ? [
@@ -1222,9 +1235,11 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
           status: chk?.status ?? null,
           grade: c.grade,
           gradeReason: c.gradeReason,
+          via: c.via,
         };
       }),
       citationGrades: citations.length > 0 ? citationGrades : null,
+      searches: searches.calls > 0 ? searches : null,
       linkCheck: { summary: linkCheckedAt ? linkSummary : null, checkedAt: linkCheckedAt },
       amounts: {
         total: amountTrace.total,
@@ -1794,6 +1809,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                 items={timeline}
                 toolCalls={toolCalls}
                 citations={citations}
+                searchNote={searchNote}
                 artifacts={artifacts}
                 onOpenUrl={openReader}
                 onRerun={onRerun}
@@ -1995,6 +2011,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                 error={task.error}
                 status={liveStatus}
                 citations={citations}
+                searches={searches}
+                searchNote={searchNote}
                 onOpenUrl={openReader}
                 linkChecks={linkChecks}
                 linkBusy={linkBusy}
@@ -2297,6 +2315,7 @@ function TimelineView({
   items,
   toolCalls,
   citations,
+  searchNote,
   artifacts,
   onOpenUrl,
   onRerun,
@@ -2307,6 +2326,8 @@ function TimelineView({
   items: ReturnType<typeof useTaskEvents>["timeline"];
   toolCalls: ReturnType<typeof useTaskEvents>["toolCalls"];
   citations: Citation[];
+  /** 有检索但没留下来源清单时的如实说明；null 表示不需要说明 */
+  searchNote: string | null;
   artifacts: ArtifactInfo[];
   onOpenUrl: (target: ReaderTarget) => void;
   onRerun: () => void;
@@ -2951,7 +2972,11 @@ function TimelineView({
                     重新生成
                   </button>
                   <span className="ml-auto text-[11px] text-mist-600">
-                    {citations.length > 0 ? `${citations.length} 条联网引用` : "无联网引用"}
+                    {citations.length > 0
+                      ? `${citations.length} 条联网引用`
+                      : searchNote
+                        ? "联网检索已执行，扩展未留存来源清单"
+                        : "无联网引用"}
                   </span>
                 </div>
               </>
@@ -3128,6 +3153,8 @@ function ResultView({
   error,
   status,
   citations,
+  searches,
+  searchNote,
   onOpenUrl,
   onDownloadReport,
   onDownloadCitations,
@@ -3155,6 +3182,9 @@ function ResultView({
   error: string | null;
   status: string;
   citations: Citation[];
+  /** 联网检索留痕汇总（用于「检索过但没留下来源清单」的如实说明） */
+  searches: SearchEvidence;
+  searchNote: string | null;
   onOpenUrl: (target: ReaderTarget) => void;
   onDownloadReport: () => void;
   onDownloadCitations: () => void;
@@ -3268,13 +3298,18 @@ function ResultView({
         </button>
         <button
           type="button"
-          className="action-btn disabled:cursor-not-allowed disabled:opacity-40"
+          className={`action-btn disabled:cursor-not-allowed disabled:opacity-40${
+            bundleFresh.stale && !zipBusy ? " action-btn-warn" : ""
+          }`}
           onClick={onExportZip}
           disabled={zipBusy}
-          title="把整页交付 MD 与本任务全部产物打成一个 zip（服务端合包，产物放在「产物/」目录下）"
+          title={bundleButtonTitle(
+            bundleFresh,
+            "把整页交付 MD 与本任务全部产物打成一个 zip（服务端合包，产物放在「产物/」目录下）",
+          )}
         >
           <IconDownload className="h-3.5 w-3.5" />
-          {zipBusy ? "打包中…" : "打包下载"}
+          {bundleButtonLabel(bundleFresh, zipBusy)}
         </button>
         {zipNote && (
           <span className="text-[10.5px] text-rose-300" title={zipNote}>
@@ -3302,6 +3337,25 @@ function ResultView({
         </span>
       </div>
 
+      {citations.length === 0 && searchNote && (
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="kicker">联网检索留痕</span>
+            <span
+              className="rounded bg-night-700 px-1.5 py-0.5 text-[10px] text-mist-500"
+              title={`工具：${searches.tools.join(" / ")}${
+                searches.providers.length > 0 ? `\nprovider：${searches.providers.join("、")}` : ""
+              }`}
+            >
+              {searches.calls} 次调用 · 未留存来源清单
+            </span>
+          </div>
+          <p className="mt-1.5 text-[11px] leading-5 text-mist-600" style={{ whiteSpace: "pre-line" }}>
+            {searchNote}
+          </p>
+        </div>
+      )}
+
       {citations.length > 0 && (
         <div>
           <div className="flex items-center gap-2">
@@ -3309,6 +3363,25 @@ function ResultView({
             <span className="rounded bg-glow-500/15 px-1.5 py-0.5 font-mono text-[10px] text-glow-300">
               {citations.length}
             </span>
+            {searches.metadataOnly > 0 && (
+              <span
+                className="rounded bg-night-700 px-1.5 py-0.5 text-[10px] text-mist-500"
+                title={`联网检索留痕：共 ${searches.calls} 次调用（${searches.tools.join(" / ")}）\n留下可引用来源 ${
+                  searches.withUrls
+                } 次 · 只留查询元数据 ${searches.metadataOnly} 次${
+                  searches.reportedResults > 0 ? ` · 扩展自报命中 ${searches.reportedResults} 条` : ""
+                }${searches.providers.length > 0 ? `\nprovider：${searches.providers.join("、")}` : ""}${
+                  searches.queries.length > 0
+                    ? `\n检索词：\n${searches.queries
+                        .slice(0, 6)
+                        .map((q) => `· ${q}`)
+                        .join("\n")}`
+                    : ""
+                }`}
+              >
+                检索 {searches.calls} 次 · 仅元数据 {searches.metadataOnly} 次
+              </span>
+            )}
             <button
               type="button"
               className="action-btn"

@@ -45,3 +45,18 @@ export function freshnessText(f: BundleFreshness): string {
   }
   return "交付包仍是最新";
 }
+
+/** 打包按钮文案：打包后又有变更时改口「重新打包」，避免按钮看起来仍是最新 */
+export function bundleButtonLabel(f: BundleFreshness, busy = false): string {
+  if (busy) return "打包中…";
+  return f.stale ? "重新打包" : "打包下载";
+}
+
+/** 打包按钮提示：过期时把打包后的变更按类型合并计数列出来 */
+export function bundleButtonTitle(f: BundleFreshness, base: string): string {
+  if (!f.stale || f.newer.length === 0) return base;
+  const counts = new Map<string, number>();
+  for (const c of f.newer) counts.set(c.label, (counts.get(c.label) ?? 0) + 1);
+  const parts = [...counts.entries()].map(([label, n]) => (n > 1 ? `${label} ×${n}` : label));
+  return `${base}\n上次打包后又有 ${f.newer.length} 处变更（${parts.join("、")}），交付包已过期，请重新打包`;
+}

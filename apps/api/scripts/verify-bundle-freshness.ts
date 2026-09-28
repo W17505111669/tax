@@ -2,7 +2,7 @@
  * 验证脚本：交付包新鲜度判定（上次打包之后是否又有变更）。
  * 运行：pnpm verify:fresh
  */
-import { bundleFreshness, freshnessText } from "../../web/src/bundle-freshness.ts";
+import { bundleButtonLabel, bundleButtonTitle, bundleFreshness, freshnessText } from "../../web/src/bundle-freshness.ts";
 
 const failures: string[] = [];
 let checks = 0;
@@ -46,6 +46,34 @@ expect(
   "文案-过期含最近变更",
   freshnessText(bundleFreshness(PACKED, [{ at: AFTER, label: "产物更新" }, { at: LATER, label: "复核提交" }])),
   "打包后又有 2 处变更（最近：复核提交），建议重新打包",
+);
+
+// 打包按钮：过期时要改口「重新打包」，并把打包后的变更列进提示
+expect("按钮文案-未打包", bundleButtonLabel(bundleFreshness(null, [])), "打包下载");
+expect("按钮文案-仍是最新", bundleButtonLabel(bundleFreshness(PACKED, [{ at: BEFORE, label: "旧事件" }])), "打包下载");
+expect("按钮文案-已过期", bundleButtonLabel(bundleFreshness(PACKED, [{ at: AFTER, label: "产物更新" }])), "重新打包");
+expect(
+  "按钮文案-打包中优先于过期",
+  bundleButtonLabel(bundleFreshness(PACKED, [{ at: AFTER, label: "产物更新" }]), true),
+  "打包中…",
+);
+expect("按钮提示-未过期沿用原文", bundleButtonTitle(bundleFreshness(PACKED, []), "BASE"), "BASE");
+expect("按钮提示-未打包沿用原文", bundleButtonTitle(bundleFreshness(null, [{ at: AFTER, label: "新事件" }]), "BASE"), "BASE");
+expect(
+  "按钮提示-过期列出变更",
+  bundleButtonTitle(bundleFreshness(PACKED, [{ at: AFTER, label: "产物更新" }, { at: LATER, label: "复核提交" }]), "BASE"),
+  "BASE\n上次打包后又有 2 处变更（复核提交、产物更新），交付包已过期，请重新打包",
+);
+expect(
+  "按钮提示-同类变更合并计数",
+  bundleButtonTitle(
+    bundleFreshness(PACKED, [
+      { at: AFTER, label: "新事件" },
+      { at: LATER, label: "新事件" },
+    ]),
+    "BASE",
+  ).includes("新事件 ×2"),
+  true,
 );
 
 console.log(`[verify] 交付包新鲜度检查项=${checks} 失败=${failures.length}`);

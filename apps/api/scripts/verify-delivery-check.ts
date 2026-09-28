@@ -30,6 +30,7 @@ const base: CheckInput = {
   pendingReview: 0,
   citations: 3,
   citationGrades: { total: 3, official: 2, professional: 1, weak: 0 },
+  searches: { calls: 2, withUrls: 2, metadataOnly: 0, reportedResults: 0 },
   linkCheck: null,
   linkCheckAgeHours: null,
   amountTotal: 12,
@@ -57,7 +58,51 @@ expect("结论为空 → 阻断", deliveryCheck({ ...base, resultChars: 0 }).ver
 expect("有失败调用 → 提醒", deliveryCheck({ ...base, toolFailed: 1 }).verdict, "谨慎交付");
 expect("有未结束调用 → 提醒", deliveryCheck({ ...base, toolRunning: 1 }).verdict, "谨慎交付");
 expect("产物无法溯源 → 提醒", deliveryCheck({ ...base, unattributedArtifacts: 1 }).verdict, "谨慎交付");
-expect("无联网引用 → 提醒", deliveryCheck({ ...base, citations: 0 }).verdict, "谨慎交付");
+expect("既无引用也没检索 → 提醒", deliveryCheck({ ...base, citations: 0, searches: null }).verdict, "谨慎交付");
+expect(
+  "没检索时的提醒文案",
+  deliveryCheck({ ...base, citations: 0, searches: null }).items.some(
+    (x) => x.level === "warn" && x.text.includes("无联网引用"),
+  ),
+  true,
+);
+expect(
+  "检索过但只留元数据 → 说明而非提醒",
+  deliveryCheck({
+    ...base,
+    citations: 0,
+    citationGrades: null,
+    searches: { calls: 3, withUrls: 0, metadataOnly: 3, reportedResults: 15 },
+  }).verdict,
+  "可交付",
+);
+expect(
+  "元数据检索的说明含次数与自报命中数",
+  deliveryCheck({
+    ...base,
+    citations: 0,
+    citationGrades: null,
+    searches: { calls: 3, withUrls: 0, metadataOnly: 3, reportedResults: 15 },
+  }).items.some((x) => x.level === "info" && x.text.includes("3 次联网检索") && x.text.includes("15 条")),
+  true,
+);
+expect(
+  "有引用又有元数据检索 → 追加说明",
+  deliveryCheck({ ...base, searches: { calls: 3, withUrls: 1, metadataOnly: 2, reportedResults: 8 } }).items.some(
+    (x) => x.level === "info" && x.text.includes("另有 2 次联网检索"),
+  ),
+  true,
+);
+expect(
+  "元数据检索说明计入 info 不计入 warn",
+  deliveryCheck({
+    ...base,
+    citations: 0,
+    citationGrades: null,
+    searches: { calls: 1, withUrls: 0, metadataOnly: 1, reportedResults: 0 },
+  }).warns,
+  0,
+);
 expect("金额全部可溯源 → 不降级", deliveryCheck(base).verdict, "可交付");
 expect("存在未溯源金额 → 提醒", deliveryCheck({ ...base, amountUntraced: 3 }).verdict, "谨慎交付");
 expect(

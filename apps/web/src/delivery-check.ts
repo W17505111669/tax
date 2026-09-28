@@ -20,6 +20,8 @@ export type CheckInput = {
   citations: number;
   /** 联网引用的证据力分级汇总；null 表示本次任务没有联网引用 */
   citationGrades: GradeSummary | null;
+  /** 联网检索留痕；null 表示本任务没有任何联网检索类工具调用 */
+  searches: { calls: number; withUrls: number; metadataOnly: number; reportedResults: number } | null;
   /** 最近一次链接核验的分级汇总；null 表示尚未核验，此时不做任何判断 */
   linkCheck: { total: number; ok: number; blocked: number; dead: number; unreachable: number } | null;
   /** 最近一次链接核验距今的小时数；null 表示尚未核验或时间不可解析 */
@@ -123,8 +125,25 @@ export function deliveryCheck(i: CheckInput): CheckResult {
     items.push({ level: "ok", text: `政策文号 ${i.docRefTotal} 处均可溯源到工具结果` });
   }
 
-  if (i.citations > 0) items.push({ level: "ok", text: `联网引用 ${i.citations} 条` });
-  else items.push({ level: "warn", text: "无联网引用，涉及政策依据的结论请确认是否已完成在线核验" });
+  // 「没有引用清单」有两种情况：检索过但扩展只留元数据（如实说明），或根本没检索（提醒）
+  if (i.citations > 0) {
+    items.push({ level: "ok", text: `联网引用 ${i.citations} 条` });
+    if (i.searches && i.searches.metadataOnly > 0) {
+      items.push({
+        level: "info",
+        text: `另有 ${i.searches.metadataOnly} 次联网检索只留存查询元数据（未留存标题与 URL），未计入引用清单`,
+      });
+    }
+  } else if (i.searches && i.searches.calls > 0) {
+    items.push({
+      level: "info",
+      text: `本任务执行过 ${i.searches.calls} 次联网检索${
+        i.searches.reportedResults > 0 ? `（扩展自报命中 ${i.searches.reportedResults} 条）` : ""
+      }，但检索扩展只留存查询元数据，无法生成引用清单；请在结论中附检索词与检索时间，或改用 search_public_cases 留存来源`,
+    });
+  } else {
+    items.push({ level: "warn", text: "无联网引用，涉及政策依据的结论请确认是否已完成在线核验" });
+  }
 
   if (i.citationGrades) {
     if (i.citationGrades.weak > 0) {

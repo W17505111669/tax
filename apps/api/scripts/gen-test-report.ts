@@ -111,6 +111,11 @@ const VERIFY_SCRIPTS: Array<{ name: string; cmd: string; scope: string }> = [
     scope: "联网引用证据力分级（官方原文 / 专业来源 / 首页百科检索页 + 两套实现口径交叉核对）",
   },
   {
+    name: "verify:searchev",
+    cmd: "pnpm verify:searchev",
+    scope: "联网检索留痕与引用提取（各工具结果形状 / 去重上限 / 只留元数据时如实说明 / 真实任务走查）",
+  },
+  {
     name: "verify:upload",
     cmd: "pnpm verify:upload",
     scope: "上传预检规则（扩展名 / 大小 / 空文件 / 批量分组 / 提示文案）",
