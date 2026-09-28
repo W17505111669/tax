@@ -78,6 +78,27 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   const [reload, setReload] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [showLines, setShowLines] = useState(false);
+  const [aliases, setAliases] = useState<Record<string, string>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("taxai-reader-aliases") ?? "{}") as Record<string, string>;
+    } catch {
+      return {};
+    }
+  });
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+
+  const commitAlias = (key: string) => {
+    const v = editValue.trim();
+    setAliases((prev) => {
+      const next = { ...prev };
+      if (v) next[key] = v;
+      else delete next[key];
+      localStorage.setItem("taxai-reader-aliases", JSON.stringify(next));
+      return next;
+    });
+    setEditingKey(null);
+  };
   const active = tabs[activeIndex] ?? null;
   const activeKey = active ? readerKey(active) : "";
   const state = states[activeKey] ?? INITIAL;
@@ -252,7 +273,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
           {visible.map(({ t: tab, i }) => {
             const key = readerKey(tab);
             const tabState = states[key];
-            const label = tabState?.title || fallbackTitle(tab);
+            const label = aliases[key] || tabState?.title || fallbackTitle(tab);
             const isActive = i === activeIndex;
             return (
               <div
@@ -270,11 +291,28 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                   isActive ? "bg-night-800 text-mist-100" : "text-mist-600 hover:bg-night-900 hover:text-mist-300"
                 }`}
               >
+                {editingKey === key ? (
+                  <input
+                    autoFocus
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onBlur={() => commitAlias(key)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commitAlias(key);
+                      if (e.key === "Escape") setEditingKey(null);
+                    }}
+                    className="w-[120px] rounded border border-glow-500/50 bg-night-800 px-1 py-0.5 text-[12px] text-mist-100 outline-none"
+                  />
+                ) : (
                 <button
                   type="button"
                   onClick={() => onSelect(i)}
+                  onDoubleClick={() => {
+                    setEditingKey(key);
+                    setEditValue(aliases[key] ?? label);
+                  }}
                   className="flex min-w-0 items-center gap-1.5 text-[12px]"
-                  title={label}
+                  title={`${label}（双击重命名）`}
                 >
                   {tab.kind === "url" ? (
                     <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-glow-500/20 text-[8px] font-bold text-glow-300">
@@ -287,6 +325,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                   )}
                   <span className="max-w-[140px] truncate">{label}</span>
                 </button>
+                )}
                 <button
                   type="button"
                   onClick={() => onCloseTab(i)}

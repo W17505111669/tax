@@ -216,30 +216,33 @@ export function AgentOverview({ agents, activeAgentId, stats, breakdown, created
             <div className="kicker">平台应用效果 · 实时运行数据</div>
             <div className="mt-2 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
               {[
-                { label: "累计任务", value: stats.platform.tasks.toLocaleString("zh-CN"), unit: "个" },
-                { label: "已完成", value: stats.platform.completed.toLocaleString("zh-CN"), unit: "个" },
+                { label: "累计任务", value: stats.platform.tasks.toLocaleString("zh-CN"), unit: "个", desc: "全平台已创建任务总数（含未完成）" },
+                { label: "已完成", value: stats.platform.completed.toLocaleString("zh-CN"), unit: "个", desc: "状态为 completed 的任务数" },
                 {
                   label: "工具成功率",
+                  desc: "tool_calls 中 ok=1 的占比",
                   value:
                     stats.platform.toolCalls > 0
                       ? String(Math.round((stats.platform.toolOk / stats.platform.toolCalls) * 10000) / 100)
                       : "—",
                   unit: "%",
                 },
-                { label: "底稿产物", value: stats.platform.artifacts.toLocaleString("zh-CN"), unit: "份" },
+                { label: "底稿产物", value: stats.platform.artifacts.toLocaleString("zh-CN"), unit: "份", desc: "各任务 outputs 目录文件计数" },
                 {
                   label: "记录级比对准确率",
+                  desc: "最近一次记录级 compare_workpapers 的准确率",
                   value: stats.platform.compareAccuracy !== null ? String(stats.platform.compareAccuracy) : "—",
                   unit: "%",
                 },
                 {
                   label: "OCR 平均置信度",
+                  desc: "parse_uploaded_files 各文档 tesseract 置信度均值",
                   value:
                     stats.platform.ocrAvgConfidence !== null ? String(stats.platform.ocrAvgConfidence) : "—",
                   unit: stats.platform.ocrRuns > 0 ? `%·${stats.platform.ocrRuns}次` : "%",
                 },
               ].map((kpi) => (
-                <div key={kpi.label} className="glow-card px-4 py-3">
+                <div key={kpi.label} className="glow-card px-4 py-3" title={kpi.desc}>
                   <div className="text-[11px] text-mist-600">{kpi.label}</div>
                   <div className="mt-1 flex items-baseline gap-1">
                     <span className="text-[22px] font-semibold tracking-tight text-jade-400">{kpi.value}</span>
