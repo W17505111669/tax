@@ -146,6 +146,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   const [reload, setReload] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [rot, setRot] = useState(0);
+  const [fitWidth, setFitWidth] = useState(true);
   const [showRowNum, setShowRowNum] = useState(false);
   const [freezeFirst, setFreezeFirst] = useState(() => localStorage.getItem("taxai-reader-freeze") === "1");
 
@@ -306,6 +307,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
     setFindQuery("");
     setFindIdx(0);
     setRot(0);
+    setFitWidth(true);
   }, [activeKey]);
 
   // Ctrl+Tab 切换标签（Shift 反向）
@@ -785,6 +787,17 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
               ⟳ {rot}°
             </button>
           )}
+          {state.kind === "image" && (
+            <button
+              type="button"
+              className="action-btn"
+              data-on={!fitWidth}
+              onClick={() => setFitWidth((v) => !v)}
+              title="切换适应宽度 / 实际大小（横向可滚）"
+            >
+              {fitWidth ? "适应宽度" : "实际大小"}
+            </button>
+          )}
           {state.kind === "pdf" && (
             <>
             <a className="action-btn ml-auto" href={state.src} target="_blank" rel="noreferrer" title="在新标签页打开 PDF">
@@ -812,7 +825,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
           const r2 = other.scrollHeight - other.clientHeight;
           if (r1 > 0 && r2 > 0) other.scrollTop = (el.scrollTop / r1) * r2;
         }}
-        className="min-h-0 flex-1 overflow-y-auto px-4 py-4"
+        className="min-h-0 flex-1 overflow-auto px-4 py-4"
       >
         {state.loading && !/\.xlsx?$/i.test(activeName) && (
           <div className="flex flex-col items-center gap-4 py-14">
@@ -901,8 +914,11 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
           <img
             src={state.src}
             alt={state.title}
-            style={{ width: `${zoom * 100}%`, transform: rot ? `rotate(${rot}deg)` : undefined }}
-            className="mx-auto max-w-none rounded-md border border-line transition-transform"
+            style={{
+              width: fitWidth ? `${zoom * 100}%` : undefined,
+              transform: rot ? `rotate(${rot}deg)` : undefined,
+            }}
+            className={`rounded-md border border-line transition-transform ${fitWidth ? "mx-auto max-w-none" : "max-w-none"}`}
           />
         )}
         {!state.loading && !state.error && state.kind === "pdf" && (
