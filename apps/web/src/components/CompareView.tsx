@@ -36,16 +36,19 @@ export function CompareView({ compares, onOpenTarget }: Props) {
   useEffect(() => {
     localStorage.setItem("taxai-compare-kind", kindFilter);
   }, [kindFilter]);
+
+  const [onlyLatest, setOnlyLatest] = useState(false);
+  const shownCompares = onlyLatest ? compares.slice(-1) : compares;
   const flat = useMemo(
     () =>
-      compares.flatMap((rec) =>
+      shownCompares.flatMap((rec) =>
         rec.result?.totals
           ? rec.result.sheets.flatMap((s) =>
               s.diffs.filter(matchFilter).map((d) => ({ rec, addr: d.address })),
             )
           : [],
       ),
-    [compares, kindFilter, addrQuery],
+    [shownCompares, kindFilter, addrQuery],
   );
 
   // ↑/↓ 选择差异行，Enter 在阅读器中打开双底稿定位
@@ -220,10 +223,22 @@ export function CompareView({ compares, onOpenTarget }: Props) {
           placeholder="地址过滤…"
           className="ml-auto w-32 rounded-full border border-line bg-night-850 px-2.5 py-0.5 text-[11px] text-mist-100 outline-none placeholder:text-mist-600 focus:glow-ring"
         />
+        <button
+          type="button"
+          onClick={() => setOnlyLatest((v) => !v)}
+          title="仅显示最近一次比对记录"
+          className={`rounded-full border px-2.5 py-0.5 text-[11px] transition-colors ${
+            onlyLatest
+              ? "border-glow-500 bg-glow-500/15 text-glow-300"
+              : "border-line bg-night-850 text-mist-500 hover:text-mist-100"
+          }`}
+        >
+          仅看最新
+        </button>
       </div>
-      {compares.length > 1 &&
+      {shownCompares.length > 1 &&
         (() => {
-          const pts = compares
+          const pts = shownCompares
             .map((rec) => rec.result?.totals?.accuracyPercent)
             .filter((v): v is number => typeof v === "number");
           if (pts.length < 2) return null;
@@ -283,7 +298,7 @@ export function CompareView({ compares, onOpenTarget }: Props) {
           );
         })()}
       {(() => {
-        const tot = compares.reduce(
+          const tot = shownCompares.reduce(
           (acc, r) => {
             const t = r.result?.totals;
             if (t) {
@@ -342,10 +357,10 @@ export function CompareView({ compares, onOpenTarget }: Props) {
           </div>
         );
       })()}
-      {compares.map((rec, ri) => {
+      {shownCompares.map((rec, ri) => {
         const t = rec.result?.totals;
         if (!t) return null;
-        const prevAcc = ri > 0 ? compares[ri - 1]?.result?.totals?.accuracyPercent : undefined;
+        const prevAcc = ri > 0 ? shownCompares[ri - 1]?.result?.totals?.accuracyPercent : undefined;
         const accDelta = typeof prevAcc === "number" ? t.accuracyPercent - prevAcc : undefined;
         return (
           <section key={rec.id} className="glow-card px-5 py-4">
