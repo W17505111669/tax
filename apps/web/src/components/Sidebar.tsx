@@ -29,7 +29,7 @@ const STATUS_DOT: Record<string, string> = {
 
 export function Sidebar({ agents, activeAgentId, activeTaskId, tasks, onSelectAgent, onSelectTask, onNewTask }: Props) {
   return (
-    <aside className="relative flex w-[268px] shrink-0 flex-col border-r border-line bg-night-950 text-mist-300">
+    <aside className="no-print relative flex w-[268px] shrink-0 flex-col border-r border-line bg-night-950 text-mist-300">
       <div className="rail-gradient absolute inset-y-0 left-0 w-[3px]" aria-hidden />
 
       <div className="border-b border-line px-5 py-4">

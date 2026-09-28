@@ -3,7 +3,7 @@ import { api } from "../api.ts";
 import type { AgentInfo, ArtifactInfo, FileInfo, TaskInfo } from "../types.ts";
 import { useTaskEvents } from "../hooks/useTaskEvents.ts";
 import { MarkdownView } from "./MarkdownView.tsx";
-import { SideReader, type ReaderTarget } from "./SideReader.tsx";
+import { readerKey, SideReader, type ReaderTarget } from "./SideReader.tsx";
 import {
   IconAlert,
   IconCheck,
@@ -49,7 +49,8 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
   const { timeline, toolCalls, status } = useTaskEvents(task.id);
   const [tab, setTab] = useState<"timeline" | "result">("timeline");
   const [readerOpen, setReaderOpen] = useState(false);
-  const [readerTarget, setReaderTarget] = useState<ReaderTarget | null>(null);
+  const [readerTabs, setReaderTabs] = useState<ReaderTarget[]>([]);
+  const [readerActive, setReaderActive] = useState(0);
   const [artifacts, setArtifacts] = useState<ArtifactInfo[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -58,8 +59,22 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
   const running = liveStatus === "processing";
 
   const openReader = (target: ReaderTarget) => {
-    setReaderTarget(target);
+    const key = readerKey(target);
+    const idx = readerTabs.findIndex((t) => readerKey(t) === key);
+    if (idx >= 0) {
+      setReaderActive(idx);
+    } else {
+      setReaderTabs((prev) => [...prev, target]);
+      setReaderActive(readerTabs.length);
+    }
     setReaderOpen(true);
+  };
+
+  const closeTab = (index: number) => {
+    const next = readerTabs.filter((_, i) => i !== index);
+    setReaderTabs(next);
+    setReaderActive((a) => (a >= index ? Math.max(0, a - 1) : a));
+    if (next.length === 0) setReaderOpen(false);
   };
 
   useEffect(() => {
@@ -131,7 +146,7 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex flex-wrap items-center gap-3 border-b border-line bg-night-950 px-8 py-3.5">
+      <header className="no-print flex flex-wrap items-center gap-3 border-b border-line bg-night-950 px-8 py-3.5">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h2 className="truncate text-[15px] font-semibold text-mist-100">{task.title}</h2>
@@ -180,7 +195,7 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
         </button>
       </header>
 
-      <div className="flex items-center gap-0 border-b border-line bg-night-900 px-8 py-3">
+      <div className="no-print flex items-center gap-0 border-b border-line bg-night-900 px-8 py-3">
         {steps.map((step, i) => (
           <div key={step.label} className="flex items-center">
             {i > 0 && (
@@ -212,7 +227,7 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
 
       <div className="flex min-h-0 flex-1 gap-0">
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex items-center gap-1 border-b border-line bg-night-950 px-8">
+          <div className="no-print flex items-center gap-1 border-b border-line bg-night-950 px-8">
             {(
               [
                 ["timeline", "执行过程"],
@@ -230,11 +245,16 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
                 }`}
               >
                 {label}
+                {key === "result" && citations.length > 0 && (
+                  <span className="ml-1.5 rounded bg-glow-500/15 px-1 py-0.5 text-[10px] text-glow-300">
+                    {citations.length}
+                  </span>
+                )}
               </button>
             ))}
           </div>
 
-          <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-8 py-5">
+          <div ref={scrollRef} className="print-scroll min-h-0 flex-1 overflow-y-auto px-8 py-5">
             {tab === "timeline" && (
               <TimelineView
                 instruction={task.instruction}
@@ -264,7 +284,7 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
         </div>
 
         <aside
-          className={`w-[280px] shrink-0 overflow-y-auto border-l border-line bg-night-950 px-5 py-5 ${
+          className={`no-print w-[280px] shrink-0 overflow-y-auto border-l border-line bg-night-950 px-5 py-5 ${
             readerOpen ? "hidden" : "hidden xl:block"
           }`}
         >
@@ -333,7 +353,15 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
           </ul>
         </aside>
 
-        {readerOpen && <SideReader target={readerTarget} onClose={() => setReaderOpen(false)} />}
+        {readerOpen && (
+          <SideReader
+            tabs={readerTabs}
+            activeIndex={readerActive}
+            onSelect={setReaderActive}
+            onCloseTab={closeTab}
+            onClose={() => setReaderOpen(false)}
+          />
+        )}
       </div>
     </div>
   );

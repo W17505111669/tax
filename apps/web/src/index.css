@@ -285,3 +285,76 @@ details.tool-row .chev {
   border-left-color: #9ca3af;
   color: #4b5563;
 }
+
+/* ===== 打印 / 导出 PDF：浅色纸张样式，只保留正文 ===== */
+@media print {
+  body {
+    background: #ffffff !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-scroll {
+    overflow: visible !important;
+    height: auto !important;
+  }
+  main,
+  .glow-card {
+    background: #ffffff !important;
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+  .md-body,
+  .md-body p,
+  .md-body li {
+    color: #111827 !important;
+  }
+  .md-body h2,
+  .md-body h3,
+  .md-body h4,
+  .md-body strong {
+    color: #000000 !important;
+  }
+  .md-body h2 {
+    border-color: #d1d5db !important;
+  }
+  .md-body th {
+    background: #f3f4f6 !important;
+    color: #111827 !important;
+  }
+  .md-body th,
+  .md-body td {
+    border-color: #d1d5db !important;
+  }
+  .md-body tbody tr:nth-child(even) {
+    background: #f9fafb !important;
+  }
+  .md-body a {
+    color: #0369a1 !important;
+  }
+  .md-body code {
+    background: #f3f4f6 !important;
+    color: #111827 !important;
+  }
+  .md-body pre {
+    background: #f9fafb !important;
+    border-color: #e5e7eb !important;
+  }
+  .md-body pre code {
+    color: #111827 !important;
+  }
+  .md-body blockquote {
+    background: #f9fafb !important;
+    border-left-color: #9ca3af !important;
+    color: #374151 !important;
+  }
+  .md-body .mermaid {
+    background: #ffffff !important;
+    border-color: #d1d5db !important;
+  }
+  .user-bubble {
+    background: #f3f4f6 !important;
+    color: #111827 !important;
+    box-shadow: none !important;
+  }
+}

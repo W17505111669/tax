@@ -8,6 +8,12 @@ export type ReaderTarget =
   | { kind: "file"; taskId: string; fileId: string; name: string }
   | { kind: "artifact"; taskId: string; name: string };
 
+export function readerKey(target: ReaderTarget): string {
+  if (target.kind === "url") return `url:${target.url}`;
+  if (target.kind === "file") return `file:${target.taskId}:${target.fileId}`;
+  return `artifact:${target.taskId}:${target.name}`;
+}
+
 type PreviewKind = "markdown" | "text" | "pdf" | "image" | "binary";
 
 interface ReaderState {
@@ -37,63 +43,101 @@ function previewKind(headerKind: string | null, name: string): PreviewKind {
   return "binary";
 }
 
-/** 侧边可折叠阅读器：网页阅读模式、任务资料与生成产物的统一预览入口。 */
-export function SideReader({ target, onClose }: { target: ReaderTarget | null; onClose: () => void }) {
-  const [state, setState] = useState<ReaderState>(INITIAL);
+function fallbackTitle(target: ReaderTarget): string {
+  if (target.kind === "url") {
+    try {
+      return new URL(target.url).hostname;
+    } catch {
+      return target.url;
+    }
+  }
+  return target.name;
+}
+
+interface Props {
+  tabs: ReaderTarget[];
+  activeIndex: number;
+  onSelect: (index: number) => void;
+  onCloseTab: (index: number) => void;
+  onClose: () => void;
+}
+
+/** 侧边可折叠阅读器：支持多文档标签页，网页阅读模式、任务资料与生成产物统一预览。 */
+export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onClose }: Props) {
+  const [states, setStates] = useState<Record<string, ReaderState>>({});
+  const active = tabs[activeIndex] ?? null;
+  const activeKey = active ? readerKey(active) : "";
+  const state = states[activeKey] ?? INITIAL;
 
   useEffect(() => {
-    if (!target) return;
+    if (!active) return;
+    const key = readerKey(active);
+    if (states[key]) return;
     let cancelled = false;
-    setState({ ...INITIAL, loading: true });
+    setStates((prev) => ({ ...prev, [key]: { ...INITIAL, loading: true } }));
 
     void (async () => {
       try {
-        if (target.kind === "url") {
-          const result = await api.readUrl(target.url);
+        if (active.kind === "url") {
+          const result = await api.readUrl(active.url);
           if (cancelled) return;
           if ((result.contentType ?? "").includes("application/pdf")) {
-            setState({
-              loading: false,
-              error: null,
-              kind: "pdf",
-              title: result.title || target.url,
-              markdown: "",
-              text: "",
-              src: target.url,
-            });
+            setStates((prev) => ({
+              ...prev,
+              [key]: {
+                loading: false,
+                error: null,
+                kind: "pdf",
+                title: result.title || active.url,
+                markdown: "",
+                text: "",
+                src: active.url,
+              },
+            }));
             return;
           }
-          setState({
-            loading: false,
-            error: null,
-            kind: "markdown",
-            title: result.title || target.url,
-            markdown: result.markdown || result.excerpt || "（该网页未提取到正文）",
-            text: "",
-            src: target.url,
-          });
+          setStates((prev) => ({
+            ...prev,
+            [key]: {
+              loading: false,
+              error: null,
+              kind: "markdown",
+              title: result.title || active.url,
+              markdown: result.markdown || result.excerpt || "（该网页未提取到正文）",
+              text: "",
+              src: active.url,
+            },
+          }));
           return;
         }
 
         const url =
-          target.kind === "file"
-            ? api.fileContentUrl(target.taskId, target.fileId)
-            : api.artifactContentUrl(target.taskId, target.name);
-        const name = target.name;
+          active.kind === "file"
+            ? api.fileContentUrl(active.taskId, active.fileId)
+            : api.artifactContentUrl(active.taskId, active.name);
         const res = await fetch(url);
         if (!res.ok) throw new Error(`读取失败 HTTP ${res.status}`);
-        const kind = previewKind(res.headers.get("X-Preview-Kind"), name);
+        const kind = previewKind(res.headers.get("X-Preview-Kind"), active.name);
         if (kind === "text" || kind === "markdown") {
           const text = await res.text();
           if (cancelled) return;
-          setState({ loading: false, error: null, kind, title: name, markdown: text, text, src: url });
+          setStates((prev) => ({
+            ...prev,
+            [key]: { loading: false, error: null, kind, title: active.name, markdown: text, text, src: url },
+          }));
         } else {
           if (cancelled) return;
-          setState({ loading: false, error: null, kind, title: name, markdown: "", text: "", src: url });
+          setStates((prev) => ({
+            ...prev,
+            [key]: { loading: false, error: null, kind, title: active.name, markdown: "", text: "", src: url },
+          }));
         }
       } catch (err) {
         if (!cancelled) {
-          setState({ ...INITIAL, error: err instanceof Error ? err.message : "读取失败" });
+          setStates((prev) => ({
+            ...prev,
+            [key]: { ...INITIAL, error: err instanceof Error ? err.message : "读取失败" },
+          }));
         }
       }
     })();
@@ -101,18 +145,61 @@ export function SideReader({ target, onClose }: { target: ReaderTarget | null; o
     return () => {
       cancelled = true;
     };
-  }, [target]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeKey]);
 
   return (
-    <aside className="flex w-[440px] shrink-0 flex-col border-l border-line bg-night-950">
-      <header className="flex items-center gap-2 border-b border-line px-4 py-2.5">
-        <IconFile className="h-4 w-4 shrink-0 text-glow-400" />
-        <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-mist-100" title={state.title}>
-          {state.title || "阅读器"}
-        </span>
-        {target?.kind === "url" && (
+    <aside className="no-print flex w-[440px] shrink-0 flex-col border-l border-line bg-night-950">
+      <header className="flex items-stretch gap-0 border-b border-line">
+        <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto">
+          {tabs.map((tab, i) => {
+            const key = readerKey(tab);
+            const tabState = states[key];
+            const label = tabState?.title || fallbackTitle(tab);
+            const isActive = i === activeIndex;
+            return (
+              <div
+                key={key}
+                className={`group flex shrink-0 items-center gap-1.5 border-r border-line px-3 py-2 ${
+                  isActive ? "bg-night-800 text-mist-100" : "text-mist-600 hover:bg-night-900 hover:text-mist-300"
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => onSelect(i)}
+                  className="flex min-w-0 items-center gap-1.5 text-[12px]"
+                  title={label}
+                >
+                  <IconFile className="h-3.5 w-3.5 shrink-0 text-glow-400" />
+                  <span className="max-w-[140px] truncate">{label}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onCloseTab(i)}
+                  title="关闭标签"
+                  className="rounded p-0.5 text-mist-600 opacity-0 transition-opacity hover:text-rose-300 group-hover:opacity-100"
+                >
+                  <IconX className="h-3 w-3" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          title="收起阅读器"
+          className="shrink-0 px-3 text-mist-600 hover:bg-night-900 hover:text-mist-100"
+        >
+          <IconX className="h-3.5 w-3.5" />
+        </button>
+      </header>
+
+      {active?.kind === "url" && (
+        <div className="flex items-center gap-2 border-b border-line px-4 py-1.5">
+          <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-mist-600">{active.url}</span>
           <a
-            href={target.url}
+            href={active.url}
             target="_blank"
             rel="noreferrer"
             title="在新标签页打开原文"
@@ -120,16 +207,8 @@ export function SideReader({ target, onClose }: { target: ReaderTarget | null; o
           >
             <IconExternal className="h-3.5 w-3.5" />
           </a>
-        )}
-        <button
-          type="button"
-          onClick={onClose}
-          title="收起阅读器"
-          className="shrink-0 rounded p-1 text-mist-600 hover:bg-night-800 hover:text-mist-100"
-        >
-          <IconX className="h-3.5 w-3.5" />
-        </button>
-      </header>
+        </div>
+      )}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         {state.loading && (
@@ -139,9 +218,22 @@ export function SideReader({ target, onClose }: { target: ReaderTarget | null; o
           </div>
         )}
         {state.error && (
-          <div className="flex items-start gap-2 rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-[12.5px] text-rose-300">
-            <IconAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            {state.error}
+          <div className="rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-[12.5px] text-rose-300">
+            <div className="flex items-start gap-2">
+              <IconAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              {state.error}
+            </div>
+            {active?.kind === "url" && (
+              <a
+                href={active.url}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-line bg-night-800 px-2.5 py-1 text-[12px] text-mist-100 hover:border-glow-500"
+              >
+                <IconExternal className="h-3 w-3" />
+                目标站拒绝抓取时，可在新标签页打开原文
+              </a>
+            )}
           </div>
         )}
         {!state.loading && !state.error && (state.kind === "markdown" || state.kind === "text") && (
@@ -173,10 +265,10 @@ export function SideReader({ target, onClose }: { target: ReaderTarget | null; o
             </a>
           </div>
         )}
-        {!state.loading && !state.error && target?.kind === "url" && (
+        {!state.loading && !state.error && active?.kind === "url" && (
           <p className="mt-4 border-t border-line pt-3 text-[11px] text-mist-600">
             阅读模式正文由服务端 Readability 提取，仅供参考；原文以
-            <a href={target.url} target="_blank" rel="noreferrer" className="ml-1 underline">
+            <a href={active.url} target="_blank" rel="noreferrer" className="ml-1 underline">
               来源链接
             </a>
             为准。

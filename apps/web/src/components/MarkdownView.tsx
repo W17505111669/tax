@@ -1,19 +1,22 @@
 import { useEffect, useRef, type MouseEvent } from "react";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
-import mermaid from "mermaid";
 
-let mermaidInitialized = false;
+type MermaidApi = typeof import("mermaid").default;
 
-function ensureMermaid(): void {
-  if (mermaidInitialized) return;
-  mermaid.initialize({
+let mermaidPromise: Promise<MermaidApi> | null = null;
+
+/** mermaid 体积大，按需动态加载，避免拖慢首屏。 */
+function loadMermaid(): Promise<MermaidApi> {
+  if (!mermaidPromise) {
+    mermaidPromise = import("mermaid").then((mod) => {
+      mod.default.initialize({
     startOnLoad: false,
     securityLevel: "strict",
     theme: "dark",
     fontFamily: '"Inter", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif',
     flowchart: { curve: "basis", htmlLabels: true },
-    themeVariables: {
+        themeVariables: {
       darkMode: true,
       background: "#04070d",
       primaryColor: "#0d1526",
@@ -25,9 +28,12 @@ function ensureMermaid(): void {
       nodeBorder: "#1b2c47",
       clusterBkg: "rgba(18, 32, 54, 0.6)",
       edgeLabelBackground: "#060b16",
-    },
-  });
-  mermaidInitialized = true;
+        },
+      });
+      return mod.default;
+    });
+  }
+  return mermaidPromise;
 }
 
 /** 把 mermaid 代码块抽成占位节点，避免被 marked 当成普通代码块转义。 */
@@ -48,16 +54,17 @@ function renderMarkdown(el: HTMLElement, text: string, live: boolean): void {
   if (live) return;
   const nodes = Array.from(el.querySelectorAll<HTMLElement>("[data-mermaid]"));
   if (nodes.length === 0) return;
-  ensureMermaid();
   for (const node of nodes) {
     const code = fences[Number(node.getAttribute("data-mermaid"))] ?? "";
     node.removeAttribute("data-mermaid");
     node.classList.add("mermaid");
     node.textContent = code;
   }
-  void mermaid.run({ nodes, suppressErrors: true }).catch(() => {
-    // 单个图语法错误不影响其余内容渲染
-  });
+  void loadMermaid()
+    .then((mermaid) => mermaid.run({ nodes, suppressErrors: true }))
+    .catch(() => {
+      // 单个图语法错误不影响其余内容渲染
+    });
 }
 
 interface Props {

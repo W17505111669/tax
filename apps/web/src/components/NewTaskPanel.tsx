@@ -9,11 +9,19 @@ interface Props {
   onSubmit: (input: { instruction: string; caseId: string; title: string; files: File[] }) => void;
 }
 
+const QUICK_EXTRAS = [
+  { label: "联网检索缺失资料", snippet: "对缺失资料请联网检索公开业务案例与税务机关公开口径，并列出标题与 URL。" },
+  { label: "mermaid 关系图", snippet: "请用 mermaid 图展示关键关系或差异传导。" },
+  { label: "表格化比对", snippet: "请用表格比对数据，金额列右对齐并保留两位小数。" },
+  { label: "待复核清单", snippet: "请在结尾列出全部待复核与待人工确认事项。" },
+];
+
 export function NewTaskPanel({ agent, busy, error, onSubmit }: Props) {
   const [instruction, setInstruction] = useState("");
   const [caseId, setCaseId] = useState("DEMO-001");
   const [title, setTitle] = useState("");
   const [files, setFiles] = useState<File[]>([]);
+  const [extras, setExtras] = useState<number[]>([]);
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -24,7 +32,9 @@ export function NewTaskPanel({ agent, busy, error, onSubmit }: Props) {
 
   const submit = () => {
     if (!instruction.trim() || busy) return;
-    onSubmit({ instruction: instruction.trim(), caseId: caseId.trim() || "DEMO-001", title: title.trim(), files });
+    const extraText = extras.map((i) => QUICK_EXTRAS[i]!.snippet).join("\n");
+    const finalInstruction = extraText ? `${instruction.trim()}\n${extraText}` : instruction.trim();
+    onSubmit({ instruction: finalInstruction, caseId: caseId.trim() || "DEMO-001", title: title.trim(), files });
   };
 
   return (
@@ -48,6 +58,27 @@ export function NewTaskPanel({ agent, busy, error, onSubmit }: Props) {
             placeholder="例如：请核查某项目研发费用归集情况，并测算可加计扣除金额…"
             className="w-full resize-y rounded-lg border border-line bg-night-850 px-3.5 py-3 text-[13.5px] leading-6 text-mist-100 outline-none transition-shadow placeholder:text-mist-600 focus:glow-ring"
           />
+
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {QUICK_EXTRAS.map((q, i) => {
+              const on = extras.includes(i);
+              return (
+                <button
+                  key={q.label}
+                  type="button"
+                  onClick={() => setExtras((prev) => (on ? prev.filter((x) => x !== i) : [...prev, i]))}
+                  className={`rounded-full border px-2.5 py-1 text-[11.5px] transition-colors ${
+                    on
+                      ? "border-glow-500 bg-glow-500/15 text-glow-300"
+                      : "border-line bg-night-850 text-mist-500 hover:border-glow-500 hover:text-mist-100"
+                  }`}
+                >
+                  {on ? "✓ " : "+ "}
+                  {q.label}
+                </button>
+              );
+            })}
+          </div>
 
           <div className="mt-3">
             <div className="text-[12px] font-medium text-mist-500">示例任务</div>
