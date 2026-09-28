@@ -1050,7 +1050,11 @@ function TimelineView({
           const call = toolCalls.filter((c) => c.toolName === name)[idx];
           return (
             <div key={item.id} className={cls}>
-              <ToolRow name={name} call={call} ts={showTs ? fmtTs(item.at) : undefined} />
+              <ToolRow
+                name={name}
+                call={call}
+                ts={showTs ? `#${item.seq} ${fmtTs(item.at)}` : undefined}
+              />
             </div>
           );
         }
@@ -1079,7 +1083,9 @@ function TimelineView({
           }
           return (
             <div key={item.id} className={`flex items-center gap-2 text-[11.5px] text-mist-600 ${cls}`}>
-              {showTs && <span className="font-mono text-[9.5px] text-mist-600">{fmtTs(item.at)}</span>}
+              {showTs && (
+                <span className="font-mono text-[9.5px] text-mist-600">{`#${item.seq} ${fmtTs(item.at)}`}</span>
+              )}
               <span className="h-1 w-1 rounded-full bg-glow-500" />
               {item.detail ?? item.title}
             </div>
@@ -1088,7 +1094,9 @@ function TimelineView({
 
         return (
           <div key={item.id} className={`group glow-card relative px-4 py-3 ${cls}`}>
-            {showTs && <div className="mb-1 font-mono text-[9.5px] text-mist-600">{fmtTs(item.at)}</div>}
+            {showTs && (
+              <div className="mb-1 font-mono text-[9.5px] text-mist-600">{`#${item.seq} ${fmtTs(item.at)}`}</div>
+            )}
             {isText && (
               <button
                 type="button"

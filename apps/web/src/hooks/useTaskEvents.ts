@@ -8,6 +8,7 @@ export interface TimelineItem {
   title: string;
   detail?: string;
   at: string;
+  seq: number;
   streaming?: boolean;
   payload?: unknown;
 }
@@ -61,7 +62,7 @@ export function useTaskEvents(taskId: string | null) {
           const id = streamIdRef.current;
           setTimeline((prev) => [
             ...prev,
-            { id, kind: "agent_text", title: "Agent 输出", detail: "", at: event.at, streaming: true },
+            { id, kind: "agent_text", title: "Agent 输出", detail: "", at: event.at, seq: event.seq, streaming: true },
           ]);
         }
         setStream((prev) => prev + event.message);
@@ -118,6 +119,7 @@ export function useTaskEvents(taskId: string | null) {
           title: STATUS_LABEL[event.kind] || event.kind,
           detail: event.kind === "tool_end" ? undefined : event.message,
           at: event.at,
+          seq: event.seq,
           payload: event.payload,
         },
       ]);

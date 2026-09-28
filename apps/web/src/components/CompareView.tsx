@@ -106,6 +106,21 @@ export function CompareView({ compares, onOpenTarget }: Props) {
     URL.revokeObjectURL(url);
   };
 
+  // 差异摘要纯文本版（与 CSV 互补，便于粘贴聊天/工单）
+  const copySummary = (rec: CompareRecord) => {
+    const t = rec.result.totals;
+    const lines = [
+      `比对准确率 ${t.accuracyPercent}%（比对 ${t.compared}：一致 ${t.matched}、差异 ${t.mismatched}、仅A ${t.onlyA}、仅B ${t.onlyB}）`,
+    ];
+    for (const s of rec.result.sheets) {
+      for (const d of s.diffs) {
+        const kind = d.kind === "mismatch" ? "差异" : d.kind === "only_a" ? "仅系统" : "仅人工";
+        lines.push(`${kind} ${d.address}: A=${d.a ?? "∅"} B=${d.b ?? "∅"}`);
+      }
+    }
+    void navigator.clipboard?.writeText(lines.join("\n")).catch(() => undefined);
+  };
+
   const openBoth = (rec: CompareRecord, addr: string) => {
     const key = addr.includes("/") && !/^[A-Za-z]{1,3}\d+$/i.test(addr) ? addr.slice(0, addr.indexOf("/")) : undefined;
     if (rec.result.a) onOpenTarget({ ...rec.result.a, highlight: key });
@@ -262,6 +277,13 @@ export function CompareView({ compares, onOpenTarget }: Props) {
                 >
                   <IconDownload className="mr-1 inline h-3 w-3" />
                   导出 CSV
+                </button>
+                <button
+                  type="button"
+                  onClick={() => copySummary(rec)}
+                  className="rounded border border-line bg-night-800 px-2 py-0.5 text-[11px] text-mist-300 transition-colors hover:border-glow-500 hover:text-glow-300"
+                >
+                  复制摘要
                 </button>
                 {rec.result.a && (
                   <button
