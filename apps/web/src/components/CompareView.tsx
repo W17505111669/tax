@@ -266,6 +266,66 @@ export function CompareView({ compares, onOpenTarget }: Props) {
             </div>
           );
         })()}
+      {(() => {
+        const tot = compares.reduce(
+          (acc, r) => {
+            const t = r.result?.totals;
+            if (t) {
+              acc.matched += t.matched;
+              acc.mismatch += t.mismatched;
+              acc.onlyA += t.onlyA;
+              acc.onlyB += t.onlyB;
+            }
+            return acc;
+          },
+          { matched: 0, mismatch: 0, onlyA: 0, onlyB: 0 },
+        );
+        const sum = tot.matched + tot.mismatch + tot.onlyA + tot.onlyB;
+        if (sum === 0) return null;
+        const segs = [
+          { v: tot.matched, c: "#34d399", label: "一致" },
+          { v: tot.mismatch, c: "#fb7185", label: "差异" },
+          { v: tot.onlyA, c: "#fbbf24", label: "仅系统" },
+          { v: tot.onlyB, c: "#38bdf8", label: "仅人工" },
+        ];
+        const C = 2 * Math.PI * 12;
+        let offset = 0;
+        return (
+          <div className="flex items-center gap-4">
+            <svg viewBox="0 0 32 32" className="h-16 w-16 shrink-0" aria-hidden>
+              {segs.map((s) => {
+                const len = (s.v / sum) * C;
+                const el = (
+                  <circle
+                    key={s.label}
+                    cx="16"
+                    cy="16"
+                    r="12"
+                    fill="none"
+                    stroke={s.c}
+                    strokeWidth="5"
+                    strokeDasharray={`${len} ${C - len}`}
+                    strokeDashoffset={-offset}
+                    transform="rotate(-90 16 16)"
+                  />
+                );
+                offset += len;
+                return el;
+              })}
+            </svg>
+            <ul className="space-y-1 text-[11px] text-mist-500">
+              {segs.map((s) => (
+                <li key={s.label} className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-sm" style={{ background: s.c }} />
+                  {s.label}
+                  <span className="font-mono text-mist-300">{s.v}</span>
+                  <span className="text-mist-600">{Math.round((s.v / sum) * 100)}%</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })()}
       {compares.map((rec) => {
         const t = rec.result?.totals;
         if (!t) return null;
