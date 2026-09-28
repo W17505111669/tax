@@ -842,6 +842,15 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
             className="print-scroll min-h-0 flex-1 overflow-y-auto px-6 py-5"
           >
             <div className="chat-col mx-auto">
+              {liveStatus === "waiting_review" && tab !== "review" && (
+                <div className="no-print mb-3 flex items-center gap-2 rounded-md border border-sky-400/40 bg-sky-400/10 px-3 py-2 text-[12px] text-sky-300">
+                  <IconAlert className="h-3.5 w-3.5 shrink-0" />
+                  任务待人工复核，复核完成后自动流转为已完成
+                  <button type="button" className="action-btn ml-auto" onClick={() => onTabChange("review")}>
+                    前往复核
+                  </button>
+                </div>
+              )}
             {tab === "timeline" && (
               <TimelineView
                 instruction={task.instruction}

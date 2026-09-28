@@ -163,6 +163,7 @@ export function Sidebar({
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [starOnly, setStarOnly] = useState(false);
+  const [sortTools, setSortTools] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
     try {
       return JSON.parse(localStorage.getItem("taxai-sidebar-groups") ?? "{}") as Record<string, boolean>;
@@ -204,7 +205,12 @@ export function Sidebar({
       const i = order.indexOf(id);
       return i === -1 ? Number.MAX_SAFE_INTEGER : i;
     };
-    return [...list].sort((a, b) => idx(a.id) - idx(b.id) || b.createdAt.localeCompare(a.createdAt));
+    return [...list].sort((a, b) => {
+      const byOrder = idx(a.id) - idx(b.id);
+      if (byOrder !== 0 && (order.indexOf(a.id) !== -1 || order.indexOf(b.id) !== -1)) return byOrder;
+      if (sortTools) return (b.toolCount ?? 0) - (a.toolCount ?? 0);
+      return b.createdAt.localeCompare(a.createdAt);
+    });
   };
   const dropOn = (targetId: string) => {
     const from = dragIdRef.current;
@@ -538,10 +544,16 @@ export function Sidebar({
                 <span className={`chev text-[9px] ${closed ? "" : "rotate-90"}`}>▶</span>
                 <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[g.id] ?? "bg-mist-600"}`} />
                 {g.label}
-                <span className="ml-auto font-mono text-[10px]" title={`组内任务 ${list.length} 件 · 工具调用合计 ${toolSum}`}>
+                <button
+                  type="button"
+                  className="ml-auto font-mono text-[10px] transition-colors hover:text-glow-300"
+                  title={`组内任务 ${list.length} 件 · 工具调用合计 ${toolSum}（点击按工具数排序）`}
+                  data-on={sortTools}
+                  onClick={() => setSortTools((v) => !v)}
+                >
                   {list.length}
                   <span className="ml-1 opacity-70">Σ{toolSum}</span>
-                </span>
+                </button>
               </button>
               {!closed && list.map((task) => renderTaskRow(task))}
             </div>
