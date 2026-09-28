@@ -6,9 +6,10 @@ import { pendingReviewCount } from "./issues.ts";
 import { filterSearchResults, minRelevanceScore, type WebSearchResult } from "@tax/business-tools";
 // 证据口径必须与界面完全一致，因此直接复用前端那套纯函数，不在服务端另写一份
 import { extractCitations, searchEvidence, searchFiltering } from "../../../web/src/search-evidence.ts";
-import { summarizeGrades } from "../../../web/src/citation-grade.ts";
+import { gradeCitation, summarizeGrades } from "../../../web/src/citation-grade.ts";
 import { traceDocRefs } from "../../../web/src/policy-trace.ts";
 import { pendingAfterRecheck, summarizeRefChecks, type RefCheckVerdict } from "../../../web/src/ref-check.ts";
+import { refKey } from "../../../web/src/ref-check.ts";
 
 export interface AgentStats {
   agentId: string;
@@ -40,6 +41,8 @@ export interface EvidenceStats {
   citations: number;
   officialCitations: number;
   weakCitations: number;
+  /** 弱证据引用中已经检索到官方替代来源、只等人工写回结论的条数 */
+  weakWithReplacement: number;
   /** 政策文号：总数 / 工具结果可溯源 / 复查后仍无出处 / 已复查到公开出处 */
   docRefs: number;
   docRefTraced: number;
@@ -109,6 +112,7 @@ export function computePlatformStats(): PlatformStats {
     citations: 0,
     officialCitations: 0,
     weakCitations: 0,
+    weakWithReplacement: 0,
     docRefs: 0,
     docRefTraced: 0,
     docRefPending: 0,
@@ -200,10 +204,16 @@ export function computePlatformStats(): PlatformStats {
       });
     const tr = traceDocRefs(String(task.result ?? ""), okResults, calls.map((c) => c.tool_name));
     const rcRows = db
-      .prepare(`SELECT verdict, checked_at FROM ref_checks WHERE task_id = ?`)
-      .all(task.id) as unknown as Array<{ verdict: string; checked_at: string }>;
+      .prepare(`SELECT ref_key, kind, verdict, checked_at FROM ref_checks WHERE task_id = ?`)
+      .all(task.id) as unknown as Array<{ ref_key: string; kind: string; verdict: string; checked_at: string }>;
     const rc = summarizeRefChecks(
-      rcRows.map((r) => ({ verdict: r.verdict as RefCheckVerdict, checkedAt: r.checked_at })),
+      rcRows
+        .filter((r) => r.kind !== "citation")
+        .map((r) => ({ verdict: r.verdict as RefCheckVerdict, checkedAt: r.checked_at })),
+    );
+    // 已经找到官方替代来源的弱证据引用：结论没改之前它仍然是弱证据，但要让看板看得出「补救已就绪」
+    const replaced = new Set(
+      rcRows.filter((r) => r.kind === "citation" && r.verdict === "matched").map((r) => r.ref_key),
     );
     const docRefPending = pendingAfterRecheck(tr.untraced.length + tr.unverifiable, rc);
     evidence.searchCalls += se.calls;
@@ -214,6 +224,9 @@ export function computePlatformStats(): PlatformStats {
     evidence.citations += grades.total;
     evidence.officialCitations += grades.official;
     evidence.weakCitations += grades.weak;
+    evidence.weakWithReplacement += cites.filter(
+      (c) => gradeCitation(c.url, c.title).grade === "weak" && replaced.has(refKey("citation", c.url)),
+    ).length;
     evidence.docRefs += tr.total;
     evidence.docRefTraced += tr.traced;
     evidence.docRefPending += docRefPending;

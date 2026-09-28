@@ -103,12 +103,13 @@ export const api = {
     }),
 
   /** 跨任务批量复查政策文号（平台看板证据缺口条一键处理，条数受服务端预算限制） */
-  batchRefChecks: (ids?: string[]) =>
+  batchRefChecks: (ids?: string[], kinds?: Array<"docref" | "citation">) =>
     request<{
       tasks: number;
       ran: number;
       matched: number;
       budget: number;
+      kinds: string[];
       perTask: Array<{
         id: string;
         title: string;
@@ -121,7 +122,7 @@ export const api = {
     }>(`/api/tasks/ref-checks-batch`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids }),
+      body: JSON.stringify({ ids, kinds }),
     }),
 
   /** 打包交付：把整页 MD 交给服务端与本任务产物合成 zip（二进制，故不走 request） */

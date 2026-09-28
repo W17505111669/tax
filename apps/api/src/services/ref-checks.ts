@@ -10,6 +10,7 @@ import { db, nowIso } from "../db.ts";
 import { gradeCitation } from "../../../web/src/citation-grade.ts";
 import {
   buildRefQuery,
+  citationTargets,
   gradeRefCheck,
   refKey,
   refCheckTargets,
@@ -21,6 +22,8 @@ import {
   type RefCheckVerdict,
 } from "../../../web/src/ref-check.ts";
 import { traceDocRefs } from "../../../web/src/policy-trace.ts";
+import { extractCitations } from "../../../web/src/search-evidence.ts";
+import { topicHint } from "../../../web/src/domain-keywords.ts";
 import { getTask } from "./task-store.ts";
 
 /** 检索实现可注入，验证脚本用假检索器离线跑通全链路 */
@@ -70,6 +73,27 @@ export function pendingRefTargets(taskId: string): RefCheckTarget[] {
       }
     });
   return refCheckTargets(traceDocRefs(text, parsed, rows.map((r) => r.tool_name)));
+}
+
+/**
+ * 某任务当前需要找替代来源的弱证据引用（门户首页 / 百科词条 / 检索页）。
+ * 与结果页同一口径：引用提取走 search-evidence、分级走 citation-grade、检索补充词从结论里取领域词，
+ * 批量入口因此不依赖前端传清单。
+ */
+export function pendingCitationTargets(taskId: string, limit: number = MAX_REF_CHECKS): RefCheckTarget[] {
+  const rows = db
+    .prepare(`SELECT tool_name, result FROM tool_calls WHERE task_id = ?`)
+    .all(taskId) as unknown as Array<{ tool_name: string; result: string | null }>;
+  if (rows.length === 0) return [];
+  const parsed = rows.map((r) => {
+    try {
+      return { toolName: r.tool_name, result: r.result ? JSON.parse(r.result) : null };
+    } catch {
+      return { toolName: r.tool_name, result: null };
+    }
+  });
+  const cites = extractCitations(parsed).map((c) => ({ ...c, grade: gradeCitation(c.url, c.title).grade }));
+  return citationTargets(cites, topicHint(getTask(taskId)?.result ?? "", 2), limit);
 }
 
 export type BatchPlanItem = { id: string; title: string; targets: RefCheckTarget[] };

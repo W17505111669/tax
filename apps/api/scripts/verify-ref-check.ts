@@ -23,12 +23,16 @@ import {
   type RefSearchOutcome,
 } from "../../web/src/ref-check.ts";
 import { traceDocRefs } from "../../web/src/policy-trace.ts";
+import { extractCitations } from "../../web/src/search-evidence.ts";
+import { gradeCitation } from "../../web/src/citation-grade.ts";
+import { topicHint } from "../../web/src/domain-keywords.ts";
 import { db } from "../src/db.ts";
 import {
   BATCH_REF_BUDGET,
   BATCH_REF_MAX,
   listRefChecks,
   MAX_REF_CHECKS,
+  pendingCitationTargets,
   pendingRefTargets,
   planBatchRefChecks,
   runRefChecks,
@@ -396,6 +400,7 @@ expect("清理验证数据", listRefChecks(TASK).length, 0);
 let tasksPending = 0;
 let pendingTotal = 0;
 let storedTotal = 0;
+let citeTotal = 0;
 for (const t of listTasks()) {
   const detail = getTask(t.id);
   const text = detail?.result ?? "";
@@ -430,6 +435,41 @@ for (const t of listTasks()) {
   }
   const recs = listRefChecks(t.id);
   storedTotal += recs.length;
+  // 弱证据引用清单：服务端批量入口算出的必须与结果页同一口径（含领域补充词）
+  const parsedCalls = rows.map((r) => {
+    let result: unknown = null;
+    try {
+      result = r.result ? JSON.parse(r.result) : null;
+    } catch {
+      result = null;
+    }
+    return { toolName: r.tool_name, result };
+  });
+  const wantCites = citationTargets(
+    extractCitations(parsedCalls).map((c) => ({ ...c, grade: gradeCitation(c.url, c.title).grade })),
+    topicHint(text, 2),
+    10,
+  );
+  const gotCites = pendingCitationTargets(t.id);
+  checks += 1;
+  if (gotCites.length !== wantCites.length) {
+    failures.push(`${t.id.slice(0, 8)} 服务端弱证据清单 ${gotCites.length} 条 ≠ 前端口径 ${wantCites.length} 条`);
+  }
+  checks += 1;
+  if (gotCites.some((c, i) => c.key !== wantCites[i]?.key || c.hint !== wantCites[i]?.hint)) {
+    failures.push(`${t.id.slice(0, 8)} 服务端弱证据清单主键或补充词与前端口径不一致`);
+  }
+  citeTotal += gotCites.length;
+  for (const c of gotCites) {
+    checks += 1;
+    if (
+      c.kind !== "citation" ||
+      c.key !== refKey("citation", c.excludeUrl ?? "") ||
+      !/^https?:\/\//.test(c.excludeUrl ?? "")
+    ) {
+      failures.push(`${t.id.slice(0, 8)} 弱证据复查目标不自洽：${c.key}`);
+    }
+  }
   for (const rec of recs) {
     checks += 1;
     // 文号按文本算主键，引用按原地址算主键：两种都必须能从落库字段自校验回来
@@ -443,7 +483,9 @@ for (const t of listTasks()) {
     if (rec.evidence && !/^https?:\/\//.test(rec.evidence.url)) failures.push(`${t.id.slice(0, 8)} 证据地址不是 http(s)`);
   }
 }
-console.log(`[verify] 真实任务走查：${tasksPending} 个任务共 ${pendingTotal} 处文号待复查 · 已落库复查记录 ${storedTotal} 条`);
+console.log(
+  `[verify] 真实任务走查：${tasksPending} 个任务共 ${pendingTotal} 处文号待复查 · 弱证据引用待替换 ${citeTotal} 条 · 已落库复查记录 ${storedTotal} 条`,
+);
 
 console.log(`[verify] 文号复查检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {

@@ -107,10 +107,22 @@ expect("检索两类之和等于调用数", ev.searchWithUrls + ev.searchMetadat
 expect("引用条数不多于检索留下的来源数", ev.citations <= ev.searchKept, true);
 expect("官方引用不多于引用总数", ev.officialCitations <= ev.citations, true);
 expect("弱证据引用不多于引用总数", ev.weakCitations <= ev.citations, true);
+expect("已找到替代来源的不多于弱证据数", ev.weakWithReplacement <= ev.weakCitations, true);
+const replacedSql = db
+  .prepare(
+    `SELECT COUNT(*) AS n FROM ref_checks WHERE kind = 'citation' AND verdict = 'matched' AND task_id IN (SELECT id FROM tasks)`,
+  )
+  .get() as { n: number };
+expect(
+  "替代来源计数不多于落库的 matched 记录",
+  ev.weakWithReplacement <= replacedSql.n,
+  true,
+);
 expect("文号可溯源与待复查不超过总数", ev.docRefTraced + ev.docRefPending <= ev.docRefs, true);
 const matchedSql = db
   .prepare(
-    `SELECT COUNT(*) AS n FROM ref_checks WHERE verdict = 'matched' AND task_id IN (SELECT id FROM tasks)`,
+    // 与 stats 同口径：文号复查统计排除引用类记录（kind <> 'citation'）
+    `SELECT COUNT(*) AS n FROM ref_checks WHERE verdict = 'matched' AND kind <> 'citation' AND task_id IN (SELECT id FROM tasks)`,
   )
   .get() as { n: number };
 expect("复查到出处的处数与 SQL 一致", ev.docRefMatched, matchedSql.n);
@@ -151,7 +163,7 @@ expect("过滤数非负", ev.searchDropped >= 0 && ev.searchDroppedReplay >= 0, 
 expect("没有历史未过滤记录时回算为 0", legacy > 0 || ev.searchDroppedReplay === 0, true);
 expect("有历史未过滤记录时才回算", ev.searchDroppedReplay === 0 || legacy > 0, true);
 console.log(
-  `[verify] 证据可信度：检索 ${ev.searchCalls} 次（留来源 ${ev.searchWithUrls} / 仅元数据 ${ev.searchMetadataOnly}）· 引用 ${ev.citations} 条（官方 ${ev.officialCitations} · 弱 ${ev.weakCitations}）· 拦下无关结果 ${ev.searchDropped + ev.searchDroppedReplay} 条 · 文号 ${ev.docRefs} 处（可溯源 ${ev.docRefTraced} · 待复查 ${ev.docRefPending} · 已复查到出处 ${ev.docRefMatched}）· 缺口任务 ${ev.gaps.length} 个`,
+  `[verify] 证据可信度：检索 ${ev.searchCalls} 次（留来源 ${ev.searchWithUrls} / 仅元数据 ${ev.searchMetadataOnly}）· 引用 ${ev.citations} 条（官方 ${ev.officialCitations} · 弱 ${ev.weakCitations}，其中 ${ev.weakWithReplacement} 条已找到替代来源）· 拦下无关结果 ${ev.searchDropped + ev.searchDroppedReplay} 条 · 文号 ${ev.docRefs} 处（可溯源 ${ev.docRefTraced} · 待复查 ${ev.docRefPending} · 已复查到出处 ${ev.docRefMatched}）· 缺口任务 ${ev.gaps.length} 个`,
 );
 
 console.log(

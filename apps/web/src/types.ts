@@ -228,6 +228,8 @@ export interface PlatformStats {
     citations: number;
     officialCitations: number;
     weakCitations: number;
+    /** 弱证据引用中已检索到官方替代来源、只等人工写回结论的条数 */
+    weakWithReplacement: number;
     docRefs: number;
     docRefTraced: number;
     docRefPending: number;

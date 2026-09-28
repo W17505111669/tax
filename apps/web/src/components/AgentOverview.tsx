@@ -75,8 +75,11 @@ interface Props {
   onShowAll: () => void;
   /** 批量把「已完成但仍有未复核问题」的任务改回待复核，返回成功数量 */
   onBatchReopen?: (ids: string[]) => Promise<number>;
-  /** 批量联网复查政策文号，返回本次实际复查与找到出处的处数 */
-  onBatchRefCheck?: (ids: string[]) => Promise<{ tasks: number; ran: number; matched: number; budget: number }>;
+  /** 批量联网复查：kinds 指定复查政策文号还是为弱证据引用找替代来源 */
+  onBatchRefCheck?: (
+    ids: string[],
+    kinds: Array<"docref" | "citation">,
+  ) => Promise<{ tasks: number; ran: number; matched: number; budget: number }>;
 }
 
 export function AgentOverview({
@@ -160,9 +163,9 @@ export function AgentOverview({
   const [batchArmed, setBatchArmed] = useState<string | null>(null);
   const [batchBusy, setBatchBusy] = useState("");
   const [batchMsg, setBatchMsg] = useState("");
-  // 批量联网复查：同样是两步确认，避免误点触发一批外网请求
-  const [refBatchArmed, setRefBatchArmed] = useState(false);
-  const [refBatchBusy, setRefBatchBusy] = useState(false);
+  // 批量联网复查：同样是两步确认，避免误点触发一批外网请求；两类复查分开记录状态
+  const [refBatchArmed, setRefBatchArmed] = useState<"docref" | "citation" | null>(null);
+  const [refBatchBusy, setRefBatchBusy] = useState<"" | "docref" | "citation">("");
   const [refBatchMsg, setRefBatchMsg] = useState("");
   const armBatch = (label: string, ids: string[]) => {
     if (batchBusy !== "" || !onBatchReopen || ids.length === 0) return;
@@ -180,25 +183,33 @@ export function AgentOverview({
       .finally(() => setBatchBusy(""));
   };
 
-  /** 批量复查政策文号：两步确认，结果按任务落库并写入事件留痕 */
-  const armRefBatch = (ids: string[]) => {
-    if (refBatchBusy || !onBatchRefCheck || ids.length === 0) return;
-    if (!refBatchArmed) {
-      setRefBatchArmed(true);
+  /** 批量复查：两步确认，结果按任务落库并写入事件留痕 */
+  const armRefBatch = (kind: "docref" | "citation", ids: string[]) => {
+    if (refBatchBusy !== "" || !onBatchRefCheck || ids.length === 0) return;
+    if (refBatchArmed !== kind) {
+      setRefBatchArmed(kind);
       setRefBatchMsg("");
-      window.setTimeout(() => setRefBatchArmed(false), 4000);
+      window.setTimeout(() => setRefBatchArmed((v) => (v === kind ? null : v)), 4000);
       return;
     }
-    setRefBatchArmed(false);
-    setRefBatchBusy(true);
-    void onBatchRefCheck(ids)
+    setRefBatchArmed(null);
+    setRefBatchBusy(kind);
+    void onBatchRefCheck(ids, [kind])
       .then((r) =>
         setRefBatchMsg(
-          `已联网复查 ${r.ran} 处政策文号（本次预算 ${r.budget} 处，覆盖 ${r.tasks} 个任务）：找到公开出处 ${r.matched} 处，其余为候选待确认或未检索到，明细见各任务结果页的复查面板`,
+          kind === "docref"
+            ? `已联网复查 ${r.ran} 处政策文号（本次预算 ${r.budget} 处，覆盖 ${r.tasks} 个任务）：找到公开出处 ${r.matched} 处，其余为候选待确认或未检索到，明细见各任务结果页的复查面板`
+            : `已为 ${r.ran} 条弱证据引用检索替代来源（本次预算 ${r.budget} 条，覆盖 ${r.tasks} 个任务）：找到官方原文 ${r.matched} 条，需人工确认后写回结论并重新打包，明细见各任务结果页的联网引用区`,
         ),
       )
-      .catch(() => setRefBatchMsg("批量复查失败：请检查网络后重试，或到各任务结果页逐个复查"))
-      .finally(() => setRefBatchBusy(false));
+      .catch(() =>
+        setRefBatchMsg(
+          kind === "docref"
+            ? "批量复查失败：请检查网络后重试，或到各任务结果页逐个复查"
+            : "批量检索替代来源失败：请检查网络后重试，或到各任务结果页逐条检索",
+        ),
+      )
+      .finally(() => setRefBatchBusy(""));
   };
 
   // 平台指标周环比：每日快照入 localStorage，与 7 天前（或最近可得）快照对比
@@ -759,6 +770,11 @@ export function AgentOverview({
                     <span className="font-medium">全平台证据缺口</span>
                     <span className="text-[11.5px] text-sky-200/85">
                       {p.evidence.gaps.length} 个任务有弱证据引用或待复查文号：证据力弱 {p.evidence.weakCitations} 条 ·
+                      {p.evidence.weakWithReplacement > 0 && (
+                        <span className="text-jade-300">
+                          其中 {p.evidence.weakWithReplacement} 条已找到官方替代来源、待人工写回结论 ·
+                        </span>
+                      )}
                       政策文号待复查 {p.evidence.docRefPending} 处（已复查到公开出处 {p.evidence.docRefMatched} 处）·
                       联网检索拦下 {p.evidence.searchDropped + p.evidence.searchDroppedReplay} 条无关结果与门户首页
                       {p.evidence.searchDropped === 0 && p.evidence.searchDroppedReplay > 0
@@ -770,20 +786,49 @@ export function AgentOverview({
                     <span className="text-[11px] text-mist-500">
                       点击任务前往结果页：引用胶囊看证据力分级，文号徽章可一键联网复查
                     </span>
-                    {onBatchRefCheck && p.evidence.docRefPending > 0 && (
-                      <button
-                        type="button"
-                        className="action-btn ml-auto !text-[11px] disabled:cursor-not-allowed disabled:opacity-40"
-                        disabled={refBatchBusy}
-                        title="用自建检索通道（Bing RSS 优先 + 相关度过滤）批量复查各任务里没有出处的政策文号，判定与证据链接按条落库并写入事件留痕；单次条数受服务端预算限制"
-                        onClick={() => armRefBatch((p?.evidence?.gaps ?? []).map((g) => g.id))}
-                      >
-                        {refBatchBusy
-                          ? "复查中…"
-                          : refBatchArmed
-                            ? `再点一次确认（${p.evidence.docRefPending} 处）`
-                            : "批量联网复查"}
-                      </button>
+                    {onBatchRefCheck && (p.evidence.docRefPending > 0 || p.evidence.weakCitations > 0) && (
+                      <span className="ml-auto flex shrink-0 gap-1.5">
+                        {p.evidence.docRefPending > 0 && (
+                          <button
+                            type="button"
+                            className="action-btn !text-[11px] disabled:cursor-not-allowed disabled:opacity-40"
+                            disabled={refBatchBusy !== ""}
+                            title="用自建检索通道（Bing RSS 优先 + 相关度过滤）批量复查各任务里没有出处的政策文号，判定与证据链接按条落库并写入事件留痕；单次条数受服务端预算限制"
+                            onClick={() =>
+                              armRefBatch(
+                                "docref",
+                                (p?.evidence?.gaps ?? []).filter((g) => g.docRefPending > 0).map((g) => g.id),
+                              )
+                            }
+                          >
+                            {refBatchBusy === "docref"
+                              ? "复查中…"
+                              : refBatchArmed === "docref"
+                                ? `再点一次确认（共 ${p.evidence.docRefPending} 处，单次按预算分批）`
+                                : "批量复查文号"}
+                          </button>
+                        )}
+                        {p.evidence.weakCitations > 0 && (
+                          <button
+                            type="button"
+                            className="action-btn !text-[11px] disabled:cursor-not-allowed disabled:opacity-40"
+                            disabled={refBatchBusy !== ""}
+                            title="为各任务里判为「证据力弱」的引用（门户首页 / 百科词条 / 检索页）批量检索官方替代来源：检索词 = 去掉站点后缀的标题 + 该任务结论里的领域词，并排除引用自身；替代来源需人工确认后写回结论"
+                            onClick={() =>
+                              armRefBatch(
+                                "citation",
+                                (p?.evidence?.gaps ?? []).filter((g) => g.weakCitations > 0).map((g) => g.id),
+                              )
+                            }
+                          >
+                            {refBatchBusy === "citation"
+                              ? "检索中…"
+                              : refBatchArmed === "citation"
+                                ? `再点一次确认（共 ${p.evidence.weakCitations} 条，单次按预算分批）`
+                                : "批量找替代来源"}
+                          </button>
+                        )}
+                      </span>
                     )}
                   </div>
                   {refBatchMsg && <div className="mt-1 text-[11px] text-jade-300">{refBatchMsg}</div>}

@@ -176,9 +176,9 @@ export default function App() {
     return res.total;
   };
 
-  /** 批量联网复查政策文号：复查完刷新平台统计，证据缺口条的数字随之更新 */
-  const handleBatchRefCheck = async (ids: string[]) => {
-    const res = await api.batchRefChecks(ids);
+  /** 批量联网复查（政策文号 / 弱证据引用）：复查完刷新平台统计，证据缺口条的数字随之更新 */
+  const handleBatchRefCheck = async (ids: string[], kinds: Array<"docref" | "citation">) => {
+    const res = await api.batchRefChecks(ids, kinds);
     await refreshPlatform();
     return res;
   };

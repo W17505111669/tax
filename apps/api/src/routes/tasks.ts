@@ -22,6 +22,7 @@ import { checkLink, listLinkChecks, saveLinkChecks } from "../services/link-chec
 import {
   BATCH_REF_BUDGET,
   listRefChecks,
+  pendingCitationTargets,
   pendingRefTargets,
   planBatchRefChecks,
   runRefChecks,
@@ -396,13 +397,30 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
    * 待复查清单由服务端按任务重新计算（不信任客户端），总条数受预算限制，逐个任务写入事件留痕。
    */
   app.post("/api/tasks/ref-checks-batch", async (req) => {
-    const body = (req.body ?? {}) as { ids?: string[]; budget?: number };
+    const body = (req.body ?? {}) as { ids?: string[]; budget?: number; kinds?: string[] };
     const wanted = Array.isArray(body.ids) && body.ids.length > 0 ? new Set(body.ids) : null;
     const candidates = listTasks()
       .filter((t) => !wanted || wanted.has(t.id))
       .map((t) => ({ id: t.id, title: t.title }));
     const budget = typeof body.budget === "number" && body.budget > 0 ? body.budget : BATCH_REF_BUDGET;
-    const plan = planBatchRefChecks(candidates, pendingRefTargets, budget);
+    const kinds = new Set(
+      (Array.isArray(body.kinds) ? body.kinds : ["docref"]).filter(
+        (k): k is "docref" | "citation" => k === "docref" || k === "citation",
+      ),
+    );
+    if (kinds.size === 0) kinds.add("docref");
+    // 同一预算下文号优先：政策依据比引用替换更影响结论成立与否
+    const pendingOf = (id: string) => [
+      ...(kinds.has("docref") ? pendingRefTargets(id) : []),
+      ...(kinds.has("citation") ? pendingCitationTargets(id) : []),
+    ];
+    const plan = planBatchRefChecks(candidates, pendingOf, budget);
+    const label =
+      kinds.has("citation") && kinds.has("docref")
+        ? "证据批量复查"
+        : kinds.has("citation")
+          ? "弱证据引用批量找官方原文"
+          : "政策文号批量复查";
     const perTask: Array<{
       id: string;
       title: string;
@@ -422,9 +440,9 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
       appendEvent(
         item.id,
         "agent_status",
-        `批量联网复查：${fresh.length} 处政策文号 · 找到公开出处 ${count("matched")} 处 · 候选待确认 ${count(
+        `${label}：${fresh.length} 项 · 找到公开出处 ${count("matched")} 项 · 候选待确认 ${count(
           "candidate",
-        )} 处 · 未检索到 ${count("empty")} 处`,
+        )} 项 · 未检索到 ${count("empty")} 项`,
         {
           refChecks: {
             total: fresh.length,
@@ -433,6 +451,7 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
             empty: count("empty"),
             error: count("error"),
             batch: true,
+            kinds: [...kinds],
             results: fresh.map((c) => ({ key: c.key, text: c.text, verdict: c.verdict, url: c.evidence?.url ?? null })),
           },
         },
@@ -447,7 +466,7 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
         error: count("error"),
       });
     }
-    return { tasks: perTask.length, ran, matched, budget, perTask };
+    return { tasks: perTask.length, ran, matched, budget, kinds: [...kinds], perTask };
   });
 
   /**
