@@ -91,6 +91,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   const [editValue, setEditValue] = useState("");
   const [findQuery, setFindQuery] = useState("");
   const [findIdx, setFindIdx] = useState(0);
+  const [matchCounts, setMatchCounts] = useState<Record<string, number>>({});
   const [sort, setSort] = useState<Record<string, { col: string; dir: 1 | -1 }>>(() => {
     try {
       return JSON.parse(localStorage.getItem("taxai-reader-sort") ?? "{}") as Record<string, { col: string; dir: 1 | -1 }>;
@@ -146,6 +147,12 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
     marks[idx]?.scrollIntoView({ block: "center" });
     marks.forEach((m, i) => m.classList.toggle("outline outline-2 outline-rose-400", i === idx));
   }, [findIdx, findTrim, matchCount, state.text, showLines]);
+
+  // 记录各标签页的搜索命中数，用于标签徽标
+  useEffect(() => {
+    if (!activeKey) return;
+    setMatchCounts((prev) => ({ ...prev, [activeKey]: matchCount }));
+  }, [matchCount, activeKey]);
   const [group, setGroup] = useState<"refs" | "gens">(() =>
     localStorage.getItem("taxai-reader-group") === "gens" ? "gens" : "refs",
   );
@@ -378,6 +385,9 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                     <IconFile className="h-3.5 w-3.5 shrink-0 text-glow-400" />
                   )}
                   <span className="max-w-[140px] truncate">{label}</span>
+                  {findTrim && (matchCounts[key] ?? 0) > 0 && (
+                    <span className="rounded bg-amber-400/15 px-1 text-[9.5px] text-amber-300">{matchCounts[key]}</span>
+                  )}
                 </button>
                 )}
                 <button

@@ -74,11 +74,30 @@ export function ReviewView({ issues, reviews, pending, onReview }: Props) {
         </div>
       )}
 
+      {pending > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {issues
+            .filter((i) => !reviewMap.has(i.id))
+            .map((i, idx) => (
+              <button
+                key={i.id}
+                type="button"
+                className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10.5px] text-amber-300 transition-colors hover:border-amber-300"
+                onClick={() =>
+                  document.getElementById(`issue-${i.id}`)?.scrollIntoView({ block: "center", behavior: "smooth" })
+                }
+              >
+                #{idx + 1} {i.issueType}
+              </button>
+            ))}
+        </div>
+      )}
+
       {issues.map((issue) => {
         const rev = reviewMap.get(issue.id);
         const commentValue = comments[issue.id] ?? rev?.comment ?? "";
         return (
-          <div key={issue.id} className="glow-card px-4 py-3">
+          <div key={issue.id} id={`issue-${issue.id}`} className="glow-card px-4 py-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className={`rounded border px-1.5 py-0.5 text-[10.5px] ${typeTone(issue.issueType)}`}>
                 {issue.issueType}
