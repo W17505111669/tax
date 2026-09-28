@@ -5,6 +5,8 @@ import { IconBuilding, IconCheck, IconExternal, IconFile, IconFlask, IconTool } 
 /** 大数字 odometer：每位数字独立滚轮到目标值，对齐参考片数据页质感。 */
 const DESC_KEYWORDS = ["整数分", "行级", "记录级", "OCR", "mermaid", "联网"];
 
+const RING_C = 2 * Math.PI * 12;
+
 /** 智能体描述中的能力关键词高亮。 */
 function renderDesc(text: string) {
   const re = new RegExp(`(${DESC_KEYWORDS.join("|")})`, "g");
@@ -517,6 +519,44 @@ export function AgentOverview({
                 })}
               </div>
             )}
+          </div>
+        )}
+
+        {p && p.toolCalls > 0 && (
+          <div className="mt-4 flex items-center gap-4">
+            <svg viewBox="0 0 32 32" className="h-14 w-14 shrink-0" aria-hidden>
+              <circle
+                cx="16"
+                cy="16"
+                r="12"
+                fill="none"
+                stroke="#34d399"
+                strokeWidth="5"
+                strokeDasharray={`${(p.toolOk / p.toolCalls) * RING_C} ${RING_C}`}
+                transform="rotate(-90 16 16)"
+              />
+              <circle
+                cx="16"
+                cy="16"
+                r="12"
+                fill="none"
+                stroke="#fb7185"
+                strokeWidth="5"
+                strokeDasharray={`${((p.toolCalls - p.toolOk) / p.toolCalls) * RING_C} ${RING_C}`}
+                strokeDashoffset={-(p.toolOk / p.toolCalls) * RING_C}
+                transform="rotate(-90 16 16)"
+              />
+            </svg>
+            <div className="space-y-0.5 text-[11px] text-mist-500">
+              <div>
+                工具调用 <span className="font-mono text-mist-300">{p.toolCalls}</span> 次 · 成功率{" "}
+                <span className="font-mono text-jade-400">{Math.round((p.toolOk / p.toolCalls) * 1000) / 10}%</span>
+              </div>
+              <div>
+                成功 <span className="font-mono text-jade-400">{p.toolOk}</span> · 失败{" "}
+                <span className="font-mono text-rose-300">{p.toolCalls - p.toolOk}</span>
+              </div>
+            </div>
           </div>
         )}
 
