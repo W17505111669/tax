@@ -7,6 +7,7 @@ import { AgentOverview } from "./components/AgentOverview.tsx";
 import { NewTaskPanel } from "./components/NewTaskPanel.tsx";
 import { TaskWorkbench } from "./components/TaskWorkbench.tsx";
 import { IconAlert } from "./components/Icons.tsx";
+import { partitionFiles, policyMessage, type UploadPolicy } from "./upload-policy.ts";
 
 type WbTab = "timeline" | "result" | "compare" | "review";
 
@@ -44,6 +45,14 @@ export default function App() {
   const [reviewNonce, setReviewNonce] = useState(0);
   const [secTarget, setSecTarget] = useState<number | null>(null);
   const [announce, setAnnounce] = useState("");
+  // 上传策略取自服务端，新建任务的资料上传也在前端先预检一遍
+  const [uploadPolicy, setUploadPolicy] = useState<UploadPolicy | null>(null);
+  useEffect(() => {
+    void api
+      .uploadPolicy()
+      .then(setUploadPolicy)
+      .catch(() => undefined);
+  }, []);
   const applyingHash = useRef(false);
 
   const refreshTasks = useCallback(async () => {
@@ -221,7 +230,17 @@ export default function App() {
         ...(input.title ? { title: input.title } : {}),
         instruction: input.instruction,
       });
-      if (input.files.length > 0) await api.uploadFiles(task.id, input.files);
+      if (input.files.length > 0) {
+        const split = uploadPolicy
+          ? partitionFiles(input.files, uploadPolicy)
+          : { accepted: input.files, rejected: [] as Array<{ name: string; reason: string }> };
+        const note = policyMessage(split.accepted.length, split.rejected);
+        if (note) {
+          setAnnounce(note);
+          if (split.accepted.length === 0) setError(note);
+        }
+        if (split.accepted.length > 0) await api.uploadFiles(task.id, split.accepted);
+      }
       await api.runTask(task.id, input.instruction);
       await refreshTasks();
       setActiveTaskId(task.id);

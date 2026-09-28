@@ -11,6 +11,10 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 export const api = {
   listAgents: () => request<{ agents: AgentInfo[] }>("/api/agents").then((r) => r.agents),
 
+  /** 上传策略（扩展名白名单与大小上限），供前端预检使用 */
+  uploadPolicy: () =>
+    request<{ allowedExtensions: string[]; maxUploadBytes: number }>("/api/upload-policy"),
+
   getStats: () => request<import("./types.ts").PlatformStats>("/api/stats"),
 
   listTasks: (agentId?: string) =>

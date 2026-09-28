@@ -30,6 +30,7 @@ import {
   type ParsedDoc,
   type ParseSummary,
 } from "../file-parse.ts";
+import { partitionFiles, policyMessage, type UploadPolicy } from "../upload-policy.ts";
 import { CompareView } from "./CompareView.tsx";
 import { ThemeSwitch } from "./ThemeSwitch.tsx";
 import { ReviewView } from "./ReviewView.tsx";
@@ -458,7 +459,11 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     if (!resumeText.trim() || resumeBusy) return;
     setResumeBusy(true);
     try {
-      if (resumeFiles.length > 0) await api.uploadFiles(task.id, resumeFiles);
+      if (resumeFiles.length > 0) {
+        const split = splitByPolicy(resumeFiles);
+        if (split.note) flashUpload(split.note);
+        if (split.accepted.length > 0) await api.uploadFiles(task.id, split.accepted);
+      }
       await api.resumeTask(task.id, resumeText.trim());
       setResumeOpen(false);
       setResumeText("");
@@ -852,6 +857,28 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   const [dropActive, setDropActive] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState("");
+  const [uploadPolicy, setUploadPolicy] = useState<UploadPolicy | null>(null);
+  useEffect(() => {
+    void api
+      .uploadPolicy()
+      .then(setUploadPolicy)
+      .catch(() => undefined);
+  }, []);
+
+  const flashUpload = (msg: string) => {
+    setUploadMsg(msg);
+    window.setTimeout(() => setUploadMsg((cur) => (cur === msg ? "" : cur)), 10000);
+  };
+
+  /** 按服务端策略预检；策略尚未加载时不拦，交给服务端校验，避免误拒 */
+  const splitByPolicy = (files: File[]) => {
+    if (!uploadPolicy || files.length === 0) {
+      return { accepted: files, rejected: [] as Array<{ name: string; reason: string }>, note: "" };
+    }
+    const split = partitionFiles(files, uploadPolicy);
+    return { ...split, note: policyMessage(split.accepted.length, split.rejected) };
+  };
+
   const hasFiles = (e: DragEvent<HTMLDivElement>) => Array.from(e.dataTransfer.types).includes("Files");
   const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
     if (!hasFiles(e)) return; // 内部标签拖拽不触发上传态
@@ -868,18 +895,26 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     setDropActive(false);
     const dropped = Array.from(e.dataTransfer.files);
     if (dropped.length === 0 || uploading) return;
+    const split = splitByPolicy(dropped);
+    if (split.accepted.length === 0) {
+      flashUpload(split.note || "没有可上传的文件");
+      return;
+    }
     setUploading(true);
-    setUploadMsg(`正在上传 ${dropped.length} 份资料…`);
+    flashUpload(
+      split.note
+        ? `正在上传 ${split.accepted.length} 份资料…（${split.note}）`
+        : `正在上传 ${split.accepted.length} 份资料…`,
+    );
     void api
-      .uploadFiles(task.id, dropped)
+      .uploadFiles(task.id, split.accepted)
       .then((res) =>
-        setUploadMsg(`已上传 ${res.files.length} 份资料；点资料行「重新解析」或在续跑里说明即可让 Agent 使用`),
+        flashUpload(
+          `已上传 ${res.files.length} 份资料${split.note ? `；${split.note}` : ""}。点资料行「重新解析」或在续跑里说明即可让 Agent 使用`,
+        ),
       )
-      .catch((err: unknown) => setUploadMsg(`上传失败：${err instanceof Error ? err.message : String(err)}`))
-      .finally(() => {
-        setUploading(false);
-        window.setTimeout(() => setUploadMsg(""), 10000);
-      });
+      .catch((err: unknown) => flashUpload(`上传失败：${err instanceof Error ? err.message : String(err)}`))
+      .finally(() => setUploading(false));
   };
 
   // 交付自检输入：结论字数、产物与溯源、工具调用结果、待复核与联网引用

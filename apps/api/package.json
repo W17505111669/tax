@@ -20,6 +20,7 @@
     "verify:dcheck": "tsx scripts/verify-delivery-check.ts",
     "verify:links": "tsx scripts/verify-link-check.ts",
     "verify:fileparse": "tsx scripts/verify-file-parse.ts",
+    "verify:upload": "tsx scripts/verify-upload-policy.ts",
     "case:run": "tsx scripts/run-case.ts"
   },
   "dependencies": {

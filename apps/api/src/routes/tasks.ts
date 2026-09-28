@@ -270,6 +270,9 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     return { checks: listAmountChecks(id) };
   });
 
+  /** 上传策略：前端预检与服务端校验共用同一份配置，避免两处规则漂移 */
+  app.get("/api/upload-policy", async () => ({ allowedExtensions, maxUploadBytes }));
+
   /** 标记 / 撤销某处「待人工确认」金额；写入事件留痕，键为「值（分）|原文片段」 */
   app.post("/api/tasks/:id/amount-checks", async (req, reply) => {
     const { id } = req.params as { id: string };
