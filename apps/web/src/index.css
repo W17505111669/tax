@@ -425,6 +425,17 @@ details.tool-row .chev {
   overflow-x: auto;
 }
 
+.md-body .mermaid {
+  flex-direction: column;
+  align-items: center;
+}
+.mermaid-tools {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+  margin-top: 6px;
+}
+
 /* ===== 白纸文档预览 + 四套版式主题 ===== */
 .paper-sheet {
   --paper-bg: #ffffff;

@@ -61,7 +61,35 @@ function renderMarkdown(el: HTMLElement, text: string, live: boolean): void {
     node.textContent = code;
   }
   void loadMermaid()
-    .then((mermaid) => mermaid.run({ nodes, suppressErrors: true }))
+    .then((mermaid) =>
+      mermaid.run({ nodes, suppressErrors: true }).then(() => {
+        // 渲染完成后为每张图注入「下载 SVG」工具条
+        for (const node of nodes) {
+          const svg = node.querySelector("svg");
+          if (!svg || node.querySelector(".mermaid-tools")) continue;
+          const bar = document.createElement("div");
+          bar.className = "mermaid-tools";
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "action-btn";
+          btn.title = "下载 SVG";
+          btn.textContent = "下载 SVG";
+          btn.addEventListener("click", () => {
+            const clone = svg.cloneNode(true) as SVGSVGElement;
+            clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+            const blob = new Blob([clone.outerHTML], { type: "image/svg+xml;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "diagram.svg";
+            a.click();
+            URL.revokeObjectURL(url);
+          });
+          bar.appendChild(btn);
+          node.appendChild(bar);
+        }
+      }),
+    )
     .catch(() => {
       // 单个图语法错误不影响其余内容渲染
     });
