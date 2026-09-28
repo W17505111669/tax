@@ -449,6 +449,16 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
       .slice(0, 8);
   }, [finalResult]);
 
+  const [kwFilter, setKwFilter] = useState<string | null>(null);
+  const kwParas = useMemo(() => {
+    if (!kwFilter || !finalResult) return [];
+    return finalResult
+      .split(/\n{2,}/)
+      .map((s) => s.trim())
+      .filter((s) => s.includes(kwFilter))
+      .slice(0, 6);
+  }, [kwFilter, finalResult]);
+
   // 续跑场景：上一次运行的结论摘录，供对照本次结论
   const prevConclusion = useMemo(() => {
     const texts = timeline.filter((t) => t.kind === "agent_text" && t.detail && !t.streaming);
@@ -1001,16 +1011,42 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
                     {topWords.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         {topWords.map((x, i) => (
-                          <span
-                            key={x.w}
-                            className="rounded-full border border-glow-500/30 bg-glow-500/10 px-2 py-0.5 text-glow-300"
+                          <button
+                            type="button"
+                            onClick={() => setKwFilter((v) => (v === x.w ? null : x.w))}
+                            className={`rounded-full border px-2 py-0.5 text-glow-300 transition-colors ${
+                              kwFilter === x.w
+                                ? "border-glow-400 bg-glow-500/25"
+                                : "border-glow-500/30 bg-glow-500/10 hover:border-glow-400"
+                            }`}
                             style={{ fontSize: `${11.5 - i * 0.6}px` }}
-                            title={`出现 ${x.n} 次`}
+                            title={`出现 ${x.n} 次，点击过滤段落`}
                           >
                             {x.w} ×{x.n}
-                          </span>
+                          </button>
                         ))}
                       </div>
+                    )}
+                  </div>
+                )}
+                {kwFilter && (
+                  <div className="mb-4 rounded-md border border-glow-500/35 bg-glow-500/5 px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <span className="kicker">含「{kwFilter}」的段落</span>
+                      <button type="button" className="action-btn ml-auto" onClick={() => setKwFilter(null)}>
+                        清除
+                      </button>
+                    </div>
+                    {kwParas.length === 0 ? (
+                      <p className="mt-1 text-[11.5px] text-mist-600">无匹配段落</p>
+                    ) : (
+                      <ul className="mt-1 space-y-1.5">
+                        {kwParas.map((p, i) => (
+                          <li key={i} className="rounded bg-night-800 px-2 py-1 text-[11.5px] leading-5 text-mist-300">
+                            {p.replace(/\s+/g, " ").slice(0, 160)}…
+                          </li>
+                        ))}
+                      </ul>
                     )}
                   </div>
                 )}
