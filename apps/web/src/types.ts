@@ -134,3 +134,19 @@ export interface CompareRecord {
   at: string | null;
   result: CompareResult;
 }
+
+export interface TaskIssue {
+  id: string;
+  source: string;
+  issueType: string;
+  description: string;
+  evidence: string[];
+  requiresReview: boolean;
+}
+
+export interface ReviewRecord {
+  issueId: string;
+  decision: "confirm" | "dismiss";
+  comment: string;
+  createdAt: string;
+}

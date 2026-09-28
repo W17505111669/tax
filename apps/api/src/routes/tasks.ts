@@ -6,6 +6,7 @@ import { CreateTaskInputSchema } from "@tax/shared-schemas";
 import { allowedExtensions, dirs, maxUploadBytes } from "../config.ts";
 import { getAgent } from "../agents.ts";
 import { eventBus, runTask } from "../services/agent-runner.ts";
+import { extractIssues, listReviews, pendingReviewIssues, saveReview } from "../services/issues.ts";
 import {
   appendEvent,
   createTask,
@@ -15,6 +16,7 @@ import {
   listFiles,
   listTasks,
   listToolCalls,
+  setTaskStatus,
 } from "../services/task-store.ts";
 
 export async function taskRoutes(app: FastifyInstance): Promise<void> {
@@ -149,6 +151,31 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
       events: listEvents(id).filter((e) => e.kind !== "agent_text_delta"),
       files: listFiles(id),
     };
+  });
+
+  /** 待复核问题清单（从工具结果与比对差异中提取）与人工复核记录。 */
+  app.get("/api/tasks/:id/issues", async (req) => {
+    const { id } = req.params as { id: string };
+    return { issues: extractIssues(id), reviews: listReviews(id), pending: pendingReviewIssues(id).length };
+  });
+
+  /** 提交人工复核意见；全部复核完成后任务从 waiting_review 流转为 completed。 */
+  app.post("/api/tasks/:id/review", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as { issueId?: string; decision?: string; comment?: string };
+    if (!body.issueId || (body.decision !== "confirm" && body.decision !== "dismiss")) {
+      return reply.code(400).send({ error: "需要 issueId 与 decision(confirm|dismiss)" });
+    }
+    const record = saveReview(id, body.issueId, body.decision, body.comment ?? "");
+    const task = getTask(id);
+    const pending = pendingReviewIssues(id).length;
+    if (task && task.status === "waiting_review" && pending === 0) {
+      setTaskStatus(id, "completed");
+      appendEvent(id, "agent_status", "人工复核完成，任务流转为已完成");
+    } else {
+      appendEvent(id, "agent_status", `人工复核已提交：${body.decision === "confirm" ? "确认列入底稿" : "判定无需处理"}（剩余待复核 ${pending} 项）`);
+    }
+    return { review: record, pending };
   });
 
   /** 底稿比对记录：从工具调用历史中提取 compare_workpapers 的结构化结果，供前端比对视图使用。 */

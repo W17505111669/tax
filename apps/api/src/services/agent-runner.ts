@@ -15,6 +15,7 @@ import {
   recordToolCall,
   setTaskStatus,
 } from "./task-store.ts";
+import { pendingReviewIssues } from "./issues.ts";
 
 export const eventBus = new TaskEventBus();
 
@@ -105,6 +106,13 @@ export async function runTask(taskId: string, instruction: string): Promise<void
 
     setTaskStatus(taskId, "completed", { result: answer });
     emit(taskId, "run_completed", "任务完成", { result: answer });
+
+    // 存在待复核问题时流转为 waiting_review，等待税务师在「人工复核」页签处理
+    const pending = pendingReviewIssues(taskId).length;
+    if (pending > 0) {
+      setTaskStatus(taskId, "waiting_review");
+      emit(taskId, "agent_status", `执行完成，${pending} 项问题待税务师复核`);
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     setTaskStatus(taskId, "failed", { error: message });

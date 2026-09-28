@@ -56,6 +56,16 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_files_task ON files(task_id);
   CREATE INDEX IF NOT EXISTS idx_events_task ON events(task_id, seq);
   CREATE INDEX IF NOT EXISTS idx_toolcalls_task ON tool_calls(task_id);
+
+  CREATE TABLE IF NOT EXISTS reviews (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    issue_id TEXT NOT NULL,
+    decision TEXT NOT NULL,
+    comment TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE (task_id, issue_id)
+  );
 `);
 
 export function nowIso(): string {

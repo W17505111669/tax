@@ -1,0 +1,109 @@
+import { useState } from "react";
+import type { ReviewRecord, TaskIssue } from "../types.ts";
+import { IconAlert, IconCheck } from "./Icons.tsx";
+
+interface Props {
+  issues: TaskIssue[];
+  reviews: ReviewRecord[];
+  pending: number;
+  onReview: (issueId: string, decision: "confirm" | "dismiss", comment: string) => void;
+}
+
+function typeTone(type: string): string {
+  if (type.includes("差异") || type.includes("缺失")) return "border-rose-400/40 bg-rose-400/10 text-rose-300";
+  if (type.includes("仅")) return "border-sky-400/40 bg-sky-400/10 text-sky-300";
+  return "border-amber-400/40 bg-amber-400/10 text-amber-300";
+}
+
+/** 人工复核页签：税务师对工具核查与底稿比对发现的问题逐项确认或驳回。 */
+export function ReviewView({ issues, reviews, pending, onReview }: Props) {
+  const [comments, setComments] = useState<Record<string, string>>({});
+  const reviewMap = new Map(reviews.map((r) => [r.issueId, r]));
+
+  if (issues.length === 0) {
+    return (
+      <div className="py-10 text-center text-[13px] text-mist-600">
+        暂无待复核事项。工具核查与底稿比对发现问题后会自动汇总到这里。
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 text-[12.5px] text-mist-500">
+        {pending > 0 ? (
+          <>
+            <IconAlert className="h-4 w-4 text-amber-300" />
+            {pending} 项待税务师确认；全部复核完成后任务自动流转为已完成
+          </>
+        ) : (
+          <>
+            <IconCheck className="h-4 w-4 text-jade-400" />
+            复核完成
+          </>
+        )}
+      </div>
+
+      {issues.map((issue) => {
+        const rev = reviewMap.get(issue.id);
+        const commentValue = comments[issue.id] ?? rev?.comment ?? "";
+        return (
+          <div key={issue.id} className="glow-card px-4 py-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`rounded border px-1.5 py-0.5 text-[10.5px] ${typeTone(issue.issueType)}`}>
+                {issue.issueType}
+              </span>
+              <span className="font-mono text-[10.5px] text-mist-600">{issue.source}</span>
+              {rev && (
+                <span
+                  className={`ml-auto rounded border px-1.5 py-0.5 text-[10.5px] ${
+                    rev.decision === "confirm"
+                      ? "border-jade-400/40 bg-jade-400/10 text-jade-400"
+                      : "border-line bg-night-800 text-mist-500"
+                  }`}
+                >
+                  {rev.decision === "confirm" ? "已确认列入底稿" : "已判定无需处理"}
+                </span>
+              )}
+            </div>
+
+            <p className="mt-2 text-[13px] leading-6 text-mist-100">{issue.description}</p>
+
+            {issue.evidence.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {issue.evidence.slice(0, 6).map((e) => (
+                  <span key={e} className="rounded bg-night-800 px-1.5 py-0.5 font-mono text-[10.5px] text-mist-500">
+                    {e}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <input
+                value={commentValue}
+                onChange={(e) => setComments((prev) => ({ ...prev, [issue.id]: e.target.value }))}
+                placeholder="复核意见（可选）"
+                className="min-w-[200px] flex-1 rounded-md border border-line bg-night-850 px-2.5 py-1.5 text-[12px] text-mist-100 outline-none focus:glow-ring"
+              />
+              <button
+                type="button"
+                onClick={() => onReview(issue.id, "confirm", commentValue)}
+                className="rounded-md border border-jade-400/40 bg-jade-400/10 px-2.5 py-1.5 text-[12px] text-jade-400 transition-colors hover:bg-jade-400/20"
+              >
+                确认列入底稿
+              </button>
+              <button
+                type="button"
+                onClick={() => onReview(issue.id, "dismiss", commentValue)}
+                className="rounded-md border border-line bg-night-800 px-2.5 py-1.5 text-[12px] text-mist-300 transition-colors hover:border-rose-400/40 hover:text-rose-300"
+              >
+                判定无需处理
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}

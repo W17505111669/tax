@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api.ts";
-import type { AgentInfo, ArtifactInfo, CompareRecord, FileInfo, TaskInfo } from "../types.ts";
+import type { AgentInfo, ArtifactInfo, CompareRecord, FileInfo, ReviewRecord, TaskInfo, TaskIssue } from "../types.ts";
 import { useTaskEvents } from "../hooks/useTaskEvents.ts";
 import { MarkdownView } from "./MarkdownView.tsx";
 import { readerKey, SideReader, type ReaderTarget } from "./SideReader.tsx";
 import { CompareView } from "./CompareView.tsx";
+import { ReviewView } from "./ReviewView.tsx";
 import {
   IconAlert,
   IconCheck,
@@ -48,8 +49,11 @@ interface Citation {
 
 export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
   const { timeline, toolCalls, status } = useTaskEvents(task.id);
-  const [tab, setTab] = useState<"timeline" | "result" | "compare">("timeline");
+  const [tab, setTab] = useState<"timeline" | "result" | "compare" | "review">("timeline");
   const [compares, setCompares] = useState<CompareRecord[]>([]);
+  const [issues, setIssues] = useState<TaskIssue[]>([]);
+  const [reviews, setReviews] = useState<ReviewRecord[]>([]);
+  const [pendingReviews, setPendingReviews] = useState(0);
   const [readerOpen, setReaderOpen] = useState(false);
   const [readerTabs, setReaderTabs] = useState<ReaderTarget[]>([]);
   const [readerActive, setReaderActive] = useState(0);
@@ -114,6 +118,39 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
       clearInterval(timer);
     };
   }, [task.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      void api
+        .listIssues(task.id)
+        .then((data) => {
+          if (cancelled) return;
+          setIssues(data.issues);
+          setReviews(data.reviews);
+          setPendingReviews(data.pending);
+        })
+        .catch(() => undefined);
+    };
+    load();
+    const timer = setInterval(load, 8000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [task.id]);
+
+  const handleReview = (issueId: string, decision: "confirm" | "dismiss", comment: string) => {
+    void api
+      .submitReview(task.id, { issueId, decision, comment })
+      .then(() => api.listIssues(task.id))
+      .then((data) => {
+        setIssues(data.issues);
+        setReviews(data.reviews);
+        setPendingReviews(data.pending);
+      })
+      .catch(() => undefined);
+  };
 
   const finalResult = useMemo(() => {
     const last = [...timeline].reverse().find((t) => t.kind === "agent_text" && t.detail);
@@ -253,6 +290,7 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
                 ["timeline", "执行过程"],
                 ["result", "审查结论"],
                 ["compare", "底稿比对"],
+                ["review", "人工复核"],
               ] as const
             ).map(([key, label]) => (
               <button
@@ -274,6 +312,11 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
                 {key === "compare" && compares.length > 0 && (
                   <span className="ml-1.5 rounded bg-glow-500/15 px-1 py-0.5 text-[10px] text-glow-300">
                     {compares.length}
+                  </span>
+                )}
+                {key === "review" && pendingReviews > 0 && (
+                  <span className="ml-1.5 rounded bg-amber-400/15 px-1 py-0.5 text-[10px] text-amber-300">
+                    {pendingReviews}
                   </span>
                 )}
               </button>
@@ -307,6 +350,9 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
               />
             )}
             {tab === "compare" && <CompareView compares={compares} />}
+            {tab === "review" && (
+              <ReviewView issues={issues} reviews={reviews} pending={pendingReviews} onReview={handleReview} />
+            )}
           </div>
         </div>
 

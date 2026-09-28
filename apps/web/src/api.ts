@@ -63,6 +63,20 @@ export const api = {
       (r) => r.compares,
     ),
 
+  listIssues: (taskId: string) =>
+    request<{
+      issues: import("./types.ts").TaskIssue[];
+      reviews: import("./types.ts").ReviewRecord[];
+      pending: number;
+    }>(`/api/tasks/${taskId}/issues`),
+
+  submitReview: (taskId: string, body: { issueId: string; decision: "confirm" | "dismiss"; comment: string }) =>
+    request<{ review: import("./types.ts").ReviewRecord; pending: number }>(`/api/tasks/${taskId}/review`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+
   artifactContentUrl: (taskId: string, name: string) =>
     `/api/tasks/${taskId}/artifacts/${encodeURIComponent(name)}/content`,
 };
