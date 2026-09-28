@@ -79,6 +79,10 @@ export function CompareView({ compares, onOpenTarget }: Props) {
       }
       lines.push("");
     }
+    lines.push("## 操作与复现", "");
+    lines.push("- 比对视图 ↑/↓ 选择差异行、Enter 在阅读器打开双底稿并定位；点击差异行同样联动。");
+    lines.push("- 阅读器高亮行自动滚至视口中央；审查结论引用胶囊可在阅读器打开原文；Esc 收起阅读器/续跑面板。");
+    lines.push("");
     const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
