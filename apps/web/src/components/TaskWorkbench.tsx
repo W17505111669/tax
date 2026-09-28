@@ -86,7 +86,14 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
   const pinnedRef = useRef(true);
   const [showJump, setShowJump] = useState(false);
   const [scrollPct, setScrollPct] = useState(0);
-  const [fs, setFs] = useState<"sm" | "md" | "lg">("md");
+  const [fs, setFs] = useState<"sm" | "md" | "lg">(() => {
+    const v = localStorage.getItem("taxai-result-fs");
+    return v === "sm" || v === "lg" ? v : "md";
+  });
+
+  useEffect(() => {
+    localStorage.setItem("taxai-result-fs", fs);
+  }, [fs]);
   const [copied, setCopied] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const [metaCopied, setMetaCopied] = useState(false);

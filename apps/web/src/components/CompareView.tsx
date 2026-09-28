@@ -326,9 +326,11 @@ export function CompareView({ compares, onOpenTarget }: Props) {
           </div>
         );
       })()}
-      {compares.map((rec) => {
+      {compares.map((rec, ri) => {
         const t = rec.result?.totals;
         if (!t) return null;
+        const prevAcc = ri > 0 ? compares[ri - 1]?.result?.totals?.accuracyPercent : undefined;
+        const accDelta = typeof prevAcc === "number" ? t.accuracyPercent - prevAcc : undefined;
         return (
           <section key={rec.id} className="glow-card px-5 py-4">
             <div className="flex flex-wrap items-baseline gap-3">
@@ -388,6 +390,14 @@ export function CompareView({ compares, onOpenTarget }: Props) {
                 <div className="mt-1 text-[26px] font-semibold tracking-tight text-glow-300">
                   {t.accuracyPercent}
                   <span className="ml-0.5 text-[12px] text-mist-600">%</span>
+                  {accDelta !== undefined && accDelta !== 0 && (
+                    <span
+                      className={`ml-1.5 text-[11px] ${accDelta > 0 ? "text-jade-400" : "text-rose-300"}`}
+                      title="较上次比对变化"
+                    >
+                      {accDelta > 0 ? `▲${accDelta}` : `▼${Math.abs(accDelta)}`}
+                    </span>
+                  )}
                 </div>
               </div>
               {[
