@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import ExcelJS from "exceljs";
-import { fillTemplate, inspectTemplate } from "../src/index.ts";
+import { fillTemplate, fillTemplateMapped, inspectTemplate } from "../src/index.ts";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tax-tpl-"));
 const templatePath = path.join(dir, "template.xlsx");
@@ -58,11 +58,45 @@ try {
 const hashAfter = crypto.createHash("sha256").update(fs.readFileSync(templatePath)).digest("hex");
 const okOriginalUntouched = hashBefore === hashAfter;
 
+// 映射模式：只给表头列名与数据行，地址定位由工具完成
+const mapped = await fillTemplateMapped(templatePath, dir, "mapped.xlsx", {
+  sheet: "清算底稿",
+  columns: { contractNo: "合同编号", contractAmount: "合同金额", invoiceTotal: "关联发票合计" },
+  rows: [
+    { contractNo: "HT-001", contractAmountYuan: "12000000", invoiceTotalYuan: "11900000" },
+    { contractNo: "HT-002", contractAmountYuan: "3500000", invoiceTotalYuan: "3500000" },
+  ],
+});
+const wb3 = new ExcelJS.Workbook();
+await wb3.xlsx.readFile(mapped.outputPath);
+const ws3 = wb3.getWorksheet("清算底稿")!;
+const okMappedHeader = mapped.headerRow === 3 && mapped.startRow === 4;
+const okMappedValues =
+  ws3.getCell("A4").value === "HT-001" &&
+  ws3.getCell("C4").value === 12000000 &&
+  ws3.getCell("D5").value === 3500000;
+const okMappedNoFormulaHit = mapped.skippedFormulaCells.length === 0;
+const okMappedFormulaKept = (ws3.getCell("E4").value as { formula?: string } | undefined)?.formula === "C4-D4";
+
 console.log(
   `[verify] inspect=${okInspect} fill=${okFill} values=${okValues} formulaKept=${okFormulaKept} mergeKept=${okMergeKept} rejectFormulaWrite=${okReject} originalUntouched=${okOriginalUntouched}`,
 );
+console.log(
+  `[verify] mapped header=${mapped.headerRow} start=${mapped.startRow} cols=${JSON.stringify(mapped.columnIndexes)} written=${mapped.written} | headerOk=${okMappedHeader} valuesOk=${okMappedValues} noFormulaHit=${okMappedNoFormulaHit} formulaKept=${okMappedFormulaKept}`,
+);
 
-const pass = okInspect && okFill && okValues && okFormulaKept && okMergeKept && okReject && okOriginalUntouched;
+const pass =
+  okInspect &&
+  okFill &&
+  okValues &&
+  okFormulaKept &&
+  okMergeKept &&
+  okReject &&
+  okOriginalUntouched &&
+  okMappedHeader &&
+  okMappedValues &&
+  okMappedNoFormulaHit &&
+  okMappedFormulaKept;
 console.log(pass ? "\n[PASS] 模板检查与保留式填列可用。" : "\n[FAIL] 模板工具验证未通过。");
 
 fs.rmSync(dir, { recursive: true, force: true });
