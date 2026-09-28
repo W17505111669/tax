@@ -11,7 +11,15 @@
  * 纯函数，便于 apps/api/scripts/verify-amount-trace.ts 直接校验。
  */
 
-export type Amount = { raw: string; cents: number; index: number; context: string };
+export type Amount = {
+  /** 归一化后的展示形式（含符号与单位，不含空格） */
+  raw: string;
+  /** 原文中的精确片段，用于在渲染后的正文里就地标注 */
+  match: string;
+  cents: number;
+  index: number;
+  context: string;
+};
 
 export type TraceResult = {
   /** 结论里识别出的金额总数 */
@@ -62,6 +70,7 @@ export function extractAmounts(text: string): Amount[] {
     const cents = sign === "-" || sign === "−" ? -base : base;
     out.push({
       raw: `${sign ?? ""}${digits}${unit ?? ""}`,
+      match: full.replace(/^\s+|\s+$/g, ""),
       cents,
       index: idx,
       context: text.slice(Math.max(0, idx - 24), idx + full.length + 16).replace(/\s+/g, " "),

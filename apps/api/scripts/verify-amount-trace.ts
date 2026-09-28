@@ -48,6 +48,14 @@ expect("总数一致", trace.total, trace.traced + trace.fromInput + trace.untra
 expect("符号不敏感匹配（结论负数 / 工具正数）", traceAmounts("差异 -460,000.00 元", results).traced, 1);
 expect("空结论", traceAmounts("", results).total, 0);
 
+// 3b) 就地标注依赖的原文片段：必须是结论里的精确子串，否则标注不会出现
+const sample = "推算 84,444.44 元，差异 -460,000.00 元，补助 50 万元。";
+const extracted = extractAmounts(sample);
+expect("样例提取 3 处", extracted.length, 3);
+expect("match 都是原文精确子串", extracted.every((a) => sample.includes(a.match)), true);
+expect("match 保留原文空格与单位", extracted.map((a) => a.match), ["84,444.44 元", "-460,000.00 元", "50 万元"]);
+expect("raw 为归一化展示形式", extracted.map((a) => a.raw), ["84,444.44元", "-460,000.00元", "50万元"]);
+
 // 4) 真实任务走查：可溯源比例不得低于 90%（当前实现约 96%）
 let total = 0;
 let explained = 0;
@@ -72,6 +80,9 @@ for (const t of listTasks()) {
   total += res.total;
   explained += res.traced + res.fromInput;
   if (res.untraced.length > 0) worst.push(`${t.id.slice(0, 8)}:${res.untraced.length}/${res.total}`);
+  checks += 1;
+  const badMatch = res.untraced.filter((u) => !text2.includes(u.match)).length;
+  if (badMatch > 0) failures.push(`${t.id} 有 ${badMatch} 处待确认金额的原文片段不是结论子串（标注会失效）`);
 }
 checks += 1;
 const ratio = total === 0 ? 1 : explained / total;

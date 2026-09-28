@@ -104,10 +104,75 @@ interface Props {
   onOpenUrl?: (url: string) => void;
   /** 为 h2/h3 生成 sec-N 锚点 id（供目录跳转）。 */
   headingIds?: boolean;
+  /** 就地标注：把正文里出现的这些原文片段包成带说明的标记（例如待人工确认的金额） */
+  annotations?: Annotation[];
 }
 
-export function MarkdownView({ text, live = false, className = "", onOpenUrl, headingIds = false }: Props) {
+export type Annotation = { text: string; label: string; className?: string };
+
+/**
+ * 在已渲染的正文里就地标注指定片段：跳过代码块、行内代码与 mermaid 容器，
+ * 同一文本节点内按位置从前往后切分，重叠命中只保留先出现的那个。
+ */
+function annotate(el: HTMLElement, items: Annotation[]): void {
+  const SKIP_TAGS = new Set(["PRE", "CODE", "SCRIPT", "STYLE", "SVG"]);
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) => {
+      const parent = node.parentElement;
+      if (!parent) return NodeFilter.FILTER_REJECT;
+      if (parent.closest(".mermaid") || parent.closest(".md-annot")) return NodeFilter.FILTER_REJECT;
+      for (let e: HTMLElement | null = parent; e && e !== el; e = e.parentElement) {
+        if (SKIP_TAGS.has(e.tagName)) return NodeFilter.FILTER_REJECT;
+      }
+      return (node.nodeValue ?? "").trim() === "" ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  const nodes: Text[] = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) nodes.push(n as Text);
+
+  for (const node of nodes) {
+    const value = node.nodeValue ?? "";
+    const hits: Array<{ start: number; end: number; item: Annotation }> = [];
+    for (const item of items) {
+      if (!item.text) continue;
+      let from = 0;
+      for (;;) {
+        const at = value.indexOf(item.text, from);
+        if (at < 0) break;
+        hits.push({ start: at, end: at + item.text.length, item });
+        from = at + item.text.length;
+      }
+    }
+    if (hits.length === 0) continue;
+    hits.sort((a, b) => a.start - b.start || b.end - a.end);
+    const frag = document.createDocumentFragment();
+    let cursor = 0;
+    for (const h of hits) {
+      if (h.start < cursor) continue;
+      if (h.start > cursor) frag.appendChild(document.createTextNode(value.slice(cursor, h.start)));
+      const span = document.createElement("span");
+      span.className = `md-annot ${h.item.className ?? ""}`.trim();
+      span.title = h.item.label;
+      span.textContent = value.slice(h.start, h.end);
+      frag.appendChild(span);
+      cursor = h.end;
+    }
+    if (cursor < value.length) frag.appendChild(document.createTextNode(value.slice(cursor)));
+    node.replaceWith(frag);
+  }
+}
+
+export function MarkdownView({
+  text,
+  live = false,
+  className = "",
+  onOpenUrl,
+  headingIds = false,
+  annotations,
+}: Props) {
   const ref = useRef<HTMLDivElement>(null);
+  // 标注数组每次渲染都是新对象，用内容指纹参与依赖，避免无意义的重复渲染
+  const annotationsKey = (annotations ?? []).map((a) => `${a.text}:${a.label}`).join("\u0000");
 
   useEffect(() => {
     const el = ref.current;
@@ -121,12 +186,14 @@ export function MarkdownView({ text, live = false, className = "", onOpenUrl, he
           h.id = `sec-${i}`;
         });
       }
+      if (!live && annotations && annotations.length > 0) annotate(el, annotations);
     }, live ? 90 : 0);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [text, live]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text, live, annotationsKey]);
 
   const handleClick = (event: MouseEvent<HTMLDivElement>) => {
     if (!onOpenUrl) return;

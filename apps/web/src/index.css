@@ -295,6 +295,17 @@ details.tool-row .chev {
 .hl-current > td {
   background: #fecaca !important;
 }
+
+/* 正文就地标注（例如待人工确认的金额）：虚线下划线 + 悬浮说明 */
+.md-annot {
+  border-radius: 2px;
+  cursor: help;
+  padding: 0 1px;
+}
+.md-annot-warn {
+  background: rgba(245, 158, 11, 0.16);
+  box-shadow: inset 0 -1px 0 0 #f59e0b;
+}
 .print-only {
   display: none;
 }

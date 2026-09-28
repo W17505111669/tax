@@ -3,7 +3,7 @@ import { marked } from "marked";
 import { api } from "../api.ts";
 import type { AgentInfo, ArtifactInfo, CompareRecord, FileInfo, ReviewRecord, TaskInfo, TaskIssue } from "../types.ts";
 import { useTaskEvents } from "../hooks/useTaskEvents.ts";
-import { MarkdownView } from "./MarkdownView.tsx";
+import { MarkdownView, type Annotation } from "./MarkdownView.tsx";
 import { readerKey, SideReader, type ReaderTarget } from "./SideReader.tsx";
 import { loadTags, saveTags } from "../tags.ts";
 import { matchToolCalls } from "../timeline-calls.ts";
@@ -653,6 +653,17 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
         task.instruction ?? "",
       ),
     [finalResult, toolCalls, task.instruction],
+  );
+
+  // 待人工确认的金额在结论正文里就地标注（虚线下划线 + 悬浮说明），不必只靠徽章
+  const amountAnnotations = useMemo<Annotation[]>(
+    () =>
+      amountTrace.untraced.slice(0, 40).map((u) => ({
+        text: u.match,
+        label: `待人工确认：该金额未在本次工具调用结果与客户指令中找到出处\n上下文：…${u.context}…`,
+        className: "md-annot-warn",
+      })),
+    [amountTrace],
   );
 
   // 交付自检输入：结论字数、产物与溯源、工具调用结果、待复核与联网引用
@@ -1451,6 +1462,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                 fs={fs}
                 onFs={setFs}
                 delivery={delivery}
+                annotations={amountAnnotations}
                 onCopyBundle={() =>
                   void navigator.clipboard?.writeText(bundleLines().join("\n")).catch(() => undefined)
                 }
@@ -2485,6 +2497,7 @@ function ResultView({
   onCopyBundle,
   delivery,
   onPrint,
+  annotations,
   fs,
   onFs,
   onExportBundle,
@@ -2500,6 +2513,7 @@ function ResultView({
   onCopyBibtex: () => void;
   onCopyBundle: () => void;
   delivery: CheckResult;
+  annotations?: Annotation[];
   onPrint: () => void;
   fs: "sm" | "md" | "lg";
   onFs: (v: "sm" | "md" | "lg") => void;
@@ -2528,6 +2542,7 @@ function ResultView({
           onOpenUrl={(url) => onOpenUrl({ kind: "url", url })}
           headingIds
           className={fs === "md" ? "" : `fs-${fs}`}
+          annotations={annotations}
         />
       </article>
 
