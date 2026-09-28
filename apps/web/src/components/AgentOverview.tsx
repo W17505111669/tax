@@ -115,6 +115,45 @@ export function AgentOverview({
   const perTool = p?.perTool ?? [];
   const toolCount = (name: string) => perTool.find((t) => t.name === name)?.calls ?? 0;
 
+  const downloadBlob = (blob: Blob, name: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // 平台看板快照导出（MD 表格 / JSON 原始）
+  const exportStats = (fmt: "json" | "md") => {
+    if (!p) return;
+    const stamp = new Date().toISOString().slice(0, 10);
+    if (fmt === "json") {
+      downloadBlob(new Blob([JSON.stringify(p, null, 2)], { type: "application/json" }), `platform-stats-${stamp}.json`);
+      return;
+    }
+    const rate = p.toolCalls > 0 ? Math.round((p.toolOk / p.toolCalls) * 10000) / 100 : "—";
+    const lines = [
+      "# 平台应用效果快照",
+      "",
+      `- 日期：${stamp}`,
+      `- 累计任务：${p.tasks}（已完成 ${p.completed}）`,
+      `- 工具调用：${p.toolCalls} 次 · 成功 ${p.toolOk} · 成功率 ${rate}%`,
+      `- 底稿产物：${p.artifacts} 份`,
+      `- 记录级比对准确率：${p.compareAccuracy ?? "—"}%（${p.compareRuns} 次）`,
+      `- OCR 平均置信度：${p.ocrAvgConfidence ?? "—"}%（${p.ocrRuns} 次）`,
+      "",
+      "| 智能体 | 任务 | 已完成 | 工具调用 | 成功 | 产物 |",
+      "| --- | --- | --- | --- | --- | --- |",
+      ...p.perAgent.map((a) => `| ${a.agentId} | ${a.tasks} | ${a.completed} | ${a.toolCalls} | ${a.toolOk} | ${a.artifacts} |`),
+      "",
+      "| 工具 | 调用 | 成功 |",
+      "| --- | --- | --- |",
+      ...p.perTool.map((t) => `| ${t.name} | ${t.calls} | ${t.ok} |`),
+    ];
+    downloadBlob(new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" }), `platform-stats-${stamp}.md`);
+  };
+
   // 键盘 ←/→ 切换作品（输入框内不触发）
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -278,7 +317,17 @@ export function AgentOverview({
 
         {stats.platform && (
           <div className="mt-5">
-            <div className="kicker">平台应用效果 · 实时运行数据</div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="kicker">平台应用效果 · 实时运行数据</span>
+              <span className="no-print flex gap-1.5">
+                <button type="button" className="action-btn" onClick={() => exportStats("md")} title="导出 Markdown 快照">
+                  导出 MD
+                </button>
+                <button type="button" className="action-btn" onClick={() => exportStats("json")} title="导出 JSON 原始数据">
+                  导出 JSON
+                </button>
+              </span>
+            </div>
             <div className="mt-2 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
               {[
                 { label: "累计任务", value: stats.platform.tasks.toLocaleString("zh-CN"), unit: "个", desc: "全平台已创建任务总数（含未完成）" },
