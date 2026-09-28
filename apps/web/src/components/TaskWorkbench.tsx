@@ -402,6 +402,13 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
     };
   }, [finalResult]);
 
+  // 续跑场景：上一次运行的结论摘录，供对照本次结论
+  const prevConclusion = useMemo(() => {
+    const texts = timeline.filter((t) => t.kind === "agent_text" && t.detail && !t.streaming);
+    if (texts.length < 2) return "";
+    return texts[texts.length - 2]?.detail ?? "";
+  }, [timeline]);
+
   const steps = useMemo(() => {
     const hasRun = timeline.some((t) => t.kind === "run_started");
     const toolDone = toolCalls.some((c) => !SEARCH_TOOLS.has(c.toolName) && c.ok !== null);
@@ -824,6 +831,12 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
                     {new Date().toLocaleString("zh-CN", { hour12: false })}
                   </div>
                 </div>
+                {prevConclusion && (
+                  <div className="no-print mb-3 rounded-md border border-line bg-night-850 px-3 py-2 text-[11.5px] leading-5 text-mist-500">
+                    <span className="kicker mr-2">上次运行结论</span>
+                    {prevConclusion.replace(/\s+/g, " ").slice(0, 120)}…（{prevConclusion.length} 字 · 本次 {finalResult.length} 字）
+                  </div>
+                )}
                 <div className="glow-card mb-4 px-4 py-3">
                   <div className="text-[12px] font-semibold text-mist-100 print:text-gray-900">目录</div>
                   <ul className="mt-1 list-decimal pl-5 text-[11px] leading-5 text-mist-400 print:text-gray-700">
