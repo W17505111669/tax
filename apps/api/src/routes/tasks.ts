@@ -71,6 +71,24 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(202).send({ taskId: id, status: "processing", resume: true });
   });
 
+  /** 下载本任务最新的专业工作底稿（交接文档 6.3 的 export 接口）。 */
+  app.get("/api/tasks/:id/export", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const dir = path.join(dirs.outputs, id);
+    if (!fs.existsSync(dir)) return reply.code(404).send({ error: "本任务暂无可导出的底稿" });
+    const candidates = fs
+      .readdirSync(dir)
+      .filter((f) => /\.(xlsx|xls)$/i.test(f))
+      .map((f) => ({ f, t: fs.statSync(path.join(dir, f)).mtimeMs }))
+      .sort((x, y) => y.t - x.t);
+    const latest = candidates[0];
+    if (!latest) return reply.code(404).send({ error: "本任务暂无 Excel 底稿" });
+    const file = path.join(dir, latest.f);
+    reply.header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    reply.header("Content-Disposition", `attachment; filename="${encodeURIComponent(latest.f)}"`);
+    return reply.send(fs.createReadStream(file));
+  });
+
   app.post("/api/tasks/:id/files", async (req, reply) => {
     const { id } = req.params as { id: string };
     const task = getTask(id);
