@@ -28,6 +28,11 @@ export type CheckInput = {
   /** 上传资料总数与其中解析失败的份数 */
   filesTotal: number;
   filesFailed: number;
+  /** 政策文号溯源：结论中的文号总数 / 有出处 / 无法核验（联网检索仅存元数据）/ 待人工确认 */
+  docRefTotal: number;
+  docRefTraced: number;
+  docRefUnverifiable: number;
+  docRefUntraced: number;
 };
 
 /** info 只作说明，不影响交付判定（例如反爬导致的「拒绝自动访问」） */
@@ -97,6 +102,22 @@ export function deliveryCheck(i: CheckInput): CheckResult {
     });
   } else if (i.filesTotal > 0) {
     items.push({ level: "ok", text: `上传资料 ${i.filesTotal} 份，全部解析成功` });
+  }
+
+  if (i.docRefUntraced > 0) {
+    items.push({
+      level: "warn",
+      text: `${i.docRefUntraced} 处政策文号未在工具结果中找到出处，需人工确认依据后再交付`,
+    });
+  }
+  if (i.docRefUnverifiable > 0) {
+    items.push({
+      level: "info",
+      text: `${i.docRefUnverifiable} 处政策文号无法从留存数据核验（联网检索扩展只持久化查询元数据），建议改用政策快照检索或附检索页面截图`,
+    });
+  }
+  if (i.docRefTotal > 0 && i.docRefUntraced === 0 && i.docRefUnverifiable === 0) {
+    items.push({ level: "ok", text: `政策文号 ${i.docRefTotal} 处均可溯源到工具结果` });
   }
 
   if (i.citations > 0) items.push({ level: "ok", text: `联网引用 ${i.citations} 条` });

@@ -42,6 +42,7 @@ import {
   type ParseSummary,
 } from "../file-parse.ts";
 import { buildManifest } from "../manifest.ts";
+import { traceDocRefs } from "../policy-trace.ts";
 import { bundleFreshness, freshnessText, type BundleFreshness, type ChangeStamp } from "../bundle-freshness.ts";
 import { reviewCounts } from "../review-export.ts";
 import {
@@ -936,6 +937,17 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       .finally(() => setUploading(false));
   };
 
+  // 政策文号溯源：结论里的文号是否能在工具结果中找到出处（联网检索扩展只存元数据时标为无法核验）
+  const refTrace = useMemo(
+    () =>
+      traceDocRefs(
+        finalResult,
+        toolCalls.filter((c) => c.ok !== false).map((c) => c.result),
+        toolCalls.map((c) => c.toolName),
+      ),
+    [finalResult, toolCalls],
+  );
+
   // 交付自检输入：结论字数、产物与溯源、工具调用结果、待复核与联网引用
   const deliveryInput = (): CheckInput => ({
     status: reopened ? "waiting_review" : task.status,
@@ -953,6 +965,10 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     amountUntraced: amountPending.length,
     filesTotal: files.length,
     filesFailed: files.filter((f) => (reparse[f.id]?.status ?? f.parseStatus) === "failed").length,
+    docRefTotal: refTrace.total,
+    docRefTraced: refTrace.traced,
+    docRefUnverifiable: refTrace.unverifiable,
+    docRefUntraced: refTrace.untraced.length,
   });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const delivery = useMemo(
@@ -972,6 +988,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       reparse,
       amountTrace,
       amountPending,
+      refTrace,
     ],
   );
 
@@ -1074,6 +1091,26 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     "## 人工复核记录",
     "",
     ...reviewSection(issues, reviews, reopened ? "waiting_review" : task.status),
+    "",
+    "## 政策文号溯源",
+    "",
+    `- 结论中出现政策文号 ${refTrace.total} 处：工具结果可溯源 ${refTrace.traced} 处 · 无法从留存数据核验 ${
+      refTrace.unverifiable
+    } 处 · 待人工确认 ${refTrace.untraced.length} 处`,
+    ...(refTrace.untraced.length > 0
+      ? [
+          "",
+          "| # | 文号 | 结论中的上下文 |",
+          "| --- | --- | --- |",
+          ...refTrace.untraced.slice(0, 20).map((r, i) => `| ${i + 1} | ${mdCell(r.text)} | ${mdCell(r.context)} |`),
+          "",
+        ]
+      : [
+          "",
+          refTrace.unverifiable > 0
+            ? "（联网检索扩展只持久化查询元数据，上述「无法核验」的文号建议改用政策快照检索或附检索页面截图）"
+            : "（全部政策文号都能在工具结果中找到出处）",
+        ]),
     "",
     "## 结论金额溯源",
     "",
@@ -1844,6 +1881,29 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                             金额溯源 {amountTrace.traced}/{amountTrace.total}
                             {amountPending.length > 0 ? ` · 待确认 ${amountPending.length}` : ""}
                             {amountAcked > 0 ? ` · 已核对 ${amountAcked}` : ""}
+                          </span>
+                        )}
+                        {refTrace.total > 0 && (
+                          <span
+                            className={`rounded px-1.5 py-0.5 text-[10.5px] ${
+                              refTrace.untraced.length > 0
+                                ? "bg-amber-400/15 text-amber-300"
+                                : "bg-jade-400/15 text-jade-300"
+                            }`}
+                            title={`政策文号溯源：共 ${refTrace.total} 处，工具结果可溯源 ${refTrace.traced} 处，无法从留存数据核验 ${
+                              refTrace.unverifiable
+                            } 处（联网检索扩展只持久化查询元数据），待人工确认 ${refTrace.untraced.length} 处${
+                              refTrace.untraced.length > 0
+                                ? `\n${refTrace.untraced
+                                    .slice(0, 5)
+                                    .map((r) => `· ${r.text}：…${r.context}…`)
+                                    .join("\n")}`
+                                : ""
+                            }`}
+                          >
+                            文号溯源 {refTrace.traced}/{refTrace.total}
+                            {refTrace.unverifiable > 0 ? ` · 无法核验 ${refTrace.unverifiable}` : ""}
+                            {refTrace.untraced.length > 0 ? ` · 待确认 ${refTrace.untraced.length}` : ""}
                           </span>
                         )}
                         <button

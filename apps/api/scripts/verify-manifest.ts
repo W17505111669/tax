@@ -11,6 +11,7 @@ import { artifactsOfRun, runWindows } from "../../web/src/run-artifacts.ts";
 import { traceAmounts, amountKey } from "../../web/src/amount-trace.ts";
 import { parseDetail, parsedByFileName } from "../../web/src/file-parse.ts";
 import { reviewCounts } from "../../web/src/review-export.ts";
+import { traceDocRefs } from "../../web/src/policy-trace.ts";
 import { db } from "../src/db.ts";
 import { dirs } from "../src/config.ts";
 import { listAmountChecks } from "../src/services/amount-checks.ts";
@@ -43,6 +44,10 @@ const delivery = deliveryCheck({
   amountUntraced: 0,
   filesTotal: 1,
   filesFailed: 0,
+  docRefTotal: 2,
+  docRefTraced: 1,
+  docRefUnverifiable: 1,
+  docRefUntraced: 0,
 });
 
 const base: ManifestInput = {
@@ -165,6 +170,11 @@ for (const t of listTasks()) {
   const amounts = traceAmounts(detail?.result ?? "", calls.map((c) => c.result), detail?.instruction ?? "");
   const amountPending = amounts.untraced.filter((u) => !acked.has(amountKey(u))).length;
   const rc = reviewCounts(extractIssues(t.id), listReviews(t.id));
+  const refs = traceDocRefs(
+    detail?.result ?? "",
+    calls.filter((c) => c.ok !== false).map((c) => c.result),
+    calls.map((c) => c.toolName),
+  );
   const toolOk = calls.filter((c) => c.ok === true).length;
   const toolFailed = calls.filter((c) => c.ok === false).length;
   const input: ManifestInput = {
@@ -193,6 +203,10 @@ for (const t of listTasks()) {
       amountUntraced: amountPending,
       filesTotal: listFiles(t.id).length,
       filesFailed: listFiles(t.id).filter((f) => f.parseStatus === "failed").length,
+      docRefTotal: refs.total,
+      docRefTraced: refs.traced,
+      docRefUnverifiable: refs.unverifiable,
+      docRefUntraced: refs.untraced.length,
     }),
     files: listFiles(t.id).map((f) => ({
       name: f.fileName,

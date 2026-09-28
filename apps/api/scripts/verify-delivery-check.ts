@@ -34,6 +34,10 @@ const base: CheckInput = {
   amountUntraced: 0,
   filesTotal: 2,
   filesFailed: 0,
+  docRefTotal: 0,
+  docRefTraced: 0,
+  docRefUnverifiable: 0,
+  docRefUntraced: 0,
 };
 
 expect("全部达标 → 可交付", deliveryCheck(base).verdict, "可交付");
@@ -107,6 +111,31 @@ expect(
   true,
 );
 expect("无资料时不产生资料条目", deliveryCheck({ ...base, filesTotal: 0 }).items.some((x) => x.text.includes("上传资料")), false);
+expect("文号无出处 → 提醒", deliveryCheck({ ...base, docRefTotal: 3, docRefTraced: 1, docRefUntraced: 2 }).verdict, "谨慎交付");
+expect(
+  "文号提醒含处数",
+  deliveryCheck({ ...base, docRefTotal: 3, docRefTraced: 1, docRefUntraced: 2 }).items.some(
+    (x) => x.level === "warn" && x.text.includes("2 处政策文号"),
+  ),
+  true,
+);
+expect(
+  "文号无法核验只作说明、不降级",
+  deliveryCheck({ ...base, docRefTotal: 3, docRefTraced: 1, docRefUnverifiable: 2 }).verdict,
+  "可交付",
+);
+expect(
+  "文号无法核验计入 info",
+  deliveryCheck({ ...base, docRefTotal: 3, docRefTraced: 1, docRefUnverifiable: 2 }).infos,
+  1,
+);
+expect(
+  "文号全部有出处 → 正向条目",
+  deliveryCheck({ ...base, docRefTotal: 4, docRefTraced: 4 }).items.some(
+    (x) => x.level === "ok" && x.text.includes("政策文号 4 处"),
+  ),
+  true,
+);
 expect("多项阻断同时存在", deliveryCheck({ ...base, status: "processing", resultChars: 0 }).blocks, 2);
 expect("失败叠加空结论", deliveryCheck({ ...base, status: "failed", resultChars: 0 }).blocks, 2);
 

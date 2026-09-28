@@ -96,6 +96,11 @@ const VERIFY_SCRIPTS: Array<{ name: string; cmd: string; scope: string }> = [
     scope: "平台统计口径（比对准确率双口径 / 工具 / 任务 / 产物计数）",
   },
   {
+    name: "verify:policytrace",
+    cmd: "pnpm verify:policytrace",
+    scope: "政策文号溯源（提取 / 归一化 / 有出处-无法核验-待确认三级口径）",
+  },
+  {
     name: "verify:upload",
     cmd: "pnpm verify:upload",
     scope: "上传预检规则（扩展名 / 大小 / 空文件 / 批量分组 / 提示文案）",
