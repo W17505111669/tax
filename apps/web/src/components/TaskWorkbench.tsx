@@ -419,6 +419,22 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
     return texts[texts.length - 2]?.detail ?? "";
   }, [timeline]);
 
+  // 续跑结论句级差异：新增/删除的句子片段
+  const conclDiff = useMemo(() => {
+    if (!prevConclusion || !finalResult) return null;
+    const split = (s: string) =>
+      s
+        .split(/[\n。；;]/)
+        .map((x) => x.trim())
+        .filter((x) => x.length > 8);
+    const prevSet = new Set(split(prevConclusion));
+    const curSet = new Set(split(finalResult));
+    const added = split(finalResult).filter((x) => !prevSet.has(x));
+    const removed = split(prevConclusion).filter((x) => !curSet.has(x));
+    if (added.length === 0 && removed.length === 0) return null;
+    return { added: added.slice(0, 6), removed: removed.slice(0, 6) };
+  }, [prevConclusion, finalResult]);
+
   const steps = useMemo(() => {
     const hasRun = timeline.some((t) => t.kind === "run_started");
     const toolDone = toolCalls.some((c) => !SEARCH_TOOLS.has(c.toolName) && c.ok !== null);
@@ -862,6 +878,25 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
                   <div className="no-print mb-3 rounded-md border border-line bg-night-850 px-3 py-2 text-[11.5px] leading-5 text-mist-500">
                     <span className="kicker mr-2">上次运行结论</span>
                     {prevConclusion.replace(/\s+/g, " ").slice(0, 120)}…（{prevConclusion.length} 字 · 本次 {finalResult.length} 字）
+                  </div>
+                )}
+                {conclDiff && (
+                  <div className="no-print mb-3 rounded-md border border-line bg-night-850 px-3 py-2">
+                    <div className="kicker mb-1">结论较上次运行变化</div>
+                    {conclDiff.added.length > 0 && (
+                      <ul className="space-y-0.5 text-[11.5px] leading-5 text-jade-400">
+                        {conclDiff.added.map((s, i) => (
+                          <li key={`a${i}`}>+ {s}</li>
+                        ))}
+                      </ul>
+                    )}
+                    {conclDiff.removed.length > 0 && (
+                      <ul className="mt-1 space-y-0.5 text-[11.5px] leading-5 text-rose-300">
+                        {conclDiff.removed.map((s, i) => (
+                          <li key={`r${i}`}>- {s}</li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                 )}
                 <div className="glow-card mb-4 px-4 py-3">
