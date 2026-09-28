@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { AgentInfo, TaskInfo } from "../types.ts";
-import { IconBuilding, IconFlask, IconPanel, IconPlus, IconRefresh } from "./Icons.tsx";
+import { IconBuilding, IconFlask, IconInfo, IconPanel, IconPlus, IconRefresh } from "./Icons.tsx";
 
 interface Props {
   agents: AgentInfo[];
@@ -50,6 +50,7 @@ export function IconRail({
   onNewTask: () => void;
   onRefresh: () => void;
 }) {
+  const [helpOpen, setHelpOpen] = useState(false);
   return (
     <div className="icon-rail no-print flex w-[46px] shrink-0 flex-col items-center gap-1.5 py-3">
       <div
@@ -73,6 +74,38 @@ export function IconRail({
       <button type="button" className="rail-btn" onClick={onRefresh} title="刷新任务列表">
         <IconRefresh className="h-4 w-4" />
       </button>
+      <div className="relative">
+        <button
+          type="button"
+          className="rail-btn"
+          data-on={helpOpen}
+          onClick={() => setHelpOpen((v) => !v)}
+          title="键盘快捷键"
+        >
+          <IconInfo className="h-4 w-4" />
+        </button>
+        {helpOpen && (
+          <div className="absolute left-[42px] top-0 z-40 w-60 rounded-lg border border-line bg-night-900 p-3 shadow-2xl">
+            <div className="kicker mb-2">键盘快捷键</div>
+            <ul className="space-y-1.5 text-[11.5px] text-mist-300">
+              {[
+                { keys: "Ctrl+K", desc: "聚焦任务搜索" },
+                { keys: "Ctrl+Enter", desc: "提交新任务" },
+                { keys: "Esc", desc: "收起续跑面板 / 阅读器" },
+                { keys: "↑ / ↓", desc: "选择比对差异行" },
+                { keys: "Enter", desc: "阅读器双底稿定位" },
+              ].map((s) => (
+                <li key={s.keys} className="flex items-center justify-between gap-2">
+                  <span>{s.desc}</span>
+                  <kbd className="rounded border border-line bg-night-800 px-1.5 py-0.5 font-mono text-[10.5px] text-glow-300">
+                    {s.keys}
+                  </kbd>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
       <div className="mt-auto flex flex-col items-center gap-2">
         <span className="h-1.5 w-1.5 rounded-full bg-jade-400" title="后端服务已连接" />
         <span className="text-[9px] font-semibold tracking-[0.08em] text-white/70">v1</span>

@@ -69,7 +69,7 @@ export function AgentOverview({ agents, activeAgentId, stats, breakdown, created
   ];
 
   return (
-    <section className="starfield relative border-b border-line">
+    <section key={agent.id} className="starfield rise-in relative border-b border-line">
       <div className="px-8 pb-6 pt-7">
         <div className="kicker">Tax AI Native · {agent.id}</div>
         <div className="mt-3 flex items-start gap-4">
