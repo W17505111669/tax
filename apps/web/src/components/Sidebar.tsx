@@ -8,6 +8,7 @@ interface Props {
   activeTaskId: string | null;
   tasks: TaskInfo[];
   open: boolean;
+  revealNonce: number;
   onSelectAgent: (id: string) => void;
   onSelectTask: (id: string) => void;
   onNewTask: () => void;
@@ -138,6 +139,7 @@ export function Sidebar({
   activeTaskId,
   tasks,
   open,
+  revealNonce,
   onSelectAgent,
   onSelectTask,
   onNewTask,
@@ -155,6 +157,11 @@ export function Sidebar({
   useEffect(() => {
     localStorage.setItem("taxai-sidebar-groups", JSON.stringify(collapsed));
   }, [collapsed]);
+
+  // 「查看全部」时展开所有分组
+  useEffect(() => {
+    if (revealNonce > 0) setCollapsed({});
+  }, [revealNonce]);
 
   // 收藏集合（与工作台星标共享 localStorage）
   const starred = useMemo(() => {

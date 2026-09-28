@@ -37,6 +37,7 @@ export default function App() {
   const [platform, setPlatform] = useState<PlatformStats | null>(null);
   const [wbTab, setWbTab] = useState<WbTab>("timeline");
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [revealNonce, setRevealNonce] = useState(0);
   const [announce, setAnnounce] = useState("");
   const applyingHash = useRef(false);
 
@@ -221,6 +222,7 @@ export default function App() {
         activeTaskId={activeTaskId}
         tasks={visibleTasks}
         open={sidebarOpen}
+        revealNonce={revealNonce}
         onSelectAgent={(id) => {
           setActiveAgentId(id);
           setActiveTaskId(null);
@@ -273,6 +275,10 @@ export default function App() {
                 setActiveTaskId(null);
               }}
               onOpenTask={(id) => setActiveTaskId(id)}
+              onShowAll={() => {
+                setSidebarOpen(true);
+                setRevealNonce((n) => n + 1);
+              }}
             />
             <NewTaskPanel agent={activeAgent} busy={creating} error={error} onSubmit={handleCreate} />
           </div>

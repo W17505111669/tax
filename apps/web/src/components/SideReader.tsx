@@ -298,6 +298,12 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                   setDragIdx(null);
                 }}
                 onDragEnd={() => setDragIdx(null)}
+                onAuxClick={(e) => {
+                  if (e.button === 1) {
+                    e.preventDefault();
+                    onCloseTab(i);
+                  }
+                }}
                 className={`group flex shrink-0 items-center gap-1.5 border-r border-line px-3 py-2 ${
                   isActive ? "bg-night-800 text-mist-100" : "text-mist-600 hover:bg-night-900 hover:text-mist-300"
                 }`}

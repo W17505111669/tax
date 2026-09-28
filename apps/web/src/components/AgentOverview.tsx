@@ -45,6 +45,7 @@ interface Props {
   recent: Array<{ id: string; title: string; status: string; at: string }>;
   onSelect: (id: string) => void;
   onOpenTask: (id: string) => void;
+  onShowAll: () => void;
 }
 
 export function AgentOverview({
@@ -56,6 +57,7 @@ export function AgentOverview({
   recent,
   onSelect,
   onOpenTask,
+  onShowAll,
 }: Props) {
   const agent = agents.find((a) => a.id === activeAgentId);
   if (!agent) return null;
@@ -231,7 +233,12 @@ export function AgentOverview({
               </svg>
             </div>
             <div className="mt-5">
-              <div className="kicker">最近活动</div>
+              <div className="flex items-center justify-between">
+                <span className="kicker">最近活动</span>
+                <button type="button" className="action-btn" onClick={onShowAll} title="展开侧栏查看全部任务">
+                  查看全部
+                </button>
+              </div>
               <ul className="mt-2 space-y-1">
                 {recent.length === 0 && <li className="px-1.5 text-[11.5px] text-mist-600">暂无任务</li>}
                 {recent.map((r) => (
