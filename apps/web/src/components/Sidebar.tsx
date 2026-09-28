@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { AgentInfo, TaskInfo } from "../types.ts";
-import { IconBuilding, IconFlask, IconInfo, IconPanel, IconPlus, IconRefresh } from "./Icons.tsx";
+import { IconBuilding, IconCopy, IconFlask, IconInfo, IconPanel, IconPlus, IconRefresh } from "./Icons.tsx";
 
 interface Props {
   agents: AgentInfo[];
@@ -274,15 +274,18 @@ export function Sidebar({
                 list.map((task) => {
                   const active = task.id === activeTaskId;
                   return (
-                    <button
+                    <div
                       key={task.id}
-                      type="button"
-                      onClick={() => onSelectTask(task.id)}
-                      title={task.instruction ? `${task.title}\n${task.instruction.slice(0, 140)}` : task.title}
-                      className={`mb-1 block w-full rounded-lg px-2.5 py-2 text-left transition-colors ${
+                      className={`group relative mb-1 rounded-lg transition-colors ${
                         active ? "bg-night-700 glow-ring" : "hover:bg-night-800"
                       }`}
                     >
+                      <button
+                        type="button"
+                        onClick={() => onSelectTask(task.id)}
+                        title={task.instruction ? `${task.title}\n${task.instruction.slice(0, 140)}` : task.title}
+                        className="block w-full rounded-lg px-2.5 py-2 pr-8 text-left"
+                      >
                       <span className={`block truncate text-[12.5px] ${active ? "text-mist-100" : "text-mist-300"}`}>
                         {task.title}
                       </span>
@@ -293,7 +296,19 @@ export function Sidebar({
                           · {new Date(task.createdAt).toLocaleString("zh-CN", { hour12: false })}
                         </span>
                       </span>
-                    </button>
+                      </button>
+                      <button
+                        type="button"
+                        title="复制任务 ID"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void navigator.clipboard?.writeText(task.id).catch(() => undefined);
+                        }}
+                        className="absolute right-1.5 top-2 rounded p-1 text-mist-600 opacity-0 transition-opacity hover:text-glow-300 group-hover:opacity-100"
+                      >
+                        <IconCopy className="h-3 w-3" />
+                      </button>
+                    </div>
                   );
                 })}
             </div>

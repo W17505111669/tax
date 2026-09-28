@@ -3,6 +3,22 @@ import type { AgentInfo, PlatformStats } from "../types.ts";
 import { IconBuilding, IconCheck, IconFlask, IconTool } from "./Icons.tsx";
 
 /** 大数字进入页面时从 0 缓动递增，对齐参考片数据页的计数质感。 */
+const DESC_KEYWORDS = ["整数分", "行级", "记录级", "OCR", "mermaid", "联网"];
+
+/** 智能体描述中的能力关键词高亮。 */
+function renderDesc(text: string) {
+  const re = new RegExp(`(${DESC_KEYWORDS.join("|")})`, "g");
+  return text.split(re).map((part, i) =>
+    DESC_KEYWORDS.includes(part) ? (
+      <mark key={i} className="rounded bg-glow-500/15 px-0.5 text-glow-300">
+        {part}
+      </mark>
+    ) : (
+      <span key={i}>{part}</span>
+    ),
+  );
+}
+
 function useCountUp(target: number, duration = 900): number {
   const [val, setVal] = useState(0);
   useEffect(() => {
@@ -86,7 +102,7 @@ export function AgentOverview({ agents, activeAgentId, stats, breakdown, created
               {agent.shortName}
               <span className="ml-2 text-glow-300">让每一笔涉税判断都有据可查</span>
             </h1>
-            <p className="mt-2 max-w-3xl text-[13px] leading-6 text-mist-500">{agent.description}</p>
+            <p className="mt-2 max-w-3xl text-[13px] leading-6 text-mist-500">{renderDesc(agent.description)}</p>
           </div>
         </div>
 
