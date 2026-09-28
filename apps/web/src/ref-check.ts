@@ -40,6 +40,10 @@ export type RefCheckTarget = {
   text: string;
   /** 文号在结论中的上下文，用于补充检索词 */
   context?: string;
+  /** 检索补充词：弱证据引用的标题常常只有一两个词，补上结论里的领域词才构成能用的检索词 */
+  hint?: string;
+  /** 复查引用时要排除的地址：这条弱证据本身不能被当成自己的替代来源 */
+  excludeUrl?: string;
 };
 
 /** 复查记录主键：同一文号在同一任务里只保留最新一次结果 */
@@ -133,7 +137,9 @@ export function stripSiteSuffix(title: string): string {
 
 /** 复查用的检索词 */
 export function buildRefQuery(t: RefCheckTarget): string {
-  if (t.kind === "citation") return stripSiteSuffix(t.text);
+  if (t.kind === "citation") {
+    return [stripSiteSuffix(t.text), t.hint ?? ""].filter((s) => s.trim() !== "").join(" ");
+  }
   const context = t.context ?? "";
   const prefix = refPrefix(context, t.text);
   const kw = contextKeywords(context, t.text, prefix);
@@ -146,11 +152,34 @@ export function buildRefQuery(t: RefCheckTarget): string {
  * 检索词越长相关度门槛按比例越高，紧凑写法在引擎只返回导航类结果时更容易命中原文页。
  */
 export function refQueryVariants(t: RefCheckTarget): string[] {
+  if (t.kind === "citation") {
+    // 先带领域补充词，拿不到结果再退回只用清理后的标题
+    const withHint = buildRefQuery(t);
+    const bare = stripSiteSuffix(t.text);
+    return [withHint, bare].filter((q, i, arr) => q !== "" && arr.indexOf(q) === i);
+  }
   const full = buildRefQuery(t);
-  if (t.kind === "citation") return full === "" ? [] : [full];
   const prefix = refPrefix(t.context ?? "", t.text);
   const tight = `${prefix}${t.text.replace(/\s+/g, "")}`.trim();
   return [full, tight].filter((q, i, arr) => q !== "" && arr.indexOf(q) === i);
+}
+
+/** 需要找替代来源的弱证据引用（门户首页 / 百科词条 / 检索页），按引用清单顺序取前 limit 条 */
+export function citationTargets(
+  citations: Array<{ title: string; url: string; grade: string }>,
+  hint: string,
+  limit = 10,
+): RefCheckTarget[] {
+  return citations
+    .filter((c) => c.grade === "weak")
+    .slice(0, limit)
+    .map((c) => ({
+      key: refKey("citation", c.url),
+      kind: "citation" as const,
+      text: c.title,
+      hint,
+      excludeUrl: c.url,
+    }));
 }
 
 /** 检索结果条目（与 @tax/business-tools 的 WebSearchResult 形状兼容，但不引入 Node 依赖） */
@@ -193,16 +222,29 @@ export function gradeRefCheck(t: RefCheckTarget, outcome: RefSearchOutcome): Ref
     return { verdict: "empty", evidence: null, note: note === "" ? "检索引擎未返回可用结果" : note };
   }
   if (t.kind === "citation") {
-    const better = outcome.hits.find((h) => gradeCitation(h.url, h.title).grade === "official");
-    if (better) {
-      return { verdict: "matched", evidence: toEvidence(better), note: "检索到政府或税务机关站点的具体文件页" };
+    // 排除这条引用自身，否则「找到替代来源」会变成找到自己
+    const pool = t.excludeUrl ? outcome.hits.filter((h) => h.url !== t.excludeUrl) : outcome.hits;
+    if (pool.length === 0) {
+      return { verdict: "empty", evidence: null, note: "只检索到这条引用本身，没有找到可替换的来源" };
     }
-    const best = bestHit(outcome.hits);
-    return {
-      verdict: "candidate",
-      evidence: best ? toEvidence(best) : null,
-      note: "未检索到官方原文，仅给出相关度最高的候选页",
-    };
+    const official = pool.find((h) => gradeCitation(h.url, h.title).grade === "official");
+    if (official) {
+      return {
+        verdict: "matched",
+        evidence: toEvidence(official),
+        note: "检索到政府或税务机关站点的具体文件页，可替换原弱证据引用",
+      };
+    }
+    const best = bestHit(pool);
+    // 只剩同类门户首页或百科词条时不算候选：换一条弱证据没有意义
+    if (best && gradeCitation(best.url, best.title).grade !== "weak") {
+      return {
+        verdict: "candidate",
+        evidence: toEvidence(best),
+        note: "未检索到官方原文，给出证据力更高的候选页，请人工确认后再替换",
+      };
+    }
+    return { verdict: "empty", evidence: null, note: "只检索到同类门户首页或百科词条，没有可替换的官方原文" };
   }
   const core = normalizeRef(t.text);
   const hit = outcome.hits.find((h) => normalizeRef(`${h.title} ${h.snippet ?? ""}`).includes(core));

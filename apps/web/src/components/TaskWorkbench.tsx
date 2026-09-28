@@ -45,12 +45,15 @@ import {
 import { buildManifest } from "../manifest.ts";
 import { traceDocRefs } from "../policy-trace.ts";
 import { gradeCitation, GRADE_HINT, GRADE_TEXT, summarizeGrades } from "../citation-grade.ts";
+import { topDomainWords, topicHint } from "../domain-keywords.ts";
 import {
+  citationTargets,
   pendingAfterRecheck,
   refCheckTargets,
   REF_VERDICT_HINT,
   REF_VERDICT_TEXT,
   summarizeRefChecks,
+  type RefCheckSummary,
 } from "../ref-check.ts";
 import {
   extractCitations,
@@ -133,25 +136,6 @@ interface Citation {
 const STEP_RING = 2 * Math.PI * 12;
 
 /** 去除 Markdown 语法，供纯文本复制使用 */
-const DOMAIN_KEYWORDS = [
-  "研发费用",
-  "加计扣除",
-  "土地增值税",
-  "扣除项目",
-  "核验",
-  "比对",
-  "底稿",
-  "政策依据",
-  "限额",
-  "置信度",
-  "OCR",
-  "mermaid",
-  "发票",
-  "合同",
-  "差异",
-  "准确率",
-];
-
 function toPlainText(md: string): string {
   return md
     .replace(/```[\s\S]*?```/g, (block) => block.replace(/```[\w-]*\n?/g, "").replace(/```/g, ""))
@@ -764,14 +748,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     };
   }, [finalResult]);
 
-  // 结论关键词云：领域词表计数 Top8
-  const topWords = useMemo(() => {
-    if (!finalResult) return [];
-    return DOMAIN_KEYWORDS.map((w) => ({ w, n: finalResult.split(w).length - 1 }))
-      .filter((x) => x.n > 0)
-      .sort((a, b) => b.n - a.n)
-      .slice(0, 8);
-  }, [finalResult]);
+  // 结论关键词云：领域词表计数 Top8（词表与弱证据引用复查的检索补充词共用 domain-keywords.ts）
+  const topWords = useMemo(() => topDomainWords(finalResult, 8), [finalResult]);
 
   const [kwFilter, setKwFilter] = useState<string | null>(null);
   const kwParas = useMemo(() => {
@@ -1016,11 +994,36 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
 
   // 待复查的文号（待人工确认 + 无法核验）与已有复查结果的汇总
   const refTargets = useMemo(() => refCheckTargets(refTrace), [refTrace]);
-  const refSummary = useMemo(() => summarizeRefChecks(Object.values(refChecks)), [refChecks]);
+  // 复查记录按类型分开统计：文号复查进「文号溯源」口径，引用复查进「联网引用」口径
+  const docRefChecks = useMemo(() => Object.values(refChecks).filter((c) => c.kind === "docref"), [refChecks]);
+  const citationCheckList = useMemo(() => Object.values(refChecks).filter((c) => c.kind === "citation"), [refChecks]);
+  const refSummary = useMemo(() => summarizeRefChecks(docRefChecks), [docRefChecks]);
+  const citationSummary = useMemo(() => summarizeRefChecks(citationCheckList), [citationCheckList]);
   const refPending = useMemo(
     () => pendingAfterRecheck(refTrace.untraced.length + refTrace.unverifiable, refSummary),
     [refTrace, refSummary],
   );
+
+  // 弱证据引用（门户首页 / 百科词条 / 检索页）找可替换的官方原文
+  const weakCitations = useMemo(() => citations.filter((c) => c.grade === "weak"), [citations]);
+  const weakTargets = useMemo(
+    () => citationTargets(weakCitations, topicHint(finalResult, 2), 10),
+    [weakCitations, finalResult],
+  );
+
+  /** 为弱证据引用检索官方原文：结果落库，需人工确认后写回结论，平台不改写 Agent 的结论 */
+  const runCitationRecheck = () => {
+    if (refBusy || weakTargets.length === 0) return;
+    setRefBusy(true);
+    void api
+      .runRefChecks(
+        task.id,
+        weakTargets.map((t) => ({ kind: "citation" as const, text: t.text, url: t.excludeUrl })),
+      )
+      .then((res) => setRefChecks(Object.fromEntries(res.checks.map((c) => [c.key, c]))))
+      .catch(() => undefined)
+      .finally(() => setRefBusy(false));
+  };
 
   // 交付自检输入：结论字数、产物与溯源、工具调用结果、待复核与联网引用
   const deliveryInput = (): CheckInput => ({
@@ -1047,6 +1050,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     docRefUntraced: refTrace.untraced.length,
     docRefRecheck: refSummary.total > 0 ? refSummary : null,
     docRefPending: refPending,
+    citationRecheck: citationSummary.total > 0 ? citationSummary : null,
   });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const delivery = useMemo(
@@ -1071,6 +1075,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       refTrace,
       refSummary,
       refPending,
+      citationSummary,
     ],
   );
 
@@ -1141,6 +1146,25 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
           ...citations.map(
             (c, i) => `${i + 1}. ${c.title}\n   ${c.url}\n   证据力：${GRADE_TEXT[c.grade]}（${c.gradeReason}）`,
           ),
+          ...(citationSummary.total > 0
+            ? [
+                "",
+                `- 弱证据引用替代来源检索：已检索 ${citationSummary.total} 条 · 找到官方原文 ${citationSummary.matched} 条 · 候选待确认 ${citationSummary.candidate} 条 · 未找到 ${
+                  citationSummary.empty + citationSummary.error
+                } 条（替代来源需人工确认后写回结论并重新打包）`,
+                "",
+                "| # | 原弱证据引用 | 判定 | 替代来源 |",
+                "| --- | --- | --- | --- |",
+                ...citationCheckList.map(
+                  (c, i) =>
+                    `| ${i + 1} | ${mdCell(c.text)}${c.subjectUrl ? `<br>${mdCell(c.subjectUrl)}` : ""} | ${
+                      REF_VERDICT_TEXT[c.verdict]
+                    } | ${
+                      c.evidence ? `[${mdCell(c.evidence.title)}](${c.evidence.url})` : "—"
+                    } |`,
+                ),
+              ]
+            : []),
         ]
       : [searchNote ?? "（本次任务无联网引用）"]),
     "",
@@ -1326,6 +1350,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       citationGrades: citations.length > 0 ? citationGrades : null,
       searches: searches.calls > 0 ? searches : null,
       refChecks: refSummary.total > 0 ? refSummary : null,
+      citationChecks: citationSummary.total > 0 ? citationSummary : null,
       linkCheck: { summary: linkCheckedAt ? linkSummary : null, checkedAt: linkCheckedAt },
       amounts: {
         total: amountTrace.total,
@@ -2201,6 +2226,13 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                 citations={citations}
                 searches={searches}
                 searchNote={searchNote}
+                citationRecheck={{
+                  targets: weakTargets,
+                  checks: citationCheckList,
+                  summary: citationSummary,
+                  busy: refBusy,
+                  onRun: runCitationRecheck,
+                }}
                 onOpenUrl={openReader}
                 linkChecks={linkChecks}
                 linkBusy={linkBusy}
@@ -3343,6 +3375,7 @@ function ResultView({
   citations,
   searches,
   searchNote,
+  citationRecheck,
   onOpenUrl,
   onDownloadReport,
   onDownloadCitations,
@@ -3373,6 +3406,14 @@ function ResultView({
   /** 联网检索留痕汇总（用于「检索过但没留下来源清单」的如实说明） */
   searches: SearchEvidence;
   searchNote: string | null;
+  /** 弱证据引用找官方原文：目标、已有结果、汇总、进行中状态与触发回调 */
+  citationRecheck: {
+    targets: Array<{ key: string; text: string; excludeUrl?: string }>;
+    checks: RefCheckRecord[];
+    summary: RefCheckSummary;
+    busy: boolean;
+    onRun: () => void;
+  };
   onOpenUrl: (target: ReaderTarget) => void;
   onDownloadReport: () => void;
   onDownloadCitations: () => void;
@@ -3686,6 +3727,81 @@ function ResultView({
               );
             })}
           </div>
+          {citationRecheck.targets.length > 0 && (
+            <div className="mt-2 rounded border border-amber-400/30 bg-amber-400/5 px-2.5 py-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="kicker">弱证据引用找官方原文</span>
+                <span className="text-[10.5px] text-mist-600">
+                  {citationRecheck.targets.length} 条引用指向门户首页、百科词条或检索页
+                  {citationRecheck.summary.total > 0 &&
+                    ` · 已找到替代来源 ${citationRecheck.summary.matched} · 候选待确认 ${
+                      citationRecheck.summary.candidate
+                    } · 未找到 ${citationRecheck.summary.empty + citationRecheck.summary.error}`}
+                </span>
+                <button
+                  type="button"
+                  className="action-btn ml-auto disabled:cursor-not-allowed disabled:opacity-40"
+                  disabled={citationRecheck.busy}
+                  title="用自建检索通道为这些弱证据引用检索官方原文：检索词 = 去掉站点后缀的标题 + 结论里的领域词，并排除引用自身；找到后给出可替换的具体文件页，结果按条落库"
+                  onClick={citationRecheck.onRun}
+                >
+                  {citationRecheck.busy
+                    ? "检索中…"
+                    : citationRecheck.summary.total > 0
+                      ? "重新检索替代来源"
+                      : "查找官方原文"}
+                </button>
+              </div>
+              {citationRecheck.checks.length > 0 && (
+                <ul className="mt-1.5 space-y-1">
+                  {citationRecheck.checks.map((c) => (
+                    <li key={c.key} className="flex flex-wrap items-center gap-2 rounded bg-night-800 px-2 py-1">
+                      <span
+                        className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${
+                          REF_VERDICT_CLASS[c.verdict] ?? "bg-night-700 text-mist-500"
+                        }`}
+                        title={`${REF_VERDICT_HINT[c.verdict]}\n检索词：${c.query}\n判定说明：${c.note}`}
+                      >
+                        {REF_VERDICT_TEXT[c.verdict]}
+                      </span>
+                      <span className="max-w-[220px] truncate text-[11px] text-mist-500" title={c.text}>
+                        {c.text}
+                      </span>
+                      {c.evidence && (
+                        <>
+                          <button
+                            type="button"
+                            className="action-btn"
+                            title={`${c.evidence.title}\n${c.evidence.url}\n证据力：${c.evidence.gradeReason || c.evidence.grade}\n点按在侧边阅读器打开`}
+                            onClick={() => onOpenUrl({ kind: "url", url: c.evidence!.url })}
+                          >
+                            <IconExternal className="h-3 w-3" />
+                            替代来源
+                          </button>
+                          <button
+                            type="button"
+                            className="action-btn"
+                            title="复制替换用的引用行（原标题 → 替代来源标题与地址）"
+                            onClick={() =>
+                              void navigator.clipboard
+                                ?.writeText(`${c.text} → ${c.evidence!.title} ${c.evidence!.url}`)
+                                .catch(() => undefined)
+                            }
+                          >
+                            <IconCopy className="h-3 w-3" />
+                          </button>
+                        </>
+                      )}
+                      <span className="text-[10.5px] text-mist-600">{c.note}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="mt-1 text-[10.5px] leading-5 text-mist-600">
+                替代来源需人工确认后写回结论并重新打包，平台不会自动改写 Agent 的结论。
+              </p>
+            </div>
+          )}
         </div>
       )}
 

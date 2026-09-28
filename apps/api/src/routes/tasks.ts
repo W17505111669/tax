@@ -27,6 +27,7 @@ import {
   runRefChecks,
   toTargets,
 } from "../services/ref-checks.ts";
+import { topicHint } from "../../../web/src/domain-keywords.ts";
 import {
   appendEvent,
   createTask,
@@ -358,14 +359,17 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
   app.post("/api/tasks/:id/ref-checks", async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = (req.body ?? {}) as { targets?: unknown };
-    const targets = toTargets(body.targets);
+    // 检索补充词从本任务结论里取领域词：弱证据引用的标题常常只有一两个字，单独检索命不中
+    const targets = toTargets(body.targets, topicHint(getTask(id)?.result ?? ""));
     if (targets.length === 0) return reply.code(400).send({ error: "需要 targets（1-10 条，每条含 text）" });
     const fresh = await runRefChecks(id, targets);
     const count = (v: string) => fresh.filter((c) => c.verdict === v).length;
+    const allCitations = targets.every((t) => t.kind === "citation");
+    const label = allCitations ? "弱证据引用找官方原文" : targets.some((t) => t.kind === "citation") ? "证据复查" : "政策文号复查";
     appendEvent(
       id,
       "agent_status",
-      `政策文号复查：${fresh.length} 处 · 找到公开出处 ${count("matched")} · 候选待确认 ${count(
+      `${label}：${fresh.length} 处 · 找到公开出处 ${count("matched")} · 候选待确认 ${count(
         "candidate",
       )} · 未检索到 ${count("empty")} · 检索失败 ${count("error")}`,
       {

@@ -43,6 +43,7 @@ const base: CheckInput = {
   docRefUntraced: 0,
   docRefRecheck: null,
   docRefPending: 0,
+  citationRecheck: null,
 };
 
 expect("全部达标 → 可交付", deliveryCheck(base).verdict, "可交付");
@@ -291,6 +292,49 @@ expect(
     (x) => x.level === "info" && x.text.includes("建议改用政策快照检索"),
   ),
   true,
+);
+
+// 弱证据引用的替代来源检索：只作说明，弱证据本身在人工替换前仍算风险
+const crecheck = (over: Partial<NonNullable<CheckInput["citationRecheck"]>> = {}) => ({
+  total: 2,
+  matched: 2,
+  candidate: 0,
+  empty: 0,
+  error: 0,
+  checkedAt: "2026-09-29T03:00:00.000Z",
+  ...over,
+});
+const weakInput = { ...base, citationGrades: { total: 3, official: 1, professional: 0, weak: 2 } };
+expect(
+  "找到替代来源时给出说明",
+  deliveryCheck({ ...weakInput, citationRecheck: crecheck() }).items.some(
+    (x) => x.level === "info" && x.text.includes("2 条弱证据引用已找到可替换的官方原文"),
+  ),
+  true,
+);
+expect(
+  "弱证据在人工替换前仍是提醒",
+  deliveryCheck({ ...weakInput, citationRecheck: crecheck() }).verdict,
+  "谨慎交付",
+);
+expect(
+  "只有候选页时说明需人工确认",
+  deliveryCheck({ ...weakInput, citationRecheck: crecheck({ matched: 0, candidate: 2 }) }).items.some(
+    (x) => x.level === "info" && x.text.includes("需人工确认后再替换"),
+  ),
+  true,
+);
+expect(
+  "全部没找到时说明改用政策快照",
+  deliveryCheck({ ...weakInput, citationRecheck: crecheck({ matched: 0, empty: 2 }) }).items.some(
+    (x) => x.level === "info" && x.text.includes("没有检索到可替换的官方原文"),
+  ),
+  true,
+);
+expect(
+  "没有弱证据时不产生替代来源条目",
+  deliveryCheck({ ...base, citationRecheck: crecheck() }).items.some((x) => x.text.includes("替代")),
+  false,
 );
 expect("多项阻断同时存在", deliveryCheck({ ...base, status: "processing", resultChars: 0 }).blocks, 2);
 expect("失败叠加空结论", deliveryCheck({ ...base, status: "failed", resultChars: 0 }).blocks, 2);

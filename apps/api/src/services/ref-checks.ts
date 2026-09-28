@@ -34,6 +34,8 @@ export interface RefCheckRecord {
   verdict: RefCheckVerdict;
   note: string;
   evidence: RefCheckEvidence | null;
+  /** 复查对象的原始地址：引用类复查必填（主键按它算），文号类为空串 */
+  subjectUrl: string;
   attempts: SearchAttempt[];
   checkedAt: string;
 }
@@ -94,8 +96,11 @@ export function planBatchRefChecks(
   return out;
 }
 
-/** 把请求体里的条目规范化成复查目标（主键由服务端算，不信任客户端传入） */
-export function toTargets(items: unknown): RefCheckTarget[] {
+/**
+ * 把请求体里的条目规范化成复查目标（主键由服务端算，不信任客户端传入）。
+ * hint 为任务级检索补充词（由路由从结论里取领域词算出），弱证据引用的标题过短时用它兜底。
+ */
+export function toTargets(items: unknown, hint = ""): RefCheckTarget[] {
   if (!Array.isArray(items)) return [];
   const out: RefCheckTarget[] = [];
   for (const raw of items) {
@@ -104,12 +109,20 @@ export function toTargets(items: unknown): RefCheckTarget[] {
     const text = typeof o.text === "string" ? o.text.trim() : "";
     if (text === "") continue;
     const kind: RefCheckKind = o.kind === "citation" ? "citation" : "docref";
-    out.push({
-      key: refKey(kind, text),
+    const url = typeof o.url === "string" && /^https?:\/\//i.test(o.url) ? o.url : "";
+    const target: RefCheckTarget = {
+      // 引用的身份是地址而不是标题：同一页面换个标题也只留一条记录
+      key: refKey(kind, kind === "citation" && url !== "" ? url : text),
       kind,
       text,
       context: typeof o.context === "string" ? o.context : undefined,
-    });
+    };
+    if (kind === "citation") {
+      const own = typeof o.hint === "string" ? o.hint.trim() : "";
+      target.hint = own !== "" ? own : hint;
+      if (url !== "") target.excludeUrl = url;
+    }
+    out.push(target);
     if (out.length >= MAX_REF_CHECKS) break;
   }
   // 同一文号只查一次
@@ -168,6 +181,7 @@ export async function runRefChecks(
           : graded.note
         : (failure ?? "检索请求失败"),
       evidence: graded?.evidence ?? null,
+      subjectUrl: t.excludeUrl ?? "",
       attempts,
       checkedAt: at,
     };
@@ -181,13 +195,13 @@ export async function runRefChecks(
 export function saveRefCheck(taskId: string, rec: RefCheckRecord): void {
   db.prepare(
     `INSERT INTO ref_checks
-       (task_id, ref_key, kind, text, query, verdict, note, evidence_title, evidence_url, evidence_grade, evidence_snippet, attempts, checked_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       (task_id, ref_key, kind, text, query, verdict, note, evidence_title, evidence_url, evidence_grade, evidence_snippet, subject_url, attempts, checked_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (task_id, ref_key) DO UPDATE SET
        kind = excluded.kind, text = excluded.text, query = excluded.query, verdict = excluded.verdict,
        note = excluded.note, evidence_title = excluded.evidence_title, evidence_url = excluded.evidence_url,
        evidence_grade = excluded.evidence_grade, evidence_snippet = excluded.evidence_snippet,
-       attempts = excluded.attempts, checked_at = excluded.checked_at`,
+       subject_url = excluded.subject_url, attempts = excluded.attempts, checked_at = excluded.checked_at`,
   ).run(
     taskId,
     rec.key,
@@ -200,6 +214,7 @@ export function saveRefCheck(taskId: string, rec: RefCheckRecord): void {
     rec.evidence?.url ?? null,
     rec.evidence?.grade ?? null,
     rec.evidence?.snippet ?? null,
+    rec.subjectUrl,
     JSON.stringify(rec.attempts),
     rec.checkedAt,
   );
@@ -216,6 +231,7 @@ type Row = {
   evidence_url: string | null;
   evidence_grade: string | null;
   evidence_snippet: string | null;
+  subject_url: string | null;
   attempts: string | null;
   checked_at: string;
 };
@@ -245,6 +261,7 @@ export function listRefChecks(taskId: string): RefCheckRecord[] {
       query: r.query,
       verdict,
       note: r.note ?? "",
+      subjectUrl: r.subject_url ?? "",
       evidence:
         r.evidence_url === null
           ? null

@@ -71,6 +71,15 @@ export type ManifestInput = {
     error: number;
     checkedAt: string | null;
   } | null;
+  /** 弱证据引用的替代来源检索汇总；从未检索时为 null */
+  citationChecks: {
+    total: number;
+    matched: number;
+    candidate: number;
+    empty: number;
+    error: number;
+    checkedAt: string | null;
+  } | null;
   amounts: { total: number; traced: number; fromInput: number; pending: number; acked: number };
   review: { issues: number; done: number; pending: number; notRequired: number };
   generatedAt?: string;
@@ -152,6 +161,14 @@ export function manifestIssues(m: BundleManifest): string[] {
       out.push("文号复查四类之和不等于复查总数");
     }
     if (rc.total > 0 && rc.checkedAt === null) out.push("有复查记录却没有复查时间");
+  }
+
+  const cc = m.citationChecks;
+  if (cc) {
+    if (cc.total !== cc.matched + cc.candidate + cc.empty + cc.error) {
+      out.push("弱证据引用检索四类之和不等于总数");
+    }
+    if (cc.total > 0 && cc.checkedAt === null) out.push("有弱证据引用检索记录却没有时间");
   }
 
   for (const f of m.files) {

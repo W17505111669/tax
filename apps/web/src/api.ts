@@ -81,7 +81,16 @@ export const api = {
     ),
 
   /** 触发政策文号联网复查（自建检索通道，结果落库并写入事件留痕） */
-  runRefChecks: (taskId: string, targets: Array<{ kind?: "docref" | "citation"; text: string; context?: string }>) =>
+  runRefChecks: (
+    taskId: string,
+    targets: Array<{
+      kind?: "docref" | "citation";
+      text: string;
+      context?: string;
+      /** 引用复查时传原地址：服务端用它做主键，并把它排除在替代来源之外 */
+      url?: string;
+    }>,
+  ) =>
     request<{
       checks: import("./types.ts").RefCheckRecord[];
       checkedAt: string | null;

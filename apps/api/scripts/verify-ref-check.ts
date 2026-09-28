@@ -6,6 +6,7 @@
 import type { DetailedSearch, SearchAttempt, WebSearchResult } from "@tax/business-tools";
 import {
   buildRefQuery,
+  citationTargets,
   contextKeywords,
   gradeRefCheck,
   pendingAfterRecheck,
@@ -155,6 +156,60 @@ expect("引用类找到官方页 → matched", gradeRefCheck({ ...TARGET, kind: 
 expect("四级文案齐全", Object.keys(REF_VERDICT_TEXT).length, 4);
 expect("四级提示齐全", Object.values(REF_VERDICT_HINT).every((s) => s.length > 0), true);
 
+// 2b) 弱证据引用找官方原文
+const WEAK_URL = "https://baike.baidu.com/item/%E7%A0%94%E5%8F%91/4815440";
+const weakTargets = citationTargets(
+  [
+    { title: "研发_百度百科", url: WEAK_URL, grade: "weak" },
+    { title: "研发费用加计扣除政策执行指引", url: "https://fgk.chinatax.gov.cn/zcfgk/a.html", grade: "official" },
+    { title: "研发实务", url: "https://zhuanlan.zhihu.com/p/1", grade: "professional" },
+  ],
+  "研发费用 加计扣除",
+  10,
+);
+expect("只挑弱证据引用", weakTargets.length, 1);
+expect("引用复查主键用地址", weakTargets[0]?.key, refKey("citation", WEAK_URL));
+expect("带上任务级领域补充词", weakTargets[0]?.hint, "研发费用 加计扣除");
+expect("排除引用自身", weakTargets[0]?.excludeUrl, WEAK_URL);
+expect("引用检索词 = 清理后的标题 + 领域词", buildRefQuery(weakTargets[0]!), "研发 研发费用 加计扣除");
+expect(
+  "引用检索词候选：先带领域词再退回标题",
+  refQueryVariants(weakTargets[0]!),
+  ["研发 研发费用 加计扣除", "研发"],
+);
+expect("无领域词时只用标题", buildRefQuery({ ...weakTargets[0]!, hint: "" }), "研发");
+expect(
+  "弱证据过多时按上限截断",
+  citationTargets(
+    Array.from({ length: 14 }, (_, i) => ({ title: `词条${i}`, url: `https://baike.baidu.com/item/x/${i}`, grade: "weak" })),
+    "",
+    10,
+  ).length,
+  10,
+);
+const cit = weakTargets[0]!;
+expect(
+  "找到官方文件页 → matched",
+  gradeRefCheck(cit, outcome([hit("研发费用加计扣除政策执行指引", "https://fgk.chinatax.gov.cn/zcfgk/a.html")])).verdict,
+  "matched",
+);
+expect("排除自身后只剩原页面 → 未找到", gradeRefCheck(cit, outcome([hit("研发_百度百科", WEAK_URL)])).verdict, "empty");
+expect(
+  "只剩同类百科不算候选",
+  gradeRefCheck(cit, outcome([hit("研发 - MBA智库百科", "https://wiki.mbalib.com/wiki/x")])).verdict,
+  "empty",
+);
+expect(
+  "专业文章作为候选",
+  gradeRefCheck(cit, outcome([hit("研发费用加计扣除实务", "https://www.shui5.cn/article/a/b.html")])).verdict,
+  "candidate",
+);
+expect(
+  "matched 说明含替换动作",
+  gradeRefCheck(cit, outcome([hit("x", "https://fgk.chinatax.gov.cn/zcfgk/a.html")])).note.includes("替换"),
+  true,
+);
+
 // 3) 复查对象与汇总
 const trace = traceDocRefs("依据财税〔2015〕119号与国税发〔2006〕187号处理", [{ docNumber: "财税[2015]119号" }], ["web_search"]);
 const targets = refCheckTargets(trace);
@@ -187,6 +242,32 @@ expect("超过上限截断", toTargets(Array.from({ length: 14 }, (_, i) => ({ t
 expect("未知 kind 归为 docref", toTargets([{ text: "x〔2015〕1号", kind: "别的" }])[0]?.kind, "docref");
 expect("非数组安全返回空", toTargets(null).length, 0);
 expect("保留上下文", toTargets([{ text: "财税〔2015〕119号", context: "研发费用" }])[0]?.context, "研发费用");
+expect(
+  "引用条目用地址做主键",
+  toTargets([{ kind: "citation", text: "研发_百度百科", url: WEAK_URL }], "研发费用")[0]?.key,
+  refKey("citation", WEAK_URL),
+);
+expect(
+  "引用条目带上任务级补充词",
+  toTargets([{ kind: "citation", text: "研发_百度百科", url: WEAK_URL }], "研发费用")[0]?.hint,
+  "研发费用",
+);
+expect(
+  "条目自带补充词优先于任务级",
+  toTargets([{ kind: "citation", text: "x", url: WEAK_URL, hint: "自定义" }], "研发费用")[0]?.hint,
+  "自定义",
+);
+expect("引用条目记录排除地址", toTargets([{ kind: "citation", text: "x", url: WEAK_URL }])[0]?.excludeUrl, WEAK_URL);
+expect("非 http 地址不作为排除项", toTargets([{ kind: "citation", text: "x", url: "ftp://a" }])[0]?.excludeUrl, undefined);
+expect("文号条目不带补充词", toTargets([{ text: "财税〔2015〕119号" }], "研发费用")[0]?.hint, undefined);
+expect(
+  "同一地址只查一次",
+  toTargets([
+    { kind: "citation", text: "标题A", url: WEAK_URL },
+    { kind: "citation", text: "标题B", url: WEAK_URL },
+  ]).length,
+  1,
+);
 
 // 4b) 批量复查计划：预算切分、跳过无待办的任务、硬上限
 const mkTargets = (n: number, salt: string): RefCheckTarget[] =>
@@ -283,6 +364,25 @@ expect(
   "国税发〔2006〕187号 土地增值税清算建筑安装工程费",
 );
 
+const citRan = await runRefChecks(TASK, weakTargets.slice(0, 1), async () => ({
+  results: [hit("研发费用加计扣除政策执行指引", "https://fgk.chinatax.gov.cn/zcfgk/a.html")],
+  attempts: [attempt("ok", "保留 1 条")],
+  minScore: 2,
+}));
+expect("引用复查记下替代来源", citRan[0]?.evidence?.url, "https://fgk.chinatax.gov.cn/zcfgk/a.html");
+expect("引用复查保留被替换的原地址", citRan[0]?.subjectUrl, WEAK_URL);
+expect(
+  "引用复查落库后可读回原地址",
+  listRefChecks(TASK).find((c) => c.kind === "citation")?.subjectUrl,
+  WEAK_URL,
+);
+expect("文号复查的原地址为空串", listRefChecks(TASK).find((c) => c.kind === "docref")?.subjectUrl, "");
+expect(
+  "引用复查主键按原地址计算",
+  listRefChecks(TASK).find((c) => c.kind === "citation")?.key,
+  `citation:${WEAK_URL.replace(/\s+/g, "")}`,
+);
+
 const boom = await runRefChecks(TASK, [{ key: refKey("docref", "财税〔2016〕1号"), kind: "docref", text: "财税〔2016〕1号" }], async () => {
   throw new Error("网络不可达");
 });
@@ -332,7 +432,12 @@ for (const t of listTasks()) {
   storedTotal += recs.length;
   for (const rec of recs) {
     checks += 1;
-    if (rec.key !== refKey(rec.kind, rec.text)) failures.push(`${t.id.slice(0, 8)} 复查记录主键与文本不符：${rec.key}`);
+    // 文号按文本算主键，引用按原地址算主键：两种都必须能从落库字段自校验回来
+    const wantKey = refKey(rec.kind, rec.kind === "citation" ? rec.subjectUrl : rec.text);
+    if (rec.key !== wantKey) failures.push(`${t.id.slice(0, 8)} 复查记录主键不符：${rec.key} ≠ ${wantKey}`);
+    if (rec.kind === "citation" && !/^https?:\/\//.test(rec.subjectUrl)) {
+      failures.push(`${t.id.slice(0, 8)} 引用类复查记录缺少原地址：${rec.key}`);
+    }
     if (!["matched", "candidate", "empty", "error"].includes(rec.verdict)) failures.push(`${t.id.slice(0, 8)} 复查判定取值非法：${rec.verdict}`);
     if (rec.verdict === "matched" && rec.evidence === null) failures.push(`${t.id.slice(0, 8)} 判定为找到出处却没有证据`);
     if (rec.evidence && !/^https?:\/\//.test(rec.evidence.url)) failures.push(`${t.id.slice(0, 8)} 证据地址不是 http(s)`);

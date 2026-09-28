@@ -11,7 +11,7 @@ import { artifactsOfRun, runWindows } from "../../web/src/run-artifacts.ts";
 import { traceAmounts, amountKey } from "../../web/src/amount-trace.ts";
 import { parseDetail, parsedByFileName } from "../../web/src/file-parse.ts";
 import { reviewCounts } from "../../web/src/review-export.ts";
-import { traceDocRefs } from "../../web/src/policy-trace.ts";
+import { normalizeRef, traceDocRefs } from "../../web/src/policy-trace.ts";
 import { gradeCitation, summarizeGrades } from "../../web/src/citation-grade.ts";
 import { extractCitations, searchEvidence } from "../../web/src/search-evidence.ts";
 import { pendingAfterRecheck, summarizeRefChecks } from "../../web/src/ref-check.ts";
@@ -74,6 +74,7 @@ const delivery = deliveryCheck({
   docRefUntraced: 0,
   docRefRecheck: null,
   docRefPending: 1,
+  citationRecheck: null,
 });
 
 const base: ManifestInput = {
@@ -150,6 +151,14 @@ const base: ManifestInput = {
     empty: 0,
     error: 0,
     checkedAt: "2026-09-29T02:00:00.000Z",
+  },
+  citationChecks: {
+    total: 3,
+    matched: 2,
+    candidate: 0,
+    empty: 1,
+    error: 0,
+    checkedAt: "2026-09-29T03:00:00.000Z",
   },
   amounts: { total: 10, traced: 8, fromInput: 1, pending: 1, acked: 0 },
   review: { issues: 3, done: 3, pending: 0, notRequired: 0 },
@@ -253,6 +262,25 @@ expect(
 );
 expect("从未复查时为 null 不算问题", manifestIssues({ ...m, refChecks: null }).some((s) => s.includes("复查")), false);
 expect(
+  "弱证据引用检索四类之和不符会发现",
+  manifestIssues({ ...m, citationChecks: { ...m.citationChecks!, total: 9 } }).some((s) =>
+    s.includes("弱证据引用检索四类之和"),
+  ),
+  true,
+);
+expect(
+  "弱证据引用检索缺时间会发现",
+  manifestIssues({ ...m, citationChecks: { ...m.citationChecks!, checkedAt: null } }).some((s) =>
+    s.includes("却没有时间"),
+  ),
+  true,
+);
+expect(
+  "从未检索替代来源时为 null 不算问题",
+  manifestIssues({ ...m, citationChecks: null }).some((s) => s.includes("弱证据引用检索")),
+  false,
+);
+expect(
   "无引用时分级汇总为 null 不算分级问题",
   manifestIssues({
     ...m,
@@ -322,7 +350,8 @@ for (const t of listTasks()) {
   const grades = summarizeGrades(cites);
   const searches = searchEvidence(calls);
   const refRecs = listRefChecks(t.id);
-  const refSum = summarizeRefChecks(refRecs);
+  const refSum = summarizeRefChecks(refRecs.filter((r) => r.kind === "docref"));
+  const citeCheckSum = summarizeRefChecks(refRecs.filter((r) => r.kind === "citation"));
   const refPending = pendingAfterRecheck(refs.untraced.length + refs.unverifiable, refSum);
   checks += 1;
   if (refSum.total !== refSum.matched + refSum.candidate + refSum.empty + refSum.error) {
@@ -334,8 +363,14 @@ for (const t of listTasks()) {
   }
   for (const rec of refRecs) {
     checks += 1;
-    if (rec.key !== `docref:${rec.text.replace(/\s+/g, "").replace(/[〔【]/g, "[").replace(/[〕】]/g, "]")}`) {
-      failures.push(`${t.id.slice(0, 8)} 复查记录主键与文本不符：${rec.key}`);
+    // 文号按文本算主键，引用按原地址算主键：两种都要能从落库字段自校验回来
+    const want = rec.kind === "citation" ? `citation:${normalizeRef(rec.subjectUrl)}` : `docref:${normalizeRef(rec.text)}`;
+    if (rec.key !== want) {
+      failures.push(`${t.id.slice(0, 8)} 复查记录主键不符：${rec.key} ≠ ${want}`);
+    }
+    checks += 1;
+    if (rec.kind === "citation" && !/^https?:\/\//.test(rec.subjectUrl)) {
+      failures.push(`${t.id.slice(0, 8)} 引用类复查记录缺少原地址：${rec.key}`);
     }
   }
   checks += 1;
@@ -384,6 +419,7 @@ for (const t of listTasks()) {
       docRefUntraced: refs.untraced.length,
       docRefRecheck: refSum.total > 0 ? refSum : null,
       docRefPending: refPending,
+      citationRecheck: citeCheckSum.total > 0 ? citeCheckSum : null,
     }),
     files: listFiles(t.id).map((f) => ({
       name: f.fileName,
@@ -417,6 +453,7 @@ for (const t of listTasks()) {
     citationGrades: cites.length > 0 ? grades : null,
     searches: searches.calls > 0 ? searches : null,
     refChecks: refSum.total > 0 ? refSum : null,
+    citationChecks: citeCheckSum.total > 0 ? citeCheckSum : null,
     linkCheck: { summary: null, checkedAt: null },
     amounts: {
       total: amounts.total,

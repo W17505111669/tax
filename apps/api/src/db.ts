@@ -99,6 +99,7 @@ db.exec(`
     evidence_url TEXT,
     evidence_grade TEXT,
     evidence_snippet TEXT,
+    subject_url TEXT,
     attempts TEXT,
     checked_at TEXT NOT NULL,
     PRIMARY KEY (task_id, ref_key)
@@ -124,3 +125,5 @@ export function ensureColumn(table: string, column: string, ddl: string): boolea
 }
 
 ensureColumn("ref_checks", "evidence_snippet", "evidence_snippet TEXT");
+// 引用类复查的主键按原地址计算，记录里必须留着这个地址，否则落库后无法自校验也无法回溯原引用
+ensureColumn("ref_checks", "subject_url", "subject_url TEXT");

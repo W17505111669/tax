@@ -131,6 +131,8 @@ export interface RefCheckRecord {
   verdict: import("./ref-check.ts").RefCheckVerdict;
   note: string;
   evidence: RefCheckEvidence | null;
+  /** 复查对象的原始地址：引用类复查为被替换的弱证据地址，文号类为空串 */
+  subjectUrl: string;
   /** 逐引擎尝试过程（取数方式、状态、条数与原因） */
   attempts: unknown[];
   checkedAt: string;

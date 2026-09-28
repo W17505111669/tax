@@ -49,6 +49,15 @@ export type CheckInput = {
   } | null;
   /** 复查之后仍没有出处的文号处数（待确认 + 无法核验 − 已找到公开出处） */
   docRefPending: number;
+  /** 弱证据引用的替代来源检索汇总；null 表示从未检索 */
+  citationRecheck: {
+    total: number;
+    matched: number;
+    candidate: number;
+    empty: number;
+    error: number;
+    checkedAt: string | null;
+  } | null;
 };
 
 /** info 只作说明，不影响交付判定（例如反爬导致的「拒绝自动访问」） */
@@ -202,6 +211,27 @@ export function deliveryCheck(i: CheckInput): CheckResult {
         level: "ok",
         text: `${i.citationGrades.official} 条联网引用来自政府或税务机关站点的具体文件页`,
       });
+    }
+    // 只在当前确实还有弱证据引用时才谈替代来源：替换完成后这条说明自然消失
+    if (i.citationGrades.weak > 0 && i.citationRecheck && i.citationRecheck.total > 0) {
+      if (i.citationRecheck.matched > 0) {
+        items.push({
+          level: "info",
+          text: `${i.citationRecheck.matched} 条弱证据引用已找到可替换的官方原文，请在结论中替换后重新打包`,
+        });
+      }
+      if (i.citationRecheck.candidate > 0) {
+        items.push({
+          level: "info",
+          text: `${i.citationRecheck.candidate} 条弱证据引用只找到候选页（非官方原文），需人工确认后再替换`,
+        });
+      }
+      if (i.citationRecheck.matched === 0 && i.citationRecheck.candidate === 0) {
+        items.push({
+          level: "info",
+          text: `${i.citationRecheck.total} 条弱证据引用没有检索到可替换的官方原文，请在结论中说明依据来源或改用政策快照`,
+        });
+      }
     }
   }
 
