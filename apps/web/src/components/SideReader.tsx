@@ -479,6 +479,12 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                   setFindQuery(e.target.value);
                   setFindIdx(0);
                 }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    setFindIdx((v) => v + 1);
+                  }
+                }}
                 placeholder="页内搜索…"
                 className="w-28 rounded border border-line bg-night-850 px-2 py-0.5 text-[11px] text-mist-100 outline-none focus:glow-ring"
               />

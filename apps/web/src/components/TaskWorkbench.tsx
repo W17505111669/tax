@@ -336,6 +336,25 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
     return { toolMs, genMs, otherMs, totalMs };
   }, [toolCalls, timeline]);
 
+  // 步骤条点击跳转到对应首事件
+  const jumpToStep = (i: number) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (i === 0) {
+      el.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    const nameOf = (t: (typeof timeline)[number]) =>
+      String((t.payload as { toolName?: string } | undefined)?.toolName ?? "");
+    let target: string | undefined;
+    if (i === 1) target = timeline.find((t) => t.kind === "tool_start" && !SEARCH_TOOLS.has(nameOf(t)))?.id;
+    if (i === 2) target = timeline.find((t) => t.kind === "tool_start" && SEARCH_TOOLS.has(nameOf(t)))?.id;
+    if (i === 3) target = timeline.find((t) => t.kind === "agent_text")?.id;
+    if (i === 4) target = [...timeline].reverse().find((t) => t.kind === "run_completed" || t.kind === "run_failed")?.id;
+    if (!target) return;
+    el.querySelector(`[data-tlid="${target}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+  };
+
   const lastRunAt = useMemo(() => {
     const last = [...timeline].reverse().find((t) => t.kind === "run_started");
     return last ? new Date(last.at).toLocaleString("zh-CN", { hour12: false }) : "";
@@ -644,7 +663,12 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
                 className={`mx-2 h-px w-8 sm:w-14 ${steps[i - 1]!.state === "done" ? "bg-glow-500/60" : "bg-line"}`}
               />
             )}
-            <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => jumpToStep(i)}
+              title="跳转到对应首事件"
+              className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 transition-colors hover:bg-night-800"
+            >
               <span
                 className={`flex h-6 w-6 items-center justify-center rounded-full border text-[10px] font-semibold ${
                   step.state === "done"
@@ -662,7 +686,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
                 {step.label}
                 {step.dur && <span className="ml-1 font-mono text-[10px] text-mist-600">{step.dur}</span>}
               </span>
-            </div>
+            </button>
           </div>
         ))}
       </div>
@@ -1051,7 +1075,7 @@ function TimelineView({
           counters.current[name] = idx + 1;
           const call = toolCalls.filter((c) => c.toolName === name)[idx];
           return (
-            <div key={item.id} className={cls}>
+            <div key={item.id} data-tlid={item.id} className={cls}>
               <ToolRow
                 name={name}
                 call={call}
@@ -1084,7 +1108,7 @@ function TimelineView({
             }
           }
           return (
-            <div key={item.id} className={`flex items-center gap-2 text-[11.5px] text-mist-600 ${cls}`}>
+            <div key={item.id} data-tlid={item.id} className={`flex items-center gap-2 text-[11.5px] text-mist-600 ${cls}`}>
               {showTs && (
                 <span className="font-mono text-[9.5px] text-mist-600">{`#${item.seq} ${fmtTs(item.at)}`}</span>
               )}
@@ -1095,7 +1119,7 @@ function TimelineView({
         }
 
         return (
-          <div key={item.id} className={`group glow-card relative px-4 py-3 ${cls}`}>
+          <div key={item.id} data-tlid={item.id} className={`group glow-card relative px-4 py-3 ${cls}`}>
             {showTs && (
               <div className="mb-1 font-mono text-[9.5px] text-mist-600">{`#${item.seq} ${fmtTs(item.at)}`}</div>
             )}
