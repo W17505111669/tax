@@ -90,6 +90,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [findQuery, setFindQuery] = useState("");
+  const [findIdx, setFindIdx] = useState(0);
   const [sort, setSort] = useState<Record<string, { col: string; dir: 1 | -1 }>>(() => {
     try {
       return JSON.parse(localStorage.getItem("taxai-reader-sort") ?? "{}") as Record<string, { col: string; dir: 1 | -1 }>;
@@ -134,6 +135,17 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   const activeKey = active ? readerKey(active) : "";
   const state = states[activeKey] ?? INITIAL;
   const activeName = active && "name" in active ? active.name : "";
+  const matchCount = findTrim ? state.text.toLowerCase().split(findTrim.toLowerCase()).length - 1 : 0;
+
+  // 当前命中滚动到视口中央并加描边
+  useEffect(() => {
+    if (!findTrim || matchCount === 0) return;
+    const marks = scrollRef.current?.querySelectorAll("mark") ?? [];
+    if (marks.length === 0) return;
+    const idx = ((findIdx % marks.length) + marks.length) % marks.length;
+    marks[idx]?.scrollIntoView({ block: "center" });
+    marks.forEach((m, i) => m.classList.toggle("outline outline-2 outline-rose-400", i === idx));
+  }, [findIdx, findTrim, matchCount, state.text, showLines]);
   const [group, setGroup] = useState<"refs" | "gens">(() =>
     localStorage.getItem("taxai-reader-group") === "gens" ? "gens" : "refs",
   );
@@ -165,6 +177,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
     setZoom(1);
     setShowLines(false);
     setFindQuery("");
+    setFindIdx(0);
   }, [activeKey]);
 
   useEffect(() => {
@@ -404,12 +417,33 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
             <>
               <input
                 value={findQuery}
-                onChange={(e) => setFindQuery(e.target.value)}
+                onChange={(e) => {
+                  setFindQuery(e.target.value);
+                  setFindIdx(0);
+                }}
                 placeholder="页内搜索…"
                 className="w-28 rounded border border-line bg-night-850 px-2 py-0.5 text-[11px] text-mist-100 outline-none focus:glow-ring"
               />
-              <span className="shrink-0 text-[10.5px] text-mist-600">
-                {findTrim ? state.text.toLowerCase().split(findTrim.toLowerCase()).length - 1 : 0} 处
+              <button
+                type="button"
+                className="action-btn"
+                onClick={() => setFindIdx((v) => v - 1)}
+                title="上一处"
+                disabled={matchCount === 0}
+              >
+                ‹
+              </button>
+              <button
+                type="button"
+                className="action-btn"
+                onClick={() => setFindIdx((v) => v + 1)}
+                title="下一处"
+                disabled={matchCount === 0}
+              >
+                ›
+              </button>
+              <span className="shrink-0 font-mono text-[10.5px] text-mist-600">
+                {matchCount > 0 ? `${(((findIdx % matchCount) + matchCount) % matchCount) + 1}/${matchCount}` : "0 处"}
               </span>
             </>
           )}

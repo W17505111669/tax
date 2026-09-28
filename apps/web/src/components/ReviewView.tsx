@@ -146,6 +146,40 @@ export function ReviewView({ issues, reviews, pending, onReview }: Props) {
           </div>
         );
       })}
+
+      {reviews.length > 0 && (
+        <div className="pt-2">
+          <div className="kicker">复核历史</div>
+          <ul className="mt-2 space-y-1.5">
+            {[...reviews]
+              .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+              .map((r) => {
+                const issue = issues.find((i) => i.id === r.issueId);
+                return (
+                  <li
+                    key={`${r.issueId}-${r.createdAt}`}
+                    className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-night-850 px-2.5 py-1.5 text-[11.5px]"
+                  >
+                    <span className="font-mono text-[10.5px] text-mist-600">
+                      {new Date(r.createdAt).toLocaleString("zh-CN", { hour12: false })}
+                    </span>
+                    <span
+                      className={`rounded border px-1.5 py-0.5 text-[10px] ${
+                        r.decision === "confirm"
+                          ? "border-jade-400/40 bg-jade-400/10 text-jade-400"
+                          : "border-line bg-night-800 text-mist-500"
+                      }`}
+                    >
+                      {r.decision === "confirm" ? "确认" : "驳回"}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-mist-300">{issue?.issueType ?? r.issueId}</span>
+                    {r.comment && <span className="w-full truncate text-[11px] text-mist-600">意见：{r.comment}</span>}
+                  </li>
+                );
+              })}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
