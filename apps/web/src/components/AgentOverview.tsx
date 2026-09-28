@@ -546,6 +546,9 @@ export function AgentOverview({
                 strokeDashoffset={-(p.toolOk / p.toolCalls) * RING_C}
                 transform="rotate(-90 16 16)"
               />
+              <text x="16" y="18" textAnchor="middle" fill="#e6edf7" style={{ fontSize: 8.5, fontWeight: 600 }}>
+                {Math.round((p.toolOk / p.toolCalls) * 100)}%
+              </text>
             </svg>
             <div className="space-y-0.5 text-[11px] text-mist-500">
               <div>

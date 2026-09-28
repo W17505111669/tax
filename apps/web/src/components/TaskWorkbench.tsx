@@ -509,7 +509,11 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
             >
               <span className={starred ? "text-amber-300" : "text-mist-600"}>{starred ? "★" : "☆"}</span>
             </button>
-            <span className={`rounded border px-1.5 py-0.5 text-[11px] font-medium ${meta.className}`}>
+            <span
+              className={`rounded border px-1.5 py-0.5 text-[11px] font-medium ${meta.className} ${
+                running ? "animate-pulse" : ""
+              }`}
+            >
               {running ? (
                 <span className="inline-flex items-center gap-1">
                   <IconSpinner className="h-3 w-3" />
