@@ -1,5 +1,24 @@
+import { useEffect, useState } from "react";
 import type { AgentInfo, PlatformStats } from "../types.ts";
 import { IconBuilding, IconCheck, IconFlask, IconTool } from "./Icons.tsx";
+
+/** 大数字进入页面时从 0 缓动递增，对齐参考片数据页的计数质感。 */
+function useCountUp(target: number, duration = 900): number {
+  const [val, setVal] = useState(0);
+  useEffect(() => {
+    let raf = 0;
+    const start = performance.now();
+    const tick = (now: number) => {
+      const p = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - p, 3);
+      setVal(Math.round(target * eased));
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, duration]);
+  return val;
+}
 
 interface Props {
   agents: AgentInfo[];
@@ -15,6 +34,7 @@ export function AgentOverview({ agents, activeAgentId, stats, breakdown, onSelec
   const Icon = agent.id === "rd-audit" ? IconFlask : IconBuilding;
   const p = stats.platform;
   const heroValue = p?.tasks ?? stats.tasks;
+  const heroShown = useCountUp(heroValue);
   const bars = [
     { label: "已完成", value: breakdown.completed },
     { label: "执行中", value: breakdown.processing },
@@ -52,7 +72,7 @@ export function AgentOverview({ agents, activeAgentId, stats, breakdown, onSelec
 
         <div className="mt-7 grid gap-8 lg:grid-cols-[300px_1fr]">
           <div>
-            <div className="stat-hero">{heroValue}</div>
+            <div className="stat-hero">{heroShown.toLocaleString("zh-CN")}</div>
             <div className="mt-1.5 text-[13px] font-medium text-mist-100">
               累计审查任务
               <span className="ml-2 text-[11px] font-normal text-mist-600">逐条 OCR · 行级定位</span>

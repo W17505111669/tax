@@ -202,6 +202,14 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
   }, [toolCalls]);
 
   // 步骤时间线：提问 → 工具核验 → 联网检索 → 结论生成 → 交付
+  const totalDuration = useMemo(() => {
+    const start = timeline.find((t) => t.kind === "run_started")?.at;
+    const end = [...timeline].reverse().find((t) => t.kind === "run_completed" || t.kind === "run_failed")?.at;
+    if (!start || !end) return "";
+    const s = (Date.parse(end) - Date.parse(start)) / 1000;
+    return s >= 90 ? `${Math.round(s / 60)} 分钟` : `${s.toFixed(1)} 秒`;
+  }, [timeline]);
+
   const steps = useMemo(() => {
     const hasRun = timeline.some((t) => t.kind === "run_started");
     const toolDone = toolCalls.some((c) => !SEARCH_TOOLS.has(c.toolName) && c.ok !== null);
@@ -255,6 +263,12 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
             <span>案例 {task.caseId}</span>
             <span className="text-line">|</span>
             <span>工具调用 {toolCalls.length} 次</span>
+            {totalDuration && (
+              <>
+                <span className="text-line">|</span>
+                <span>总耗时 {totalDuration}</span>
+              </>
+            )}
             <span className="text-line">|</span>
             <span className="inline-flex items-center gap-1.5">
               <span
