@@ -22,6 +22,7 @@
     "verify:template": "tsx scripts/verify-template.ts",
     "verify:compare": "tsx scripts/verify-compare.ts",
     "verify:ocr": "tsx scripts/verify-ocr.ts",
+    "verify:extract": "tsx scripts/verify-extract.ts",
     "typecheck": "tsc -p tsconfig.json"
   }
 }

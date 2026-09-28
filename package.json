@@ -14,6 +14,7 @@
     "verify:policy": "pnpm --filter @tax/agent-rd-audit verify:policy",
     "verify:compare": "pnpm --filter @tax/document-tools verify:compare",
     "verify:ocr": "pnpm --filter @tax/document-tools verify:ocr",
+    "verify:extract": "pnpm --filter @tax/document-tools verify:extract",
     "report:test": "pnpm --filter @tax/api exec tsx scripts/gen-test-report.ts",
     "gen:materials": "pnpm --filter @tax/api exec tsx scripts/gen-materials.ts",
     "case:run": "pnpm --filter @tax/api case:run",

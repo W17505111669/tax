@@ -1,7 +1,7 @@
 import path from "node:path";
 import { createTaxAgentSession, loadRuntimeConfig, SessionManager, TaskEventBus } from "@tax/agent-core";
 import type { NormalizedAgentEvent } from "@tax/agent-core";
-import { createTaskDocumentTools, createTemplateTools } from "@tax/document-tools";
+import { createExtractTools, createTaskDocumentTools, createTemplateTools } from "@tax/document-tools";
 import type { AgentId } from "@tax/shared-schemas";
 import { dataDir, dirs } from "../config.ts";
 import { resolveCommunityExtensions } from "../extensions.ts";
@@ -48,6 +48,7 @@ export async function runTask(taskId: string, instruction: string, opts: { resum
   const taskTools = [
     ...(kits.includes("documents") ? createTaskDocumentTools(docCtx) : []),
     ...(kits.includes("template") ? createTemplateTools(docCtx) : []),
+    ...(kits.includes("extract") ? createExtractTools(docCtx) : []),
   ];
 
   const pendingToolCalls = new Map<string, string>();

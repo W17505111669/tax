@@ -26,6 +26,7 @@ pnpm verify:template # Phase 3：模板检查与保留式填列确定性验证
 pnpm verify:policy   # Phase 4：政策快照与加计比例规则确定性验证
 pnpm verify:compare  # 底稿比对：记录级/地址级逐格差异与准确率
 pnpm verify:ocr      # OCR 适配器：中文+数字识别验证
+pnpm verify:extract  # 合同/发票字段确定性抽取验证
 pnpm report:test     # 生成测试报告（实时跑验证矩阵 + 汇总真实任务台账与准确率）
 pnpm gen:materials   # 生成两个作品的比赛说明文档（docs/competition/，含真实运行统计）
 pnpm gen:ppt         # 生成答辩 PPT 大纲（每作品 10 页，含讲稿要点与画面元素）
@@ -78,6 +79,7 @@ docs/                    架构、竞赛材料、测试记录
 | 研发政策快照库与比例规则 | 已完成 |
 | PDF 文本提取（无文本层提示 OCR） | 已完成 |
 | OCR 扫描件识别（tesseract.js 本地引擎） | 已完成 |
+| 合同/发票票面字段抽取（parse_contract/parse_invoice） | 已完成 |
 | 合同发票账簿解析与底稿填列 | 正在开发（Phase 3） |
 | 研发资料解析与政策检索 | 待开发（Phase 4） |
 | 真实案例测试与录屏 | 待开发（Phase 5-6） |

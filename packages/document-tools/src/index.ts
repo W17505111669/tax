@@ -5,3 +5,4 @@ export * from "./task-tools.ts";
 export * from "./template-tools.ts";
 export * from "./compare-tools.ts";
 export * from "./ocr.ts";
+export * from "./doc-extract.ts";
