@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { db } from "../db.ts";
 import { dirs } from "../config.ts";
+import { pendingReviewCount } from "./issues.ts";
 
 export interface AgentStats {
   agentId: string;
@@ -24,14 +25,19 @@ export interface PlatformStats {
   ocrAvgConfidence: number | null;
   perAgent: AgentStats[];
   perTool: Array<{ name: string; calls: number; ok: number }>;
+  /** 全平台待复核问题总数（含 waiting_review 任务在内的未复核项） */
+  reviewPendingIssues: number;
+  /** 复核闭环缺口：已标记完成但仍有待复核问题的任务，可在复核页一键转为待复核 */
+  reviewBacklog: Array<{ id: string; title: string; agentId: string; pending: number }>;
 }
 
 /** 平台级应用效果统计：全部来自数据库真实运行记录。 */
 export function computePlatformStats(): PlatformStats {
-  const tasks = db.prepare(`SELECT id, agent_id, status FROM tasks`).all() as unknown as Array<{
+  const tasks = db.prepare(`SELECT id, agent_id, status, title FROM tasks`).all() as unknown as Array<{
     id: string;
     agent_id: string;
     status: string;
+    title: string;
   }>;
 
   const perAgentMap = new Map<string, AgentStats>();
@@ -43,6 +49,8 @@ export function computePlatformStats(): PlatformStats {
   let compareRuns = 0;
   let ocrConfSum = 0;
   let ocrRuns = 0;
+  let reviewPendingIssues = 0;
+  const reviewBacklog: Array<{ id: string; title: string; agentId: string; pending: number }> = [];
 
   for (const task of tasks) {
     let agent = perAgentMap.get(task.agent_id);
@@ -76,6 +84,18 @@ export function computePlatformStats(): PlatformStats {
       const n = fs.readdirSync(dir).filter((f) => fs.statSync(path.join(dir, f)).isFile()).length;
       agent.artifacts += n;
       artifacts += n;
+    }
+
+    // 复核闭环：待复核问题数走缓存（签名失效），列表与统计共用同一口径
+    const pending = pendingReviewCount(task.id);
+    reviewPendingIssues += pending;
+    if (task.status === "completed" && pending > 0) {
+      reviewBacklog.push({
+        id: task.id,
+        title: String(task.title ?? task.id),
+        agentId: task.agent_id,
+        pending,
+      });
     }
 
     for (const call of calls) {
@@ -120,5 +140,7 @@ export function computePlatformStats(): PlatformStats {
     ocrAvgConfidence: ocrRuns > 0 ? Math.round((ocrConfSum / ocrRuns) * 100) / 100 : null,
     perAgent: [...perAgentMap.values()],
     perTool: [...perToolMap.values()].sort((a, b) => b.calls - a.calls),
+    reviewPendingIssues,
+    reviewBacklog: reviewBacklog.sort((a, b) => b.pending - a.pending),
   };
 }

@@ -319,7 +319,12 @@ export default function App() {
                 setActiveAgentId(id);
                 setActiveTaskId(null);
               }}
-              onOpenTask={(id) => setActiveTaskId(id)}
+              onOpenTask={(id) => {
+                // 概览里的复核缺口可能指向另一个作品的任务，跳转时一并切换智能体
+                const t = tasks.find((x) => x.id === id);
+                if (t) setActiveAgentId(t.agentId);
+                setActiveTaskId(id);
+              }}
               perAgentCreatedAts={Object.fromEntries(
                 agents.map((a) => [a.id, tasks.filter((t) => t.agentId === a.id).map((t) => t.createdAt)]),
               )}

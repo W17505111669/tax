@@ -201,6 +201,15 @@ export function AgentOverview({
       `- 底稿产物：${p.artifacts} 份`,
       `- 记录级比对准确率：${p.compareAccuracy ?? "—"}%（${p.compareRuns} 次）`,
       `- OCR 平均置信度：${p.ocrAvgConfidence ?? "—"}%（${p.ocrRuns} 次）`,
+      `- 复核闭环：待复核问题合计 ${p.reviewPendingIssues} 项；已完成但仍有未复核问题的任务 ${p.reviewBacklog.length} 个`,
+      ...(p.reviewBacklog.length > 0
+        ? [
+            "",
+            "| 任务 | 智能体 | 未复核 |",
+            "| --- | --- | --- |",
+            ...p.reviewBacklog.map((b) => `| ${b.title} | ${b.agentId} | ${b.pending} |`),
+          ]
+        : []),
       "",
       "| 智能体 | 任务 | 已完成 | 工具调用 | 成功 | 产物 |",
       "| --- | --- | --- | --- | --- | --- |",
@@ -255,6 +264,10 @@ export function AgentOverview({
               days14: days,
               perAgent: p?.perAgent ?? [],
               perTool,
+              review: {
+                pendingIssues: p?.reviewPendingIssues ?? 0,
+                backlog: p?.reviewBacklog ?? [],
+              },
               exportedAt: new Date().toISOString(),
             },
             null,
@@ -279,6 +292,8 @@ export function AgentOverview({
       `底稿产物\t${p.artifacts}`,
       `记录级比对准确率\t${p.compareAccuracy ?? "—"}%`,
       `OCR 平均置信度\t${p.ocrAvgConfidence ?? "—"}%`,
+      `待复核问题合计\t${p.reviewPendingIssues}`,
+      `完成但未复核任务\t${p.reviewBacklog.length}`,
     ];
     void navigator.clipboard?.writeText(lines.join("\n")).catch(() => undefined);
   };
@@ -571,6 +586,39 @@ export function AgentOverview({
                 </div>
               ))}
             </div>
+            {stats.platform.reviewBacklog.length > 0 ? (
+              <div className="mt-3 rounded-md border border-amber-400/40 bg-amber-400/10 px-3 py-2">
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[12px] text-amber-200">
+                  <span className="font-medium">全平台复核闭环缺口</span>
+                  <span className="text-[11.5px] text-amber-200/85">
+                    {stats.platform.reviewBacklog.length} 个任务已标记完成，但仍有 {stats.platform.reviewPendingIssues} 项问题未复核
+                  </span>
+                  <span className="text-[11px] text-mist-500">点击任务前往复核页，可一键「转为待复核」</span>
+                </div>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {stats.platform.reviewBacklog.slice(0, 8).map((b) => (
+                    <button
+                      key={b.id}
+                      type="button"
+                      className="action-btn !text-[11px]"
+                      onClick={() => onOpenTask(b.id)}
+                      title={`${b.title}（智能体 ${b.agentId}，${b.pending} 项未复核）`}
+                    >
+                      {b.title.length > 16 ? `${b.title.slice(0, 16)}…` : b.title} · {b.pending}
+                    </button>
+                  ))}
+                  {stats.platform.reviewBacklog.length > 8 && (
+                    <span className="self-center text-[11px] text-mist-500">
+                      等 {stats.platform.reviewBacklog.length} 个任务
+                    </span>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="mt-3 rounded-md border border-jade-400/30 bg-jade-400/5 px-3 py-2 text-[11.5px] text-jade-300">
+                全平台复核闭环无缺口：没有「已完成但仍有未复核问题」的任务（待复核态任务尚有 {stats.platform.reviewPendingIssues} 项在处理中）
+              </div>
+            )}
             {stats.platform.perAgent.length > 0 && (
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {stats.platform.perAgent.map((pa) => {

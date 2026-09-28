@@ -6,6 +6,7 @@
  */
 import { needsReopenReview, pendingReviewCount, pendingReviewIssues } from "../src/services/issues.ts";
 import { listTasks } from "../src/services/task-store.ts";
+import { computePlatformStats } from "../src/services/stats.ts";
 
 const failures: string[] = [];
 let checks = 0;
@@ -30,9 +31,11 @@ const tasks = listTasks();
 let waiting = 0;
 let reopenable = 0;
 let reopenableListed = 0;
+let totalPending = 0;
 for (const t of tasks) {
   checks += 2;
   const pending = pendingReviewIssues(t.id).length;
+  totalPending += pending;
   if (t.status === "waiting_review") {
     waiting += 1;
     if (pending === 0) failures.push(`${t.id} 状态为 waiting_review 但待复核为 0`);
@@ -54,7 +57,19 @@ for (const t of tasks) {
 }
 expect("列表口径与逐项计算的可重开任务数一致", reopenableListed, reopenable);
 
-console.log(`[verify] 任务数=${tasks.length} 待复核态=${waiting} 完成但仍需重开复核=${reopenable}`);
+// 3) 平台统计（概览页复核闭环缺口卡）口径必须与逐项计算一致
+const stats = computePlatformStats();
+expect("平台待复核问题合计一致", stats.reviewPendingIssues, totalPending);
+expect("平台复核缺口任务数一致", stats.reviewBacklog.length, reopenable);
+expect(
+  "平台缺口清单均为完成态且有未复核问题",
+  stats.reviewBacklog.every((b) => b.pending > 0 && tasks.some((t) => t.id === b.id && t.status === "completed")),
+  true,
+);
+
+console.log(
+  `[verify] 任务数=${tasks.length} 待复核态=${waiting} 完成但仍需重开复核=${reopenable} 待复核问题合计=${totalPending}`,
+);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  - ${f}`);
   console.log("[FAIL] 复核状态一致性检查失败");

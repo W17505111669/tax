@@ -166,6 +166,10 @@ export interface PlatformStats {
   compareRuns: number;
   ocrRuns: number;
   ocrAvgConfidence: number | null;
+  /** 全平台待复核问题总数 */
+  reviewPendingIssues: number;
+  /** 已完成但仍有待复核问题的任务（复核闭环缺口） */
+  reviewBacklog: Array<{ id: string; title: string; agentId: string; pending: number }>;
   perAgent: Array<{
     agentId: string;
     tasks: number;
