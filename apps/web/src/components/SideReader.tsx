@@ -409,6 +409,12 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
           <button type="button" className="action-btn" onClick={() => setZoom(1)} title="重置缩放">
             重置
           </button>
+          {state.kind === "pdf" && (
+            <a className="action-btn ml-auto" href={state.src} target="_blank" rel="noreferrer" title="在新标签页打开 PDF">
+              <IconExternal className="h-3.5 w-3.5" />
+              新窗口
+            </a>
+          )}
         </div>
       )}
 

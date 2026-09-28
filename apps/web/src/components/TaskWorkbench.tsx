@@ -302,6 +302,13 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
 
   const runCount = useMemo(() => timeline.filter((t) => t.kind === "run_started").length, [timeline]);
 
+  const toolTime = useMemo(() => {
+    const ended = toolCalls.filter((c) => c.endedAt);
+    if (ended.length === 0) return null;
+    const totalMs = ended.reduce((acc, c) => acc + Math.max(0, Date.parse(c.endedAt ?? c.at) - Date.parse(c.at)), 0);
+    return { total: totalMs / 1000, avg: totalMs / 1000 / ended.length };
+  }, [toolCalls]);
+
   const lastRunAt = useMemo(() => {
     const last = [...timeline].reverse().find((t) => t.kind === "run_started");
     return last ? new Date(last.at).toLocaleString("zh-CN", { hour12: false }) : "";
@@ -463,6 +470,14 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
             </button>
             <span className="text-line">|</span>
             <span>工具调用 {toolCalls.length} 次</span>
+            {toolTime && (
+              <>
+                <span className="text-line">|</span>
+                <span title="工具总耗时 / 平均单次耗时">
+                  工具 {toolTime.total.toFixed(1)}s · 均 {toolTime.avg.toFixed(1)}s
+                </span>
+              </>
+            )}
             {(totalDuration || liveElapsed) && (
               <>
                 <span className="text-line">|</span>
