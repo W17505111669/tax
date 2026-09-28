@@ -54,6 +54,25 @@ interface Citation {
 }
 
 /** 去除 Markdown 语法，供纯文本复制使用 */
+const DOMAIN_KEYWORDS = [
+  "研发费用",
+  "加计扣除",
+  "土地增值税",
+  "扣除项目",
+  "核验",
+  "比对",
+  "底稿",
+  "政策依据",
+  "限额",
+  "置信度",
+  "OCR",
+  "mermaid",
+  "发票",
+  "合同",
+  "差异",
+  "准确率",
+];
+
 function toPlainText(md: string): string {
   return md
     .replace(/```[\s\S]*?```/g, (block) => block.replace(/```[\w-]*\n?/g, "").replace(/```/g, ""))
@@ -419,6 +438,15 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
       mermaids: (finalResult.match(/```mermaid/g) ?? []).length,
       heads: (finalResult.match(/^#{2,4} /gm) ?? []).length,
     };
+  }, [finalResult]);
+
+  // 结论关键词云：领域词表计数 Top8
+  const topWords = useMemo(() => {
+    if (!finalResult) return [];
+    return DOMAIN_KEYWORDS.map((w) => ({ w, n: finalResult.split(w).length - 1 }))
+      .filter((x) => x.n > 0)
+      .sort((a, b) => b.n - a.n)
+      .slice(0, 8);
   }, [finalResult]);
 
   // 续跑场景：上一次运行的结论摘录，供对照本次结论
@@ -970,6 +998,20 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
                       </span>
                     </div>
                     <p className="mt-1.5 text-[12.5px] leading-6 text-mist-300">{summary.firstPara}…</p>
+                    {topWords.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {topWords.map((x, i) => (
+                          <span
+                            key={x.w}
+                            className="rounded-full border border-glow-500/30 bg-glow-500/10 px-2 py-0.5 text-glow-300"
+                            style={{ fontSize: `${11.5 - i * 0.6}px` }}
+                            title={`出现 ${x.n} 次`}
+                          >
+                            {x.w} ×{x.n}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               <ResultView
