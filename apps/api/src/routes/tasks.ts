@@ -150,4 +150,18 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
       files: listFiles(id),
     };
   });
+
+  /** 底稿比对记录：从工具调用历史中提取 compare_workpapers 的结构化结果，供前端比对视图使用。 */
+  app.get("/api/tasks/:id/compares", async (req) => {
+    const { id } = req.params as { id: string };
+    const rows = listToolCalls(id).filter(
+      (r) => String(r.tool_name) === "compare_workpapers" && r.ok === 1 && r.result,
+    );
+    const compares = rows.map((r) => ({
+      id: String(r.id),
+      at: r.ended_at ? String(r.ended_at) : null,
+      result: JSON.parse(String(r.result)) as unknown,
+    }));
+    return { compares };
+  });
 }

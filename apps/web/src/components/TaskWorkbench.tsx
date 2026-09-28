@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api.ts";
-import type { AgentInfo, ArtifactInfo, FileInfo, TaskInfo } from "../types.ts";
+import type { AgentInfo, ArtifactInfo, CompareRecord, FileInfo, TaskInfo } from "../types.ts";
 import { useTaskEvents } from "../hooks/useTaskEvents.ts";
 import { MarkdownView } from "./MarkdownView.tsx";
 import { readerKey, SideReader, type ReaderTarget } from "./SideReader.tsx";
+import { CompareView } from "./CompareView.tsx";
 import {
   IconAlert,
   IconCheck,
@@ -47,7 +48,8 @@ interface Citation {
 
 export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
   const { timeline, toolCalls, status } = useTaskEvents(task.id);
-  const [tab, setTab] = useState<"timeline" | "result">("timeline");
+  const [tab, setTab] = useState<"timeline" | "result" | "compare">("timeline");
+  const [compares, setCompares] = useState<CompareRecord[]>([]);
   const [readerOpen, setReaderOpen] = useState(false);
   const [readerTabs, setReaderTabs] = useState<ReaderTarget[]>([]);
   const [readerActive, setReaderActive] = useState(0);
@@ -94,6 +96,24 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
       clearInterval(timer);
     };
   }, [task.id, task.status]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      void api
+        .listCompares(task.id)
+        .then((list) => {
+          if (!cancelled) setCompares(list);
+        })
+        .catch(() => undefined);
+    };
+    load();
+    const timer = setInterval(load, 10000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [task.id]);
 
   const finalResult = useMemo(() => {
     const last = [...timeline].reverse().find((t) => t.kind === "agent_text" && t.detail);
@@ -232,6 +252,7 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
               [
                 ["timeline", "执行过程"],
                 ["result", "审查结论"],
+                ["compare", "底稿比对"],
               ] as const
             ).map(([key, label]) => (
               <button
@@ -248,6 +269,11 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
                 {key === "result" && citations.length > 0 && (
                   <span className="ml-1.5 rounded bg-glow-500/15 px-1 py-0.5 text-[10px] text-glow-300">
                     {citations.length}
+                  </span>
+                )}
+                {key === "compare" && compares.length > 0 && (
+                  <span className="ml-1.5 rounded bg-glow-500/15 px-1 py-0.5 text-[10px] text-glow-300">
+                    {compares.length}
                   </span>
                 )}
               </button>
@@ -280,6 +306,7 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
                 onPrint={() => window.print()}
               />
             )}
+            {tab === "compare" && <CompareView compares={compares} />}
           </div>
         </div>
 

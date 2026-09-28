@@ -1,0 +1,126 @@
+import type { CompareRecord } from "../types.ts";
+import { IconAlert, IconCheck } from "./Icons.tsx";
+
+const KIND_META = {
+  mismatch: { label: "差异", cls: "border-rose-400/40 bg-rose-400/10 text-rose-300" },
+  only_a: { label: "仅系统", cls: "border-amber-400/40 bg-amber-400/10 text-amber-300" },
+  only_b: { label: "仅人工", cls: "border-sky-400/40 bg-sky-400/10 text-sky-300" },
+} as const;
+
+function fmt(v: string | number | null): string {
+  if (v === null || v === undefined) return "∅";
+  if (typeof v === "number") return v.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return String(v);
+}
+
+/** 底稿比对视图：准确率 KPI + 差异高亮表，服务交付质检与答辩展示。 */
+export function CompareView({ compares }: { compares: CompareRecord[] }) {
+  if (compares.length === 0) {
+    return (
+      <div className="py-10 text-center text-[13px] text-mist-600">
+        暂无比对记录。Agent 调用 compare_workpapers 后，准确率与差异将自动显示在此。
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {compares.map((rec) => {
+        const t = rec.result?.totals;
+        if (!t) return null;
+        return (
+          <section key={rec.id} className="glow-card px-5 py-4">
+            <div className="flex flex-wrap items-baseline gap-3">
+              <span className="kicker">Workpaper Compare</span>
+              <span className="text-[12px] text-mist-600">
+                {rec.at ? new Date(rec.at).toLocaleString("zh-CN", { hour12: false }) : ""} ·{" "}
+                {rec.result.sheets[0]?.mode === "address" ? "地址模式" : "记录级模式"}
+              </span>
+            </div>
+
+            <div className="mt-3 grid gap-3 sm:grid-cols-3 xl:grid-cols-6">
+              <div className="glow-card glow-ring px-4 py-3">
+                <div className="text-[11px] text-mist-600">总准确率</div>
+                <div className="mt-1 text-[26px] font-semibold tracking-tight text-glow-300">
+                  {t.accuracyPercent}
+                  <span className="ml-0.5 text-[12px] text-mist-600">%</span>
+                </div>
+              </div>
+              {[
+                { label: "比对项", value: t.compared, tone: "text-mist-100" },
+                { label: "一致", value: t.matched, tone: "text-jade-400" },
+                { label: "差异", value: t.mismatched, tone: "text-rose-300" },
+                { label: "仅系统", value: t.onlyA, tone: "text-amber-300" },
+                { label: "仅人工", value: t.onlyB, tone: "text-sky-300" },
+              ].map((kpi) => (
+                <div key={kpi.label} className="glow-card px-4 py-3">
+                  <div className="text-[11px] text-mist-600">{kpi.label}</div>
+                  <div className={`mt-1 text-[20px] font-semibold tracking-tight ${kpi.tone}`}>{kpi.value}</div>
+                </div>
+              ))}
+            </div>
+
+            {rec.result.sheets.map((s) => (
+              <div key={`${s.sheetA}-${s.sheetB}`} className="mt-4">
+                <div className="flex flex-wrap items-baseline gap-2">
+                  <span className="text-[13px] font-medium text-mist-100">工作表「{s.sheetA}」</span>
+                  <span className="text-[11.5px] text-mist-600">
+                    准确率 {s.accuracyPercent}% · 一致 {s.matched}/{s.compared} · 跳过公式格 {s.skippedFormulas}
+                  </span>
+                </div>
+                {s.diffs.length === 0 ? (
+                  <div className="mt-2 flex items-center gap-1.5 rounded-md border border-jade-400/30 bg-jade-400/10 px-3 py-2 text-[12.5px] text-jade-400">
+                    <IconCheck className="h-3.5 w-3.5" />
+                    该工作表全部比对项一致
+                  </div>
+                ) : (
+                  <div className="mt-2 overflow-x-auto">
+                    <table className="w-full border-collapse text-[12px]">
+                      <thead>
+                        <tr>
+                          {["类型", "位置", "系统底稿 (A)", "人工底稿 (B)"].map((h) => (
+                            <th
+                              key={h}
+                              className="border border-line bg-night-700 px-2.5 py-1.5 text-left font-medium text-glow-300"
+                            >
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {s.diffs.map((d, i) => {
+                          const meta = KIND_META[d.kind];
+                          return (
+                            <tr key={`${d.address}-${i}`}>
+                              <td className="border border-line px-2.5 py-1.5">
+                                <span className={`rounded border px-1.5 py-0.5 text-[10.5px] ${meta.cls}`}>
+                                  {meta.label}
+                                </span>
+                              </td>
+                              <td className="border border-line px-2.5 py-1.5 font-mono text-mist-300">{d.address}</td>
+                              <td className="border border-line px-2.5 py-1.5 text-mist-100">{fmt(d.a)}</td>
+                              <td className="border border-line px-2.5 py-1.5 text-mist-100">{fmt(d.b)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {(rec.result.unmatchedSheetsA.length > 0 || rec.result.unmatchedSheetsB.length > 0) && (
+              <div className="mt-3 flex items-start gap-1.5 text-[12px] text-amber-300">
+                <IconAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                未配对工作表：A={rec.result.unmatchedSheetsA.join(", ") || "无"}；B=
+                {rec.result.unmatchedSheetsB.join(", ") || "无"}
+              </div>
+            )}
+          </section>
+        );
+      })}
+    </div>
+  );
+}

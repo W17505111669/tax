@@ -58,6 +58,11 @@ export const api = {
   readSheets: (url: string) =>
     request<{ sheets: import("./types.ts").SheetPreview[] }>(url).then((r) => r.sheets),
 
+  listCompares: (taskId: string) =>
+    request<{ compares: import("./types.ts").CompareRecord[] }>(`/api/tasks/${taskId}/compares`).then(
+      (r) => r.compares,
+    ),
+
   artifactContentUrl: (taskId: string, name: string) =>
     `/api/tasks/${taskId}/artifacts/${encodeURIComponent(name)}/content`,
 };

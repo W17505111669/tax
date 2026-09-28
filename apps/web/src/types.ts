@@ -93,3 +93,44 @@ export interface SheetPreview {
   rows: Array<Record<string, string | number | null>>;
   rowCount: number;
 }
+
+export interface CompareDiff {
+  address: string;
+  a: string | number | null;
+  b: string | number | null;
+  kind: "mismatch" | "only_a" | "only_b";
+}
+
+export interface CompareSheet {
+  sheetA: string;
+  sheetB: string;
+  mode: "record" | "address";
+  compared: number;
+  matched: number;
+  mismatched: number;
+  onlyA: number;
+  onlyB: number;
+  skippedFormulas: number;
+  accuracyPercent: number;
+  diffs: CompareDiff[];
+}
+
+export interface CompareResult {
+  sheets: CompareSheet[];
+  unmatchedSheetsA: string[];
+  unmatchedSheetsB: string[];
+  totals: {
+    compared: number;
+    matched: number;
+    mismatched: number;
+    onlyA: number;
+    onlyB: number;
+    accuracyPercent: number;
+  };
+}
+
+export interface CompareRecord {
+  id: string;
+  at: string | null;
+  result: CompareResult;
+}
