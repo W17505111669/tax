@@ -136,7 +136,8 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   const activeKey = active ? readerKey(active) : "";
   const state = states[activeKey] ?? INITIAL;
   const activeName = active && "name" in active ? active.name : "";
-  const matchCount = findTrim ? state.text.toLowerCase().split(findTrim.toLowerCase()).length - 1 : 0;
+  const baseText = state.kind === "text" ? state.text : state.kind === "markdown" ? state.markdown : "";
+  const matchCount = findTrim ? baseText.toLowerCase().split(findTrim.toLowerCase()).length - 1 : 0;
 
   // 当前命中滚动到视口中央并加描边
   useEffect(() => {
@@ -147,6 +148,42 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
     marks[idx]?.scrollIntoView({ block: "center" });
     marks.forEach((m, i) => m.classList.toggle("outline outline-2 outline-rose-400", i === idx));
   }, [findIdx, findTrim, matchCount, state.text, showLines]);
+
+  // markdown 预览搜索高亮：DOM 后处理包裹命中文本节点
+  useEffect(() => {
+    if (state.kind !== "markdown" || state.loading) return;
+    const root = scrollRef.current;
+    if (!root) return;
+    root.querySelectorAll("mark[data-find]").forEach((m) => {
+      const parent = m.parentNode;
+      if (!parent) return;
+      parent.replaceChild(document.createTextNode(m.textContent ?? ""), m);
+      parent.normalize();
+    });
+    const q = findTrim;
+    if (!q) return;
+    const lower = q.toLowerCase();
+    root.querySelectorAll(".md-body").forEach((body) => {
+      const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+      const nodes: Text[] = [];
+      while (walker.nextNode()) nodes.push(walker.currentNode as Text);
+      for (const node of nodes) {
+        const text = node.nodeValue ?? "";
+        const idx = text.toLowerCase().indexOf(lower);
+        if (idx < 0) continue;
+        const frag = document.createDocumentFragment();
+        if (idx > 0) frag.appendChild(document.createTextNode(text.slice(0, idx)));
+        const mark = document.createElement("mark");
+        mark.setAttribute("data-find", "1");
+        mark.className = "rounded-sm bg-amber-200 px-0.5 text-gray-900";
+        mark.textContent = text.slice(idx, idx + q.length);
+        frag.appendChild(mark);
+        const rest = text.slice(idx + q.length);
+        if (rest) frag.appendChild(document.createTextNode(rest));
+        node.parentNode?.replaceChild(frag, node);
+      }
+    });
+  }, [findTrim, state.kind, state.markdown, state.loading]);
 
   // 记录各标签页的搜索命中数，用于标签徽标
   useEffect(() => {
@@ -434,7 +471,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
           >
             复制全文
           </button>
-          {state.kind === "text" && (
+          {(state.kind === "text" || state.kind === "markdown") && (
             <>
               <input
                 value={findQuery}
