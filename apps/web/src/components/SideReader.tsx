@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type Ref } from "react";
+import { useEffect, useRef, useState, type Ref, type ReactNode } from "react";
 import { api } from "../api.ts";
 import type { SheetPreview } from "../types.ts";
 import { MarkdownView } from "./MarkdownView.tsx";
@@ -81,15 +81,33 @@ interface Props {
 }
 
 /** 侧边可折叠阅读器：支持多文档标签页，网页阅读模式、任务资料与生成产物统一预览。 */
+/** 搜索命中包裹 mark 节点（主栏与对照副栏共用）。 */
+function highlightNodes(text: string, q: string): ReactNode {
+  if (!q) return text;
+  const esc = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const parts = text.split(new RegExp(`(${esc})`, "gi"));
+  return parts.map((p, i) =>
+    p.toLowerCase() === q.toLowerCase() ? (
+      <mark key={i} className="rounded-sm bg-amber-200 px-0.5 text-gray-900">
+        {p}
+      </mark>
+    ) : (
+      <span key={i}>{p}</span>
+    ),
+  );
+}
+
 /** 双栏对照的简化副栏：支持 markdown/text/image/pdf，表格与二进制引导回主栏。 */
 function MiniPane({
   st,
   title,
   innerRef,
+  find,
 }: {
   st: ReaderState;
   title: string;
   innerRef?: Ref<HTMLDivElement>;
+  find?: string;
 }) {
   const [z, setZ] = useState(1);
   return (
@@ -117,7 +135,9 @@ function MiniPane({
           {st.kind === "markdown" ? (
             <MarkdownView text={st.markdown} />
           ) : (
-            <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-4 text-gray-700">{st.text}</pre>
+            <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-4 text-gray-700">
+              {highlightNodes(st.text, find ?? "")}
+            </pre>
           )}
         </div>
       )}
@@ -266,19 +286,8 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
 
   // Text preview in-page search highlight
   const findTrim = findQuery.trim();
-  const findEscaped = findTrim.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const highlight = (text: string) => {
-    if (!findEscaped) return text;
-    const parts = text.split(new RegExp(`(${findEscaped})`, "gi"));
-    return parts.map((p, i) =>
-      p.toLowerCase() === findTrim.toLowerCase() ? (
-        <mark key={i} className="rounded-sm bg-amber-200 px-0.5 text-gray-900">
-          {p}
-        </mark>
-      ) : (
-        <span key={i}>{p}</span>
-      ),
-    );
+    return highlightNodes(text, findTrim);
   };
   const secondIdxSafe = tabs.length > 0 ? Math.min(secondIdx, tabs.length - 1) : 0;
   const secondTab = tabs[secondIdxSafe] ?? null;
@@ -1224,7 +1233,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
         )}
       </div>
       {splitView && tabs.length > 1 && (
-        <MiniPane st={states[secondKey] ?? INITIAL} title={secondLabel} innerRef={miniRef} />
+        <MiniPane st={states[secondKey] ?? INITIAL} title={secondLabel} innerRef={miniRef} find={findTrim} />
       )}
       </div>
     </aside>
