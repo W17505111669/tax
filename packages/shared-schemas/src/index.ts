@@ -31,6 +31,8 @@ export interface TaxTask {
   runCount?: number;
   /** 工具调用次数（仅列表接口附带）。 */
   toolCount?: number;
+  /** 待复核问题数（仅列表接口附带）；completed 且 >0 表示需要重新打开复核。 */
+  reviewPending?: number;
 }
 
 export interface BusinessFile {

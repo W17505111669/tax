@@ -1085,6 +1085,15 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                   </button>
                 </div>
               )}
+              {liveStatus === "completed" && pendingReviews > 0 && tab !== "review" && (
+                <div className="no-print mb-3 flex items-center gap-2 rounded-md border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-[12px] text-amber-300">
+                  <IconAlert className="h-3.5 w-3.5 shrink-0" />
+                  任务已完成，但仍有 {pendingReviews} 项问题未复核
+                  <button type="button" className="action-btn ml-auto" onClick={() => onTabChange("review")}>
+                    前往复核
+                  </button>
+                </div>
+              )}
             {tab === "timeline" && (
               <TimelineView
                 instruction={task.instruction}

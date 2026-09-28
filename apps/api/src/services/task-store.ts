@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { AgentEvent, AgentId, BusinessFile, TaxTask, TaskStatus } from "@tax/shared-schemas";
 import { db, nowIso } from "../db.ts";
+import { pendingReviewCount } from "./issues.ts";
 
 export function createTask(input: {
   agentId: AgentId;
@@ -62,6 +63,7 @@ export function listTasks(agentId?: AgentId): TaxTask[] {
     progress: computeProgress(String(row.id), row.status as string),
     runCount: runCountOf(String(row.id)),
     toolCount: toolCountOf(String(row.id)),
+    reviewPending: pendingReviewCount(String(row.id)),
   }));
 }
 

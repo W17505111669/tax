@@ -121,3 +121,29 @@ export function pendingReviewIssues(taskId: string): TaskIssue[] {
 export function needsReopenReview(status: string, pending: number): boolean {
   return status === "completed" && pending > 0;
 }
+
+/** 待复核数量缓存：列表接口要为每个任务算一次，按工具调用/复核记录的变化签名失效 */
+const pendingCache = new Map<string, { sig: string; pending: number }>();
+
+function pendingSig(taskId: string): string {
+  const c = db
+    .prepare(
+      `SELECT COUNT(*) AS n, COALESCE(MAX(started_at), '') AS s, COALESCE(MAX(ended_at), '') AS e
+       FROM tool_calls WHERE task_id = ? AND ok = 1`,
+    )
+    .get(taskId) as { n: number; s: string; e: string };
+  const r = db
+    .prepare(`SELECT COUNT(*) AS n, COALESCE(MAX(created_at), '') AS last FROM reviews WHERE task_id = ?`)
+    .get(taskId) as { n: number; last: string };
+  return `${c.n}|${c.s}|${c.e}|${r.n}|${r.last}`;
+}
+
+/** 带缓存的待复核问题数（列表接口用），口径与 pendingReviewIssues 一致 */
+export function pendingReviewCount(taskId: string): number {
+  const sig = pendingSig(taskId);
+  const cached = pendingCache.get(taskId);
+  if (cached && cached.sig === sig) return cached.pending;
+  const pending = pendingReviewIssues(taskId).length;
+  pendingCache.set(taskId, { sig, pending });
+  return pending;
+}

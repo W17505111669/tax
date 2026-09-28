@@ -4,7 +4,7 @@
  * 统计「已完成但仍有待复核问题」的任务数（前端在复核页给出「转为待复核」补救入口）。
  * 运行：pnpm verify:review
  */
-import { pendingReviewIssues, needsReopenReview } from "../src/services/issues.ts";
+import { needsReopenReview, pendingReviewCount, pendingReviewIssues } from "../src/services/issues.ts";
 import { listTasks } from "../src/services/task-store.ts";
 
 const failures: string[] = [];
@@ -29,15 +29,30 @@ expect("失败 + 有待复核 → 不需重开", needsReopenReview("failed", 3),
 const tasks = listTasks();
 let waiting = 0;
 let reopenable = 0;
+let reopenableListed = 0;
 for (const t of tasks) {
-  checks += 1;
+  checks += 2;
   const pending = pendingReviewIssues(t.id).length;
   if (t.status === "waiting_review") {
     waiting += 1;
     if (pending === 0) failures.push(`${t.id} 状态为 waiting_review 但待复核为 0`);
   }
   if (needsReopenReview(t.status, pending)) reopenable += 1;
+  if (needsReopenReview(t.status, t.reviewPending ?? 0)) reopenableListed += 1;
+
+  // 列表接口附带的计数走缓存，口径必须与实时提取一致（第二次调用覆盖缓存命中路径）
+  if (typeof t.reviewPending !== "number") {
+    failures.push(`${t.id} 列表接口缺少 reviewPending`);
+  } else if (t.reviewPending !== pending) {
+    failures.push(`${t.id} 列表 reviewPending=${t.reviewPending} 与实时提取 ${pending} 不一致`);
+  }
+  const first = pendingReviewCount(t.id);
+  const second = pendingReviewCount(t.id);
+  if (first !== pending || second !== pending) {
+    failures.push(`${t.id} pendingReviewCount=${first}/${second} 与实时提取 ${pending} 不一致`);
+  }
 }
+expect("列表口径与逐项计算的可重开任务数一致", reopenableListed, reopenable);
 
 console.log(`[verify] 任务数=${tasks.length} 待复核态=${waiting} 完成但仍需重开复核=${reopenable}`);
 if (failures.length > 0) {

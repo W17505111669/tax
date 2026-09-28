@@ -404,6 +404,14 @@ export function Sidebar({
           <span className="mt-1 flex items-center gap-1.5 text-[11px] text-mist-600">
             <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[task.status] ?? "bg-mist-600"}`} />
            <span>{STATUS_TEXT[task.status] ?? task.status}</span>
+            {task.status === "completed" && (task.reviewPending ?? 0) > 0 && (
+              <span
+                className="shrink-0 rounded bg-amber-400/15 px-1 text-[9.5px] text-amber-300"
+                title={`已完成但仍有 ${task.reviewPending} 项问题未复核；进入复核页可「转为待复核」`}
+              >
+                未复核 {task.reviewPending}
+              </span>
+            )}
             {q !== "" && (task.id.toLowerCase().includes(q) || task.caseId.toLowerCase().includes(q)) && (
               <span className="font-mono text-[9.5px] text-glow-300">{task.id.slice(0, 8)}</span>
             )}
@@ -905,6 +913,14 @@ export function Sidebar({
                 <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[g.id] ?? "bg-mist-600"}`} />
                 {list.some((t) => t.status === "processing") && (
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" title="组内含运行中任务" />
+                )}
+                {list.some((t) => t.status === "completed" && (t.reviewPending ?? 0) > 0) && (
+                  <span
+                    className="h-1.5 w-1.5 rounded-full bg-amber-300"
+                    title={`组内有 ${
+                      list.filter((t) => t.status === "completed" && (t.reviewPending ?? 0) > 0).length
+                    } 个任务已完成但仍有问题未复核`}
+                  />
                 )}
                 {g.label}
                 <button

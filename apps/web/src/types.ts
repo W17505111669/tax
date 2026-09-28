@@ -39,6 +39,8 @@ export interface TaskInfo {
   runCount?: number;
   /** 工具调用次数（列表接口附带） */
   toolCount?: number;
+  /** 待复核问题数（列表接口附带）；completed 且 >0 时需要重新打开复核 */
+  reviewPending?: number;
 }
 
 export interface FileInfo {
