@@ -6,7 +6,10 @@ interface Props {
   issues: TaskIssue[];
   reviews: ReviewRecord[];
   pending: number;
+  /** 任务当前状态：完成态仍有待复核问题时要给出补救入口 */
+  status: string;
   onReview: (issueId: string, decision: "confirm" | "dismiss", comment: string) => void;
+  onReopen: () => void;
 }
 
 function typeTone(type: string): string {
@@ -27,7 +30,7 @@ const COMMENT_TEMPLATES = [
 ];
 
 /** 人工复核页签：税务师对工具核查与底稿比对发现的问题逐项确认或驳回。 */
-export function ReviewView({ issues, reviews, pending, onReview }: Props) {
+export function ReviewView({ issues, reviews, pending, status, onReview, onReopen }: Props) {
   const [comments, setComments] = useState<Record<string, string>>({});
   const [onlyPending, setOnlyPending] = useState(true);
   const reviewMap = new Map(reviews.map((r) => [r.issueId, r]));
@@ -95,6 +98,23 @@ export function ReviewView({ issues, reviews, pending, onReview }: Props) {
           </span>
         )}
       </div>
+
+      {status === "completed" && pending > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-[12px] text-amber-200">
+          <IconAlert className="h-4 w-4 shrink-0" />
+          <span>
+            任务已标记完成，但仍有 {pending} 项问题未复核；问题清单由工具结果实时提取，可能在完成后才汇总到这里。
+          </span>
+          <button
+            type="button"
+            onClick={onReopen}
+            title="把任务状态改回待复核，避免带着未复核问题交付"
+            className="ml-auto rounded-md border border-amber-300/50 px-2.5 py-1 text-[11.5px] text-amber-100 transition-colors hover:bg-amber-300/20"
+          >
+            转为待复核
+          </button>
+        </div>
+      )}
 
       {pending > 0 && (
         <div className="flex flex-wrap items-center gap-2">

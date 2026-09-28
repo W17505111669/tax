@@ -24,6 +24,7 @@
 | `pnpm verify:agents` | 双 Agent 独立性与内置工具禁用 | PASS |
 | `pnpm verify:progress` | 列表执行进度 0-5 步推导规则 | PASS |
 | `pnpm verify:locate` | 阅读器表格定位命中规则（记录地址 / A1 / 文本 / 差异值校验） | PASS |
+| `pnpm verify:review` | 人工复核状态一致性（完成态遗留待复核问题的补救判定） | PASS |
 
 ## 三、真实任务台账
 

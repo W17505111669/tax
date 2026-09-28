@@ -113,3 +113,11 @@ export function pendingReviewIssues(taskId: string): TaskIssue[] {
   const reviewed = new Set(listReviews(taskId).map((r) => r.issueId));
   return extractIssues(taskId).filter((i) => i.requiresReview && !reviewed.has(i.id));
 }
+
+/**
+ * 复核状态一致性判定：任务已标记完成，但仍有待复核问题时需要重新打开复核。
+ * 问题清单是从工具结果实时提取的，完成后新增工具调用或去重口径变化都可能让两者不一致。
+ */
+export function needsReopenReview(status: string, pending: number): boolean {
+  return status === "completed" && pending > 0;
+}

@@ -6,7 +6,13 @@ import { CreateTaskInputSchema } from "@tax/shared-schemas";
 import { allowedExtensions, dirs, maxUploadBytes } from "../config.ts";
 import { getAgent } from "../agents.ts";
 import { eventBus, isRunning, runTask } from "../services/agent-runner.ts";
-import { extractIssues, listReviews, pendingReviewIssues, saveReview } from "../services/issues.ts";
+import {
+  extractIssues,
+  listReviews,
+  needsReopenReview,
+  pendingReviewIssues,
+  saveReview,
+} from "../services/issues.ts";
 import {
   appendEvent,
   createTask,
@@ -207,6 +213,22 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
       appendEvent(id, "agent_status", `人工复核已提交：${body.decision === "confirm" ? "确认列入底稿" : "判定无需处理"}（剩余待复核 ${pending} 项）`);
     }
     return { review: record, pending };
+  });
+
+  /** 已完成但仍挂着待复核问题时，把任务重新流转为 waiting_review（税务师发现遗漏时的补救入口）。 */
+  app.post("/api/tasks/:id/reopen-review", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const task = getTask(id);
+    if (!task) return reply.code(404).send({ error: "任务不存在" });
+    const pending = pendingReviewIssues(id).length;
+    if (!needsReopenReview(task.status, pending)) {
+      return reply.code(409).send({
+        error: pending === 0 ? "没有待复核问题，无需重新打开复核" : `当前状态（${task.status}）无需重新打开复核`,
+      });
+    }
+    setTaskStatus(id, "waiting_review");
+    appendEvent(id, "agent_status", `复核重新打开：${pending} 项问题待税务师复核`);
+    return { status: "waiting_review", pending };
   });
 
   /** 底稿比对记录：从工具调用历史中提取 compare_workpapers 的结构化结果，供前端比对视图使用。 */

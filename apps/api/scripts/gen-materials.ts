@@ -56,7 +56,9 @@ function build(agent: TaxAgentConfig, extra: Array<{ name: string; label: string
   lines.push(`- 联网检索：社区扩展 pi-web-access（Exa MCP 零配置）+ 自建 Bing/百度兜底抓取`);
   lines.push(`- 前后端：React + Vite + Tailwind（深色专业工作台）/ Node.js + Fastify + SSE`);
   lines.push(`- 存储与计算：SQLite（node:sqlite）/ ExcelJS / unpdf / tesseract.js（OCR）/ 整数分金额计算`);
-  lines.push(`- 会话与复核：按任务持久化会话（续跑恢复历史）/ waiting_review 人工复核状态机`);
+  lines.push(
+    `- 会话与复核：按任务持久化会话（续跑恢复历史）/ waiting_review 人工复核状态机（完成态若遗留待复核问题，复核页可一键「转为待复核」重新打开）`,
+  );
   lines.push("");
   lines.push(`## 四、核心流程`);
   lines.push("");
@@ -109,7 +111,7 @@ function build(agent: TaxAgentConfig, extra: Array<{ name: string; label: string
   lines.push(`- [ ] 审查结论：Markdown 报告 + mermaid 图 + 引用 chips + 交付卡片`);
   lines.push(`- [ ] 侧边阅读器：外链阅读模式 / Excel 工作表预览 / PDF 预览`);
   lines.push(agent.id === "land-vat" ? `- [ ] 模板保留式填列：已填列模板产物预览（公式列未触碰）` : `- [ ] 政策依据：search_rd_policy 比例与文号 + 联网核验`);
-  lines.push(`- [ ] 人工复核：waiting_review → 逐项确认 → completed`);
+  lines.push(`- [ ] 人工复核：waiting_review → 逐项确认 → completed；完成态遗留问题可重新打开复核`);
   lines.push(`- [ ] 录屏要求：MP4、≤500MB、≤8 分钟，覆盖启动到交付全过程`);
   lines.push("");
   lines.push(`## 九、边界与合规`);

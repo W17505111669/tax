@@ -86,6 +86,9 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
+  reopenReview: (taskId: string) =>
+    request<{ status: string; pending: number }>(`/api/tasks/${taskId}/reopen-review`, { method: "POST" }),
+
   artifactContentUrl: (taskId: string, name: string) =>
     `/api/tasks/${taskId}/artifacts/${encodeURIComponent(name)}/content`,
 };

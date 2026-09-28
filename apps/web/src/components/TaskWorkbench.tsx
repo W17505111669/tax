@@ -96,6 +96,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   const [compares, setCompares] = useState<CompareRecord[]>([]);
   const [issues, setIssues] = useState<TaskIssue[]>([]);
   const [reviews, setReviews] = useState<ReviewRecord[]>([]);
+  // 「转为待复核」后的本地乐观标记，服务端状态由 App 轮询同步
+  const [reopened, setReopened] = useState(false);
   const [pendingReviews, setPendingReviews] = useState(0);
   const [readerOpen, setReaderOpen] = useState(false);
   const [readerTabs, setReaderTabs] = useState<ReaderTarget[]>([]);
@@ -309,6 +311,22 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       clearInterval(timer);
     };
   }, [task.id]);
+
+  // 切换任务时清掉乐观标记，避免沿用上一个任务的状态
+  useEffect(() => setReopened(false), [task.id]);
+
+  const handleReopenReview = () => {
+    void api
+      .reopenReview(task.id)
+      .then(() => api.listIssues(task.id))
+      .then((data) => {
+        setIssues(data.issues);
+        setReviews(data.reviews);
+        setPendingReviews(data.pending);
+        setReopened(true);
+      })
+      .catch(() => undefined);
+  };
 
   const handleReview = (issueId: string, decision: "confirm" | "dismiss", comment: string) => {
     void api
@@ -1281,7 +1299,14 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
               <CompareView compares={compares} onOpenTarget={openCompareTarget} onOpenPair={openComparePair} />
             )}
             {tab === "review" && (
-              <ReviewView issues={issues} reviews={reviews} pending={pendingReviews} onReview={handleReview} />
+              <ReviewView
+                issues={issues}
+                reviews={reviews}
+                pending={pendingReviews}
+                status={reopened ? "waiting_review" : task.status}
+                onReview={handleReview}
+                onReopen={handleReopenReview}
+              />
             )}
             </div>
           </div>

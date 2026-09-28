@@ -28,6 +28,7 @@ const VERIFY_SCRIPTS: Array<{ name: string; cmd: string; scope: string }> = [
     cmd: "pnpm verify:locate",
     scope: "阅读器表格定位命中规则（记录地址 / A1 / 文本 / 差异值校验）",
   },
+  { name: "verify:review", cmd: "pnpm verify:review", scope: "人工复核状态一致性（完成态遗留待复核问题的补救判定）" },
 ];
 
 function runVerify(cmd: string): { pass: boolean; output: string } {
