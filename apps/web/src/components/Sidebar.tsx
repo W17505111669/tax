@@ -50,6 +50,8 @@ function relTime(iso: string): string {
   return `${Math.floor(h / 24)} 天前`;
 }
 
+const SIDEBAR_RING = 2 * Math.PI * 12;
+
 const STATUS_FILTERS: Array<{ id: StatusFilter; label: string }> = [
   { id: "all", label: "全部" },
   { id: "processing", label: "执行中" },
@@ -348,11 +350,23 @@ export function Sidebar({
             </span>
           </span>
           {task.status === "processing" && (
-            <span className="mt-1.5 block h-1 w-full overflow-hidden rounded-full bg-night-700">
-              <span
-                className="bar-fill block h-full transition-all"
-                style={{ width: `${((task.progress ?? 0) / 5) * 100}%` }}
-              />
+            <span className="mt-1.5 flex items-center gap-1.5" title={`进度 ${(task.progress ?? 0)}/5`}>
+              <span className="relative inline-flex h-3.5 w-3.5 items-center justify-center">
+                <svg viewBox="0 0 32 32" className="h-3.5 w-3.5">
+                  <circle cx="16" cy="16" r="12" fill="none" stroke="#122036" strokeWidth="7" />
+                  <circle
+                    cx="16"
+                    cy="16"
+                    r="12"
+                    fill="none"
+                    stroke="#22d3ee"
+                    strokeWidth="7"
+                    strokeDasharray={`${((task.progress ?? 0) / 5) * SIDEBAR_RING} ${SIDEBAR_RING}`}
+                    transform="rotate(-90 16 16)"
+                  />
+                </svg>
+              </span>
+              <span className="font-mono text-[9px] text-mist-600">{task.progress ?? 0}/5</span>
             </span>
           )}
         </button>

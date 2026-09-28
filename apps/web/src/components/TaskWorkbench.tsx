@@ -1909,6 +1909,15 @@ function TimelineView({
                     <IconCopy className="h-3.5 w-3.5" />
                     复制纯文本
                   </button>
+                  <button
+                    type="button"
+                    className="action-btn"
+                    title="复制渲染后的结论 HTML"
+                    onClick={() => copyText(marked.parse(item.detail ?? "", { async: false }) as string)}
+                  >
+                    <IconCopy className="h-3.5 w-3.5" />
+                    复制 HTML
+                  </button>
                   <button type="button" className="action-btn" onClick={onRerun} title="重新执行本任务">
                     <IconRefresh className="h-3.5 w-3.5" />
                     重新生成
