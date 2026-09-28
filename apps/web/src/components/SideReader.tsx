@@ -103,11 +103,14 @@ function MiniPane({
   title,
   innerRef,
   find,
+  mainSort,
 }: {
   st: ReaderState;
   title: string;
   innerRef?: Ref<HTMLDivElement>;
   find?: string;
+  /** 主栏当前文件的排序状态（按工作表名索引），副栏跟随以保证双栏行序一致 */
+  mainSort?: Record<string, { col: string; dir: 1 | -1 }>;
 }) {
   const [z, setZ] = useState(1);
   const [mfind, setMfind] = useState("");
@@ -173,7 +176,19 @@ function MiniPane({
           const idx = Math.min(msheet, Math.max(0, list.length - 1));
           const s = list[idx];
           if (!s) return null;
-          const rows = s.rows.slice(0, 60);
+          const spec = mainSort?.[s.name];
+          const rows = (() => {
+            const base = s.rows.slice(0, 100);
+            if (!spec) return base;
+            return [...base].sort((a, b) => {
+              const av = a[spec.col];
+              const bv = b[spec.col];
+              const an = typeof av === "number" ? av : parseFloat(String(av ?? ""));
+              const bn = typeof bv === "number" ? bv : parseFloat(String(bv ?? ""));
+              if (!Number.isNaN(an) && !Number.isNaN(bn)) return (an - bn) * spec.dir;
+              return String(av ?? "").localeCompare(String(bv ?? ""), "zh-CN") * spec.dir;
+            });
+          })();
           return (
             <div className="paper-sheet theme-minimal px-2 py-2">
               {list.length > 1 && (
@@ -195,6 +210,14 @@ function MiniPane({
               <div className="mb-1 flex items-baseline gap-2">
                 <span className="text-[11.5px] font-semibold text-gray-900">{s.name}</span>
                 <span className="text-[10px] text-gray-500">{s.rowCount} 行</span>
+                {spec && (
+                  <span
+                    className="ml-auto max-w-[45%] truncate text-[10px] text-gray-500"
+                    title="跟随主栏排序，在主栏点击列头可切换列与升降序"
+                  >
+                    排序 {spec.col} {spec.dir === 1 ? "↑" : "↓"}
+                  </span>
+                )}
               </div>
               <div className="max-h-[60vh] overflow-auto rounded border border-gray-200">
                 <table
@@ -233,7 +256,7 @@ function MiniPane({
               </div>
               {s.rowCount > rows.length && (
                 <p className="mt-1 text-[10px] text-gray-500">
-                  副栏仅显示前 {rows.length} 行，排序 / 冻结 / 复制 TSV 请在主栏操作。
+                  副栏仅显示前 {rows.length} 行（行序跟随主栏）；冻结首列 / 复制 TSV 请在主栏操作。
                 </p>
               )}
             </div>
@@ -1315,7 +1338,17 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
         )}
       </div>
       {splitView && tabs.length > 1 && (
-        <MiniPane st={states[secondKey] ?? INITIAL} title={secondLabel} innerRef={miniRef} find={findTrim} />
+        <MiniPane
+          st={states[secondKey] ?? INITIAL}
+          title={secondLabel}
+          innerRef={miniRef}
+          find={findTrim}
+          mainSort={Object.fromEntries(
+            Object.entries(sort)
+              .filter(([k]) => k.startsWith(`${activeKey}:`))
+              .map(([k, v]) => [k.slice(activeKey.length + 1), v]),
+          )}
+        />
       )}
       </div>
     </aside>
