@@ -55,6 +55,8 @@ interface Citation {
   url: string;
 }
 
+const STEP_RING = 2 * Math.PI * 12;
+
 /** 去除 Markdown 语法，供纯文本复制使用 */
 const DOMAIN_KEYWORDS = [
   "研发费用",
@@ -616,6 +618,24 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
               ) : (
                 meta.label
               )}
+            </span>
+            <span className="relative inline-flex h-5 w-5 shrink-0 items-center justify-center" title={`步骤 ${steps.filter((s) => s.state === "done").length}/5`}>
+              <svg viewBox="0 0 32 32" className="h-5 w-5">
+                <circle cx="16" cy="16" r="12" fill="none" stroke="#1b2c47" strokeWidth="6" />
+                <circle
+                  cx="16"
+                  cy="16"
+                  r="12"
+                  fill="none"
+                  stroke="#22d3ee"
+                  strokeWidth="6"
+                  strokeDasharray={`${(steps.filter((s) => s.state === "done").length / 5) * STEP_RING} ${STEP_RING}`}
+                  transform="rotate(-90 16 16)"
+                />
+              </svg>
+              <span className="absolute font-mono text-[8px] text-mist-300">
+                {steps.filter((s) => s.state === "done").length}
+              </span>
             </span>
             <button type="button" onClick={() => void copyId()} title="复制任务 ID" className="action-btn shrink-0">
               {copied ? <span className="text-jade-400">已复制</span> : <IconCopy className="h-3.5 w-3.5" />}

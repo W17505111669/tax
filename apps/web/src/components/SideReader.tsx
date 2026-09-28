@@ -164,6 +164,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   }, [freezeFirst]);
   const [pinned, setPinned] = useState<Set<string>>(new Set());
   const [armedKey, setArmedKey] = useState<string | null>(null);
+  const [vsPresent, setVsPresent] = useState(() => new URLSearchParams(window.location.search).has("vs"));
   const [splitView, setSplitView] = useState(false);
   const [secondIdx, setSecondIdx] = useState(0);
   const [syncScroll, setSyncScroll] = useState(false);
@@ -530,6 +531,21 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
             </button>
           </div>
           <div className="ml-auto flex items-center gap-1">
+            {vsPresent && (
+              <button
+                type="button"
+                className="action-btn"
+                title="清除 URL 中的视图短码参数"
+                onClick={() => {
+                  const u = new URL(window.location.href);
+                  u.searchParams.delete("vs");
+                  window.history.replaceState(null, "", u.toString());
+                  setVsPresent(false);
+                }}
+              >
+                清除短码
+              </button>
+            )}
             <button
               type="button"
               className="action-btn"
