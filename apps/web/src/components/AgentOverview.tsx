@@ -292,12 +292,10 @@ export function AgentOverview({
                 </span>
               )}
             </div>
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {chips.map((c) => (
-                <span
-                  key={c.label}
-                  className="rounded-full border border-glow-500/35 bg-glow-500/10 px-2.5 py-1 text-[11px] text-glow-300"
-                >
+            <div className="mt-3 inline-flex flex-wrap items-center rounded-full border border-glow-500/35 bg-glow-500/10 px-3 py-1 text-[11px] text-glow-300">
+              {chips.map((c, i) => (
+                <span key={c.label} className="flex items-center">
+                  {i > 0 && <span className="mx-2 text-glow-500/60">·</span>}
                   {c.label}
                 </span>
               ))}

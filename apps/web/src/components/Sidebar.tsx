@@ -169,6 +169,8 @@ export function Sidebar({
   const [starOnly, setStarOnly] = useState(false);
   const [weekOnly, setWeekOnly] = useState(false);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [dragTag, setDragTag] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [managing, setManaging] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameVal, setRenameVal] = useState("");
@@ -317,8 +319,17 @@ export function Sidebar({
           dragIdRef.current = task.id;
         }}
         onDragOver={(e) => e.preventDefault()}
+        onDragEnter={(e) => {
+          if (dragTag) {
+            e.preventDefault();
+            setDragOverId(task.id);
+          }
+        }}
+        onDragLeave={() => setDragOverId((v) => (v === task.id ? null : v))}
         onDrop={(e) => {
           e.preventDefault();
+          setDragOverId(null);
+          setDragTag(null);
           const tag = e.dataTransfer.getData("text/tag");
           if (tag) {
             addTagToTask(task.id, tag);
@@ -332,7 +343,9 @@ export function Sidebar({
         title="拖拽可手动排序/置顶"
         className={`group relative mb-1 rounded-lg transition-colors ${
           active ? "bg-night-700 glow-ring" : "hover:bg-night-800"
-        } ${task.id === cursorId ? "ring-1 ring-glow-500/60" : ""}`}
+        } ${task.id === cursorId ? "ring-1 ring-glow-500/60" : ""} ${
+          dragOverId === task.id ? "ring-1 ring-glow-400" : ""
+        }`}
       >
         <button
           type="button"
@@ -633,7 +646,14 @@ export function Sidebar({
                   key={t}
                   type="button"
                   draggable
-                  onDragStart={(e) => e.dataTransfer.setData("text/tag", t)}
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData("text/tag", t);
+                    setDragTag(t);
+                  }}
+                  onDragEnd={() => {
+                    setDragTag(null);
+                    setDragOverId(null);
+                  }}
                   onClick={() => setTagFilter((v) => (v === t ? null : t))}
                   onContextMenu={(e) => {
                     e.preventDefault();
