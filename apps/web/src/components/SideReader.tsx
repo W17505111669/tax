@@ -28,6 +28,7 @@ interface ReaderState {
   text: string;
   src: string;
   sheets?: SheetPreview[];
+  loadedAt?: string | null;
 }
 
 const INITIAL: ReaderState = {
@@ -39,6 +40,7 @@ const INITIAL: ReaderState = {
   text: "",
   src: "",
   sheets: [],
+  loadedAt: null,
 };
 
 function previewKind(headerKind: string | null, name: string): PreviewKind {
@@ -169,6 +171,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                 markdown: "",
                 text: "",
                 src: active.url,
+                loadedAt: new Date().toLocaleString("zh-CN", { hour12: false }),
               },
             }));
             return;
@@ -183,6 +186,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
               markdown: result.markdown || result.excerpt || "（该网页未提取到正文）",
               text: "",
               src: active.url,
+              loadedAt: new Date().toLocaleString("zh-CN", { hour12: false }),
             },
           }));
           return;
@@ -394,6 +398,11 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
       {active?.kind === "url" && (
         <div className="flex items-center gap-2 border-b border-line px-4 py-1.5">
           <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-mist-600">{active.url}</span>
+          {state.loadedAt && (
+            <span className="shrink-0 text-[10.5px] text-mist-600" title="网页读取时间">
+              读取于 {state.loadedAt}
+            </span>
+          )}
           <a
             href={active.url}
             target="_blank"

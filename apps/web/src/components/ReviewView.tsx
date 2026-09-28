@@ -41,8 +41,36 @@ export function ReviewView({ issues, reviews, pending, onReview }: Props) {
             <IconCheck className="h-4 w-4 text-jade-400" />
             复核完成
           </>
-        )}
+      )}
       </div>
+
+      {pending > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              for (const issue of issues) {
+                if (!reviewMap.has(issue.id)) onReview(issue.id, "confirm", comments[issue.id] ?? "");
+              }
+            }}
+            className="rounded-md border border-jade-400/40 bg-jade-400/10 px-2.5 py-1 text-[11.5px] text-jade-400 transition-colors hover:bg-jade-400/20"
+          >
+            全部确认（{pending}）
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              for (const issue of issues) {
+                if (!reviewMap.has(issue.id)) onReview(issue.id, "dismiss", comments[issue.id] ?? "");
+              }
+            }}
+            className="rounded-md border border-line bg-night-800 px-2.5 py-1 text-[11.5px] text-mist-300 transition-colors hover:border-rose-400/40 hover:text-rose-300"
+          >
+            全部驳回
+          </button>
+          <span className="text-[11px] text-mist-600">批量操作使用各项已填写的复核意见（如有）</span>
+        </div>
+      )}
 
       {issues.map((issue) => {
         const rev = reviewMap.get(issue.id);
