@@ -183,6 +183,33 @@ export function Sidebar({
     }
   }, [tasks, starNonce]);
 
+  // 手动排序（拖拽置顶），localStorage 持久化
+  const [order, setOrder] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("taxai-task-order") ?? "[]") as string[];
+    } catch {
+      return [];
+    }
+  });
+  const dragIdRef = useRef<string | null>(null);
+  const sortByOrder = (list: TaskInfo[]) => {
+    const idx = (id: string) => {
+      const i = order.indexOf(id);
+      return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+    };
+    return [...list].sort((a, b) => idx(a.id) - idx(b.id) || b.createdAt.localeCompare(a.createdAt));
+  };
+  const dropOn = (targetId: string) => {
+    const from = dragIdRef.current;
+    dragIdRef.current = null;
+    if (!from || from === targetId) return;
+    const next = order.filter((id) => id !== from);
+    const at = next.indexOf(targetId);
+    next.splice(at === -1 ? next.length : at, 0, from);
+    setOrder(next);
+    localStorage.setItem("taxai-task-order", JSON.stringify(next));
+  };
+
   const renderTaskRow = (task: TaskInfo) => {
     const active = task.id === activeTaskId;
     const hl = (text: string) => {
@@ -203,6 +230,19 @@ export function Sidebar({
     return (
       <div
         key={task.id}
+        draggable
+        onDragStart={() => {
+          dragIdRef.current = task.id;
+        }}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          e.preventDefault();
+          dropOn(task.id);
+        }}
+        onDragEnd={() => {
+          dragIdRef.current = null;
+        }}
+        title="拖拽可手动排序/置顶"
         className={`group relative mb-1 rounded-lg transition-colors ${
           active ? "bg-night-700 glow-ring" : "hover:bg-night-800"
         }`}
@@ -391,7 +431,7 @@ export function Sidebar({
         </div>
         {filtered.length === 0 && <div className="px-2 py-3 text-[12px] text-mist-600">无匹配任务</div>}
         {(() => {
-          const starList = filtered.filter((t) => starred.has(t.id));
+          const starList = sortByOrder(filtered.filter((t) => starred.has(t.id)));
           if (starList.length === 0) return null;
           const closed = collapsed.starred ?? false;
           return (
@@ -438,7 +478,7 @@ export function Sidebar({
           );
         })()}
         {GROUP_ORDER.map((g) => {
-          const list = filtered.filter((t) => t.status === g.id && !starred.has(t.id));
+          const list = sortByOrder(filtered.filter((t) => t.status === g.id && !starred.has(t.id)));
           if (list.length === 0) return null;
           const closed = collapsed[g.id] ?? false;
           return (
