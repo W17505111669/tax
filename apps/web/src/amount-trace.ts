@@ -4,7 +4,8 @@
  * 这一节就是该主张的可核对证据。
  *
  * 口径说明（刻意偏保守，宁可少报也不误伤）：
- * - 只抓带单位（元/万元/￥/人民币）、带千分位分隔符、或不少于 5 位的数字；
+ * - 只抓带单位（元/万元/￥/人民币）、带千分位分隔符、或整数部分不少于 6 位的数字
+ *   （6 位这个门槛是为了排除「12366 纳税服务平台」一类的短编号）；
  * - 排除百分比、年月日、以及后面紧跟量词（份/条/项/次/个/大/年/月/日）的数字；
  * - 工具侧同时登记「元」与「分」两种量纲（工具内部按整数分计算，输出常以元呈现），
  *   因此匹配偏宽松：目的是标出真正无出处的金额，而不是制造噪音。
@@ -61,7 +62,7 @@ export function extractAmounts(text: string): Amount[] {
     if (before && TOKEN_BEFORE.test(before)) continue;
     const after = text.slice(idx + full.length);
     const hasSep = digits.includes(",");
-    const isLong = digits.replace(/\.\d+$/, "").length >= 5;
+    const isLong = digits.replace(/\.\d+$/, "").length >= 6;
     // 既无单位也无千分位、位数又短的数字（例如「6 大类」「3 份合同」）不作为金额
     if (!unit && !symbol && !hasSep && !isLong) continue;
     if (REJECT_SUFFIX.test(after)) continue;
@@ -120,11 +121,12 @@ export function collectToolCents(results: unknown[]): Set<number> {
 }
 
 /**
- * 金额核对标记的键：值（分）+ 原文片段。
- * 结论重写后同值同写法的金额仍是同一个键，人工核对结果不会因为重新运行而丢失。
+ * 金额核对标记的键：只用值（分）。
+ * 同一金额在结论里常有多种写法（表格里的 `84,444.44` 与正文的「84,444.44 元」），
+ * 税务师确认的是这个数有没有出处，因此共用一个键：标记一次即覆盖全部写法。
  */
-export function amountKey(a: { cents: number; match: string }): string {
-  return `${a.cents}|${a.match}`;
+export function amountKey(a: { cents: number }): string {
+  return String(a.cents);
 }
 
 /** 符号不敏感匹配：差异金额常以负数呈现，工具结果里可能是正数（或相反） */

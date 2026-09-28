@@ -721,6 +721,26 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     [amountTrace, amountChecks],
   );
 
+  // 复核页的金额核对清单：与正文就地标注同源，待确认与已核对分列
+  const amountReviewItems = useMemo(() => {
+    // 同一金额的多种写法合并成一条（键只由值决定），并统计出现处数
+    const pend = new Map<string, { key: string; raw: string; context: string; occurrences: number }>();
+    const acked = new Map<string, { key: string; raw: string; at: string; occurrences: number }>();
+    for (const u of amountTrace.untraced) {
+      const key = amountKey(u);
+      const at = amountChecks[key];
+      const bucket = at ? acked : pend;
+      const cur = bucket.get(key);
+      if (cur) {
+        cur.occurrences += 1;
+        continue;
+      }
+      if (at) acked.set(key, { key, raw: u.raw, at, occurrences: 1 });
+      else pend.set(key, { key, raw: u.raw, context: u.context, occurrences: 1 });
+    }
+    return { pend: [...pend.values()], acked: [...acked.values()] };
+  }, [amountTrace, amountChecks]);
+
   // 交付自检输入：结论字数、产物与溯源、工具调用结果、待复核与联网引用
   const deliveryInput = (): CheckInput => ({
     status: reopened ? "waiting_review" : task.status,
@@ -1554,6 +1574,16 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                 status={reopened ? "waiting_review" : task.status}
                 onReview={handleReview}
                 onReopen={handleReopenReview}
+                amounts={{
+                  total: amountTrace.total,
+                  traced: amountTrace.traced,
+                  fromInput: amountTrace.fromInput,
+                  pending: amountReviewItems.pend,
+                  acked: amountReviewItems.acked,
+                  pendingOccurrences: amountReviewItems.pend.reduce((s, a) => s + a.occurrences, 0),
+                  ackedOccurrences: amountReviewItems.acked.reduce((s, a) => s + a.occurrences, 0),
+                }}
+                onToggleAmount={toggleAmountCheck}
               />
             )}
             </div>

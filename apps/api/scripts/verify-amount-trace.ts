@@ -25,6 +25,8 @@ expect("百分号不计入", extractAmounts("加计扣除比例 100%").length, 0
 expect("年份不计入", extractAmounts("2025 年度研发项目").length, 0);
 expect("量词不计入", extractAmounts("共 3 份合同、6 大类费用").length, 0);
 expect("URL 中的数字不计入", extractAmounts("见 https://x.gov.cn/t.php?tid=27828 与 /c100012/c5194166/").length, 0);
+expect("短编号不计入（12366 热线）", extractAmounts("国家税务总局12366纳税服务平台的答复").length, 0);
+expect("6 位以上无单位数字计入", extractAmounts("辅助账 860000 与财务账 0").map((a) => a.cents), [86000000]);
 expect("无单位但带千分位/位数足够时计入", extractAmounts("金额 1,200,000 与 860000").map((a) => a.cents), [
   120000000, 86000000,
 ]);
@@ -56,14 +58,10 @@ expect("match 都是原文精确子串", extracted.every((a) => sample.includes(
 expect("match 保留原文空格与单位", extracted.map((a) => a.match), ["84,444.44 元", "-460,000.00 元", "50 万元"]);
 expect("raw 为归一化展示形式", extracted.map((a) => a.raw), ["84,444.44元", "-460,000.00元", "50万元"]);
 
-// 3c) 人工核对标记的键：值 + 原文片段，保证结论重写后同一写法仍复用核对结果
-expect("核对键由值与原文片段组成", amountKey({ cents: -46000000, match: "-460,000.00 元" }), "-46000000|-460,000.00 元");
-expect(
-  "同值不同写法产生不同键",
-  amountKey({ cents: 5000000, match: "5,000.00 元" }) !== amountKey({ cents: 5000000, match: "5000.00元" }),
-  true,
-);
-expect("提取结果可直接生成核对键", amountKey(extracted[0]!).startsWith("8444444|"), true);
+// 3c) 人工核对标记的键：同一金额的不同写法共用一个键，标记一次覆盖全部出现处
+expect("核对键只由值决定", amountKey({ cents: -46000000 }), "-46000000");
+expect("同值不同写法共用一个键", amountKey({ cents: 5000000 }) === amountKey({ cents: 5000000 }), true);
+expect("提取结果可直接生成核对键", amountKey(extracted[0]!), "8444444");
 // 4) 真实任务走查：可溯源比例不得低于 90%（当前实现约 96%）
 let total = 0;
 let explained = 0;

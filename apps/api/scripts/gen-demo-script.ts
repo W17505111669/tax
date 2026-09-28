@@ -136,7 +136,8 @@ const scenes: Array<{
     task: pick((t) => t.hasReview),
     tab: "review",
     talk: "waiting_review → 税务师逐项确认/驳回 → 自动流转 completed；复核意见留痕。",
-    expect: "复核页签问题卡、决定徽章、状态点变化。",
+    expect:
+      "复核页签问题卡、决定徽章、状态点变化、「结论金额核对」小节（待确认金额一键标记为已核对，与结论正文的就地标注同步，可撤销）。",
     seconds: 40,
   },
   {

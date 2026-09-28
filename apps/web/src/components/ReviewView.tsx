@@ -10,6 +10,18 @@ interface Props {
   status: string;
   onReview: (issueId: string, decision: "confirm" | "dismiss", comment: string) => void;
   onReopen: () => void;
+  /** 结论金额溯源与人工核对状态（与正文就地标注同源） */
+  amounts?: {
+    total: number;
+    traced: number;
+    fromInput: number;
+    pending: Array<{ key: string; raw: string; context: string; occurrences: number }>;
+    acked: Array<{ key: string; raw: string; at: string; occurrences: number }>;
+    /** 待确认 / 已核对金额在结论中出现的总处数（同一金额多种写法合并前） */
+    pendingOccurrences: number;
+    ackedOccurrences: number;
+  };
+  onToggleAmount?: (key: string) => void;
 }
 
 function typeTone(type: string): string {
@@ -30,10 +42,85 @@ const COMMENT_TEMPLATES = [
 ];
 
 /** 人工复核页签：税务师对工具核查与底稿比对发现的问题逐项确认或驳回。 */
-export function ReviewView({ issues, reviews, pending, status, onReview, onReopen }: Props) {
+export function ReviewView({ issues, reviews, pending, status, onReview, onReopen, amounts, onToggleAmount }: Props) {
   const [comments, setComments] = useState<Record<string, string>>({});
   const [onlyPending, setOnlyPending] = useState(true);
   const reviewMap = new Map(reviews.map((r) => [r.issueId, r]));
+
+  // 结论金额核对：与正文里的就地标注同一份数据，这里给出可批量处理的清单
+  const amountBlock =
+    amounts && amounts.total > 0 ? (
+      <div className="rounded-md border border-line bg-night-900/60 px-3 py-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="kicker">结论金额核对</span>
+          <span className="text-[11.5px] text-mist-600">
+            共 {amounts.total} 处：工具可溯源 {amounts.traced} · 来自客户指令 {amounts.fromInput} · 待确认{" "}
+            {amounts.pendingOccurrences} 处（{amounts.pending.length} 个金额）· 已核对 {amounts.ackedOccurrences} 处
+          </span>
+          {amounts.pending.length === 0 && (
+            <span className="rounded bg-jade-400/15 px-1.5 py-0.5 text-[10.5px] text-jade-300">金额核对已完成</span>
+          )}
+        </div>
+        {amounts.pending.length > 0 && (
+          <ul className="mt-2 space-y-1">
+            {amounts.pending.slice(0, 20).map((a) => (
+              <li
+                key={a.key}
+                className="flex items-center gap-2 rounded border border-amber-400/30 bg-amber-400/5 px-2 py-1.5"
+              >
+                <span className="shrink-0 font-mono text-[11.5px] text-amber-300">{a.raw}</span>
+                {a.occurrences > 1 && (
+                  <span className="shrink-0 text-[10.5px] text-mist-600">出现 {a.occurrences} 处</span>
+                )}
+                <span className="min-w-0 flex-1 truncate text-[11px] text-mist-600" title={a.context}>
+                  …{a.context}…
+                </span>
+                <button
+                  type="button"
+                  className="action-btn shrink-0"
+                  title="标记为已核对（写入状态事件留痕，可撤销）"
+                  onClick={() => onToggleAmount?.(a.key)}
+                >
+                  标记已核对
+                </button>
+              </li>
+            ))}
+            {amounts.pending.length > 20 && (
+              <li className="text-[11px] text-mist-600">
+                另有 {amounts.pending.length - 20} 处，可在结论正文中点击琥珀标记处理
+              </li>
+            )}
+          </ul>
+        )}
+        {amounts.acked.length > 0 && (
+          <ul className="mt-2 space-y-1">
+            {amounts.acked.map((a) => (
+              <li
+                key={a.key}
+                className="flex items-center gap-2 rounded border border-jade-400/25 bg-jade-400/5 px-2 py-1"
+              >
+                <IconCheck className="h-3 w-3 shrink-0 text-jade-400" />
+                <span className="shrink-0 font-mono text-[11.5px] text-jade-300">{a.raw}</span>
+                {a.occurrences > 1 && (
+                  <span className="shrink-0 text-[10.5px] text-mist-600">出现 {a.occurrences} 处</span>
+                )}
+                <span className="font-mono text-[10.5px] text-mist-600">
+                  {new Date(a.at).toLocaleString("zh-CN", { hour12: false })}
+                </span>
+                <button
+                  type="button"
+                  className="action-btn ml-auto shrink-0"
+                  title="撤销核对标记，重新计入待确认"
+                  onClick={() => onToggleAmount?.(a.key)}
+                >
+                  撤销
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    ) : null;
 
   const exportReviews = () => {
     const lines = ["# 复核记录", ""];
@@ -57,8 +144,11 @@ export function ReviewView({ issues, reviews, pending, status, onReview, onReope
 
   if (issues.length === 0) {
     return (
-      <div className="py-10 text-center text-[13px] text-mist-600">
-        暂无待复核事项。工具核查与底稿比对发现问题后会自动汇总到这里。
+      <div className="space-y-3">
+        <div className="py-10 text-center text-[13px] text-mist-600">
+          暂无待复核事项。工具核查与底稿比对发现问题后会自动汇总到这里。
+        </div>
+        {amountBlock}
       </div>
     );
   }
@@ -321,6 +411,7 @@ export function ReviewView({ issues, reviews, pending, status, onReview, onReope
           </ul>
         </div>
       )}
+      {amountBlock}
     </div>
   );
 }
