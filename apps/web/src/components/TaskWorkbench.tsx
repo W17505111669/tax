@@ -1132,6 +1132,38 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                onPrint={() => window.print()}
                 fs={fs}
                 onFs={setFs}
+                onExportBundle={() => {
+                  const lines = [
+                    `# ${task.title}`,
+                    "",
+                    `- 任务 ID：${task.id}`,
+                    `- 智能体：${agent.shortName}${agent.model ? `（${agent.model}）` : ""}`,
+                    `- 案例：${task.caseId}　状态：${liveStatus}　运行次数：${runCount}`,
+                    `- 创建：${new Date(task.createdAt).toLocaleString("zh-CN", { hour12: false })}　导出：${new Date().toLocaleString("zh-CN", { hour12: false })}`,
+                    "",
+                    "## 目录",
+                    "",
+                    ...toc.map((h, i) => `${i + 1}. ${h}`),
+                    "",
+                    "## 审查结论",
+                    "",
+                    finalResult,
+                    "",
+                    "## 联网引用",
+                    "",
+                    ...(citations.length > 0
+                      ? citations.map((c, i) => `${i + 1}. ${c.title}\n   ${c.url}`)
+                      : ["（本次任务无联网引用）"]),
+                    "",
+                  ];
+                  const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `${task.title}-整页-${new Date().toISOString().slice(0, 10)}.md`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
               />
               </>
             )}
@@ -2036,6 +2068,7 @@ function ResultView({
   onPrint,
   fs,
   onFs,
+  onExportBundle,
 }: {
   result: string;
   error: string | null;
@@ -2047,6 +2080,7 @@ function ResultView({
   onPrint: () => void;
   fs: "sm" | "md" | "lg";
   onFs: (v: "sm" | "md" | "lg") => void;
+  onExportBundle: () => void;
 }) {
   if (error) {
     return (
@@ -2105,6 +2139,10 @@ function ResultView({
         <button type="button" className="action-btn" onClick={onPrint}>
           <IconPrint className="h-3.5 w-3.5" />
           打印 / PDF
+        </button>
+        <button type="button" className="action-btn" onClick={onExportBundle} title="导出元信息+目录+结论+引用单文件">
+          <IconDownload className="h-3.5 w-3.5" />
+          导出整页
         </button>
         <button type="button" className="action-btn" onClick={onDownloadReport}>
           <IconDownload className="h-3.5 w-3.5" />
