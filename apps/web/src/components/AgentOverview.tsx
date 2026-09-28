@@ -42,10 +42,21 @@ interface Props {
   stats: { tasks: number; completed: number; platform: PlatformStats | null };
   breakdown: { processing: number; waiting_review: number; completed: number; failed: number };
   createdAts: string[];
+  recent: Array<{ id: string; title: string; status: string; at: string }>;
   onSelect: (id: string) => void;
+  onOpenTask: (id: string) => void;
 }
 
-export function AgentOverview({ agents, activeAgentId, stats, breakdown, createdAts, onSelect }: Props) {
+export function AgentOverview({
+  agents,
+  activeAgentId,
+  stats,
+  breakdown,
+  createdAts,
+  recent,
+  onSelect,
+  onOpenTask,
+}: Props) {
   const agent = agents.find((a) => a.id === activeAgentId);
   if (!agent) return null;
   const Icon = agent.id === "rd-audit" ? IconFlask : IconBuilding;
@@ -219,6 +230,26 @@ export function AgentOverview({ agents, activeAgentId, stats, breakdown, created
                 )}
               </svg>
             </div>
+            <div className="mt-5">
+              <div className="kicker">最近活动</div>
+              <ul className="mt-2 space-y-1">
+                {recent.length === 0 && <li className="px-1.5 text-[11.5px] text-mist-600">暂无任务</li>}
+                {recent.map((r) => (
+                  <li key={r.id}>
+                    <button
+                      type="button"
+                      onClick={() => onOpenTask(r.id)}
+                      title={r.title}
+                      className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left transition-colors hover:bg-night-800"
+                    >
+                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${RECENT_DOT[r.status] ?? "bg-mist-600"}`} />
+                      <span className="min-w-0 flex-1 truncate text-[12px] text-mist-300">{r.title}</span>
+                      <span className="shrink-0 text-[10.5px] text-mist-600">{relTime(r.at)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
         </div>
 
@@ -364,6 +395,23 @@ export function AgentOverview({ agents, activeAgentId, stats, breakdown, created
     </section>
   );
 }
+const RECENT_DOT: Record<string, string> = {
+  processing: "bg-amber-400",
+  waiting_review: "bg-sky-400",
+  completed: "bg-jade-400",
+  failed: "bg-rose-400",
+  created: "bg-mist-600",
+};
+
+function relTime(iso: string): string {
+  const m = Math.floor((Date.now() - Date.parse(iso)) / 60000);
+  if (m < 1) return "刚刚";
+  if (m < 60) return `${m} 分钟前`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} 小时前`;
+  return `${Math.floor(h / 24)} 天前`;
+}
+
 /** 能力清单按关键词分类配图标 */
 function capIcon(c: string) {
   if (/测算|计算|整数|限额|填列/.test(c)) return IconTool;

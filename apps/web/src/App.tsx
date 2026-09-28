@@ -264,10 +264,15 @@ export default function App() {
                 failed: visibleTasks.filter((t) => t.status === "failed").length,
               }}
               createdAts={visibleTasks.map((t) => t.createdAt)}
+              recent={[...visibleTasks]
+                .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+                .slice(0, 5)
+                .map((t) => ({ id: t.id, title: t.title, status: t.status, at: t.createdAt }))}
               onSelect={(id) => {
                 setActiveAgentId(id);
                 setActiveTaskId(null);
               }}
+              onOpenTask={(id) => setActiveTaskId(id)}
             />
             <NewTaskPanel agent={activeAgent} busy={creating} error={error} onSubmit={handleCreate} />
           </div>
