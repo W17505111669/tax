@@ -957,7 +957,17 @@ function TimelineView({
         }
 
         return (
-          <div key={item.id} className={`glow-card px-4 py-3 ${cls}`}>
+          <div key={item.id} className={`group glow-card relative px-4 py-3 ${cls}`}>
+            {isText && (
+              <button
+                type="button"
+                className="action-btn absolute right-2 top-2 opacity-0 transition-opacity group-hover:opacity-100"
+                onClick={() => copyText(item.detail ?? "")}
+                title="复制本条结论"
+              >
+                <IconCopy className="h-3 w-3" />
+              </button>
+            )}
             {isText && (
               <div
                 className={
@@ -1100,6 +1110,9 @@ function ToolRow({
       return first ? clip(first) : "";
     }
   })();
+  const copyText = (text: string) => {
+    void navigator.clipboard?.writeText(text).catch(() => undefined);
+  };
   return (
     <details className="tool-row glow-card">
       <summary className="flex items-center gap-2 px-3.5 py-2">
@@ -1144,13 +1157,33 @@ function ToolRow({
       </summary>
       <div className="grid gap-3 border-t border-line px-3.5 py-2.5 md:grid-cols-2">
         <div>
-          <div className="kicker">入参</div>
+          <div className="flex items-center justify-between">
+            <div className="kicker">入参</div>
+            <button
+              type="button"
+              className="action-btn"
+              title="复制入参 JSON"
+              onClick={() => copyText(JSON.stringify(call?.args ?? null, null, 2))}
+            >
+              复制
+            </button>
+          </div>
           <pre className="mt-1 max-h-52 overflow-auto rounded bg-night-950 px-2.5 py-2 font-mono text-[11.5px] leading-5 text-mist-300">
             {JSON.stringify(call?.args ?? null, null, 2)}
           </pre>
         </div>
         <div>
-          <div className="kicker">返回</div>
+          <div className="flex items-center justify-between">
+            <div className="kicker">返回</div>
+            <button
+              type="button"
+              className="action-btn"
+              title="复制返回 JSON"
+              onClick={() => copyText(JSON.stringify(call?.result ?? null, null, 2))}
+            >
+              复制
+            </button>
+          </div>
           <pre className="mt-1 max-h-52 overflow-auto rounded bg-night-950 px-2.5 py-2 font-mono text-[11.5px] leading-5 text-mist-300">
             {call?.ok === null || call === undefined ? "—" : JSON.stringify(call.result, null, 2)}
           </pre>
