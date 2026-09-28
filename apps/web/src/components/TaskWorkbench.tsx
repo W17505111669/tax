@@ -793,7 +793,10 @@ function TimelineView({
               />
             )}
             {isText && item.streaming && (
-              <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-glow-400 align-middle" />
+              <>
+                <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-glow-400 align-middle" />
+                <span className="ml-2 font-mono text-[10.5px] text-mist-600">{(item.detail ?? "").length} 字</span>
+              </>
             )}
             {isText && item.id === lastTextId && !item.streaming && (
               <>

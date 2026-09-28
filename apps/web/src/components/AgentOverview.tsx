@@ -185,6 +185,28 @@ export function AgentOverview({ agents, activeAgentId, stats, breakdown, created
                 </div>
               ))}
             </div>
+            {stats.platform.perAgent.length > 0 && (
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {stats.platform.perAgent.map((pa) => {
+                  const rate = pa.tasks > 0 ? Math.round((pa.completed / pa.tasks) * 100) : 0;
+                  const info = agents.find((a) => a.id === pa.agentId);
+                  return (
+                    <div key={pa.agentId} className="glow-card flex items-center gap-3 px-3 py-2">
+                      <span className="min-w-0 truncate text-[12px] text-mist-300">{info?.shortName ?? pa.agentId}</span>
+                      <span className="bar-track flex-1">
+                        <span className="bar-fill block" style={{ width: `${rate}%` }} />
+                      </span>
+                      <span
+                        className={`shrink-0 font-mono text-[11px] ${rate >= 80 ? "text-jade-400" : "text-mist-500"}`}
+                        title={`已完成 ${pa.completed}/${pa.tasks}`}
+                      >
+                        {rate}%
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 

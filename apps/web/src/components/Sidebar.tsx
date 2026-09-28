@@ -266,6 +266,7 @@ export function Sidebar({
                 className="flex w-full items-center gap-1.5 px-2 py-1 text-[10.5px] font-medium uppercase tracking-[0.14em] text-mist-600 transition-colors hover:text-mist-300"
               >
                 <span className={`chev text-[9px] ${closed ? "" : "rotate-90"}`}>▶</span>
+                <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[g.id] ?? "bg-mist-600"}`} />
                 {g.label}
                 <span className="ml-auto font-mono text-[10px]">{list.length}</span>
               </button>
