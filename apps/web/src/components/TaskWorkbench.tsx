@@ -1063,6 +1063,15 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
   );
 }
 
+const KIND_LEGEND = [
+  { id: "run_started", label: "运行开始", color: "#38bdf8" },
+  { id: "tool_start", label: "工具调用", color: "#22d3ee" },
+  { id: "agent_text", label: "结论输出", color: "#34d399" },
+  { id: "agent_status", label: "状态", color: "#64798f" },
+  { id: "run_completed", label: "运行结束", color: "#a3e635" },
+  { id: "run_failed", label: "运行失败", color: "#fb7185" },
+];
+
 function TimelineView({
   instruction,
   items,
@@ -1082,6 +1091,11 @@ function TimelineView({
   autoFollow: boolean;
   onToggleAutoFollow: () => void;
 }) {
+  const kindCounts = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const it of items) m[it.kind] = (m[it.kind] ?? 0) + 1;
+    return m;
+  }, [items]);
   const counters = useRef<Record<string, number>>({});
   counters.current = {};
   const lastTextId = [...items].reverse().find((t) => t.kind === "agent_text" && t.detail)?.id;
@@ -1244,6 +1258,14 @@ function TimelineView({
           placeholder="过滤事件…"
           className="w-28 rounded-full border border-line bg-night-850 px-2.5 py-0.5 text-[11px] text-mist-100 outline-none placeholder:text-mist-600 focus:glow-ring"
         />
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-[10px] text-mist-600">
+        {KIND_LEGEND.filter((k) => (kindCounts[k.id] ?? 0) > 0).map((k) => (
+          <span key={k.id} className="inline-flex items-center gap-1">
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: k.color }} />
+            {k.label} {kindCounts[k.id]}
+          </span>
+        ))}
       </div>
       <div className="flex justify-end">
         <div className="user-bubble max-w-[78%] whitespace-pre-wrap px-4 py-2.5 text-[13px] leading-6">
