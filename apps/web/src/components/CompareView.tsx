@@ -14,6 +14,11 @@ function fmt(v: string | number | null): string {
   return String(v);
 }
 
+function csvEsc(v: string | number | null | undefined): string {
+  const s = v === null || v === undefined ? "" : String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
 /** 底稿比对视图：准确率 KPI + 差异高亮表，服务交付质检与答辩展示。 */
 interface Props {
   compares: CompareRecord[];
@@ -189,15 +194,11 @@ export function CompareView({ compares, onOpenTarget }: Props) {
 
   // 差异表导出 CSV（BOM + 引号转义，Excel 中文可直接打开）
   const exportCsv = (rec: CompareRecord) => {
-    const esc = (v: string | number | null | undefined) => {
-      const s = v === null || v === undefined ? "" : String(v);
-      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    };
     const lines = ["类型,位置,系统底稿(A),人工底稿(B)"];
     for (const s of rec.result.sheets) {
       for (const d of s.diffs) {
         const kind = d.kind === "mismatch" ? "差异" : d.kind === "only_a" ? "仅系统" : "仅人工";
-        lines.push([esc(kind), esc(d.address), esc(d.a), esc(d.b)].join(","));
+        lines.push([csvEsc(kind), csvEsc(d.address), csvEsc(d.a), csvEsc(d.b)].join(","));
       }
     }
     const blob = new Blob([`\uFEFF${lines.join("\n")}`], { type: "text/csv;charset=utf-8" });
@@ -205,6 +206,24 @@ export function CompareView({ compares, onOpenTarget }: Props) {
     const a = document.createElement("a");
     a.href = url;
     a.download = `底稿比对差异-${(rec.at ?? "").slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // 仅导出当前筛选（类型+地址）下的差异 CSV
+  const exportCsvFiltered = (rec: CompareRecord) => {
+    const lines = ["类型,位置,系统底稿(A),人工底稿(B)"];
+    for (const s of rec.result.sheets) {
+      for (const d of s.diffs.filter(matchFilter)) {
+        const kind = d.kind === "mismatch" ? "差异" : d.kind === "only_a" ? "仅系统" : "仅人工";
+        lines.push([csvEsc(kind), csvEsc(d.address), csvEsc(d.a), csvEsc(d.b)].join(","));
+      }
+    }
+    const blob = new Blob([`\uFEFF${lines.join("\n")}`], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `底稿比对差异-筛选-${(rec.at ?? "").slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -461,6 +480,14 @@ export function CompareView({ compares, onOpenTarget }: Props) {
                 >
                   <IconDownload className="mr-1 inline h-3 w-3" />
                   导出 CSV
+                </button>
+                <button
+                  type="button"
+                  onClick={() => exportCsvFiltered(rec)}
+                  className="rounded border border-line bg-night-800 px-2 py-0.5 text-[11px] text-mist-300 transition-colors hover:border-glow-500 hover:text-glow-300"
+                  title="仅导出当前筛选下的差异行"
+                >
+                  导出筛选 CSV
                 </button>
                 <button
                   type="button"

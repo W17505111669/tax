@@ -165,6 +165,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   const [pinned, setPinned] = useState<Set<string>>(new Set());
   const [armedKey, setArmedKey] = useState<string | null>(null);
   const [vsPresent, setVsPresent] = useState(() => new URLSearchParams(window.location.search).has("vs"));
+  const [vsError, setVsError] = useState<string | null>(null);
   const [splitView, setSplitView] = useState(false);
   const [secondIdx, setSecondIdx] = useState(0);
   const [syncScroll, setSyncScroll] = useState(false);
@@ -256,8 +257,9 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
     vsAppliedRef.current.add(activeKey);
     try {
       applyStateObj(JSON.parse(decodeURIComponent(atob(vs))) as ViewState);
+      setVsError(null);
     } catch {
-      /* 短码非法时忽略 */
+      setVsError("短码无效，已按默认视图打开");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeKey]);
@@ -370,6 +372,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
     setFindIdx(0);
     setRot(0);
     setFitWidth(true);
+    setVsError(null);
   }, [activeKey]);
 
   // Ctrl+Tab 切换标签（Shift 反向）
@@ -531,6 +534,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
             </button>
           </div>
           <div className="ml-auto flex items-center gap-1">
+            {vsError && <span className="text-[10px] text-rose-300">{vsError}</span>}
             {vsPresent && (
               <button
                 type="button"
