@@ -5,6 +5,7 @@
 import { amountKey, collectToolCents, extractAmounts, traceAmounts } from "../../web/src/amount-trace.ts";
 import { db } from "../src/db.ts";
 import { getTask, listTasks } from "../src/services/task-store.ts";
+import { listAmountChecks, setAmountCheck } from "../src/services/amount-checks.ts";
 
 const failures: string[] = [];
 let checks = 0;
@@ -99,6 +100,28 @@ console.log(
   ).toFixed(1)}%`,
 );
 if (worst.length > 0) console.log(`[verify] 含待确认金额的任务：${worst.join(" ")}`);
+
+// 5) 人工核对标记的读写：写入 → 修订备注（upsert）→ 撤销；用合成任务 id，结束即清理
+const TMP_TASK = "verify-amount-checks-tmp";
+try {
+  db.prepare(`DELETE FROM amount_checks WHERE task_id = ?`).run(TMP_TASK);
+  setAmountCheck(TMP_TASK, "8444444", true, "初版备注");
+  expect(
+    "写入后可读取",
+    listAmountChecks(TMP_TASK).map((c) => [c.key, c.note]),
+    [["8444444", "初版备注"]],
+  );
+  setAmountCheck(TMP_TASK, "8444444", true, "修订备注");
+  expect(
+    "同键重复写入更新备注且不产生重复行",
+    listAmountChecks(TMP_TASK).map((c) => [c.key, c.note]),
+    [["8444444", "修订备注"]],
+  );
+  setAmountCheck(TMP_TASK, "8444444", false, "");
+  expect("撤销后清空", listAmountChecks(TMP_TASK), []);
+} finally {
+  db.prepare(`DELETE FROM amount_checks WHERE task_id = ?`).run(TMP_TASK);
+}
 
 console.log(`[verify] 金额溯源检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {

@@ -105,8 +105,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   const [reviews, setReviews] = useState<ReviewRecord[]>([]);
   // 「转为待复核」后的本地乐观标记，服务端状态由 App 轮询同步
   const [reopened, setReopened] = useState(false);
-  // 已人工核对的金额（键 → 核对时间），点击正文标注即可标记或撤销
-  const [amountChecks, setAmountChecks] = useState<Record<string, string>>({});
+  // 已人工核对的金额（键 → 核对时间与备注），点击正文标注即可标记或撤销
+  const [amountChecks, setAmountChecks] = useState<Record<string, { at: string; note: string }>>({});
   const [pendingReviews, setPendingReviews] = useState(0);
   const [readerOpen, setReaderOpen] = useState(false);
   const [readerTabs, setReaderTabs] = useState<ReaderTarget[]>([]);
@@ -329,7 +329,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     void api
       .listAmountChecks(task.id)
       .then((list) => {
-        if (!cancelled) setAmountChecks(Object.fromEntries(list.map((c) => [c.key, c.createdAt])));
+        if (!cancelled)
+          setAmountChecks(Object.fromEntries(list.map((c) => [c.key, { at: c.createdAt, note: c.note }])));
       })
       .catch(() => undefined);
     return () => {
@@ -342,20 +343,35 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     const checked = !(key in amountChecks);
     setAmountChecks((prev) => {
       const next = { ...prev };
-      if (checked) next[key] = new Date().toISOString();
+      if (checked) next[key] = { at: new Date().toISOString(), note: prev[key]?.note ?? "" };
       else delete next[key];
       return next;
     });
     void api.toggleAmountCheck(task.id, key, checked).then(
-      (list) => setAmountChecks(Object.fromEntries(list.map((c) => [c.key, c.createdAt]))),
+      (list) =>
+        setAmountChecks(Object.fromEntries(list.map((c) => [c.key, { at: c.createdAt, note: c.note }]))),
       () =>
         setAmountChecks((prev) => {
           const next = { ...prev };
           if (checked) delete next[key];
-          else next[key] = "";
+          else next[key] = { at: "", note: "" };
           return next;
         }),
     );
+  };
+
+  /** 保存已核对金额的备注：保持已核对状态，只更新备注（后端 upsert） */
+  const saveAmountNote = (key: string, note: string) => {
+    setAmountChecks((prev) => ({
+      ...prev,
+      [key]: { at: prev[key]?.at ?? new Date().toISOString(), note },
+    }));
+    void api
+      .toggleAmountCheck(task.id, key, true, note)
+      .then((list) =>
+        setAmountChecks(Object.fromEntries(list.map((c) => [c.key, { at: c.createdAt, note: c.note }]))),
+      )
+      .catch(() => undefined);
   };
 
   const handleReopenReview = () => {
@@ -703,13 +719,15 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     () =>
       amountTrace.untraced.slice(0, 60).map((u) => {
         const key = amountKey(u);
-        const ackedAt = amountChecks[key];
-        return ackedAt
+        const ack = amountChecks[key];
+        return ack
           ? {
               text: u.match,
               key,
               className: "md-annot-ok",
-              label: `已人工核对（${new Date(ackedAt).toLocaleString("zh-CN", { hour12: false })}）· 点击撤销标记`,
+              label: `已人工核对（${new Date(ack.at).toLocaleString("zh-CN", { hour12: false })}）${
+                ack.note ? ` · 备注：${ack.note}` : ""
+              } · 点击撤销标记`,
             }
           : {
               text: u.match,
@@ -725,17 +743,17 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   const amountReviewItems = useMemo(() => {
     // 同一金额的多种写法合并成一条（键只由值决定），并统计出现处数
     const pend = new Map<string, { key: string; raw: string; context: string; occurrences: number }>();
-    const acked = new Map<string, { key: string; raw: string; at: string; occurrences: number }>();
+    const acked = new Map<string, { key: string; raw: string; at: string; note: string; occurrences: number }>();
     for (const u of amountTrace.untraced) {
       const key = amountKey(u);
-      const at = amountChecks[key];
-      const bucket = at ? acked : pend;
+      const ack = amountChecks[key];
+      const bucket = ack ? acked : pend;
       const cur = bucket.get(key);
       if (cur) {
         cur.occurrences += 1;
         continue;
       }
-      if (at) acked.set(key, { key, raw: u.raw, at, occurrences: 1 });
+      if (ack) acked.set(key, { key, raw: u.raw, at: ack.at, note: ack.note, occurrences: 1 });
       else pend.set(key, { key, raw: u.raw, context: u.context, occurrences: 1 });
     }
     return { pend: [...pend.values()], acked: [...acked.values()] };
@@ -861,6 +879,22 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
           "",
           "（没有待人工确认的金额：结论中的金额都能在工具调用结果或客户指令中找到出处，或已完成人工核对）",
         ]),
+    "",
+    ...(amountReviewItems.acked.length > 0
+      ? [
+          "### 已人工核对",
+          "",
+          "| # | 金额 | 出现处数 | 核对时间 | 备注 |",
+          "| --- | --- | --- | --- | --- |",
+          ...amountReviewItems.acked.map(
+            (a, i) =>
+              `| ${i + 1} | ${a.raw} | ${a.occurrences} | ${new Date(a.at).toLocaleString("zh-CN", {
+                hour12: false,
+              })} | ${mdCell(a.note || "（无）")} |`,
+          ),
+          "",
+        ]
+      : []),
     "",
   ];
 
@@ -1584,6 +1618,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                   ackedOccurrences: amountReviewItems.acked.reduce((s, a) => s + a.occurrences, 0),
                 }}
                 onToggleAmount={toggleAmountCheck}
+                onAmountNote={saveAmountNote}
               />
             )}
             </div>

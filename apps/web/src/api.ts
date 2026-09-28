@@ -105,13 +105,13 @@ export const api = {
       `/api/tasks/${taskId}/amount-checks`,
     ).then((r) => r.checks),
 
-  toggleAmountCheck: (taskId: string, key: string, checked: boolean) =>
+  toggleAmountCheck: (taskId: string, key: string, checked: boolean, note?: string) =>
     request<{ checks: Array<{ key: string; note: string; createdAt: string }> }>(
       `/api/tasks/${taskId}/amount-checks`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key, checked }),
+        body: JSON.stringify({ key, checked, note }),
       },
     ).then((r) => r.checks),
 

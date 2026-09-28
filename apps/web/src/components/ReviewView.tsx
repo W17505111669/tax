@@ -16,12 +16,14 @@ interface Props {
     traced: number;
     fromInput: number;
     pending: Array<{ key: string; raw: string; context: string; occurrences: number }>;
-    acked: Array<{ key: string; raw: string; at: string; occurrences: number }>;
+    acked: Array<{ key: string; raw: string; at: string; note: string; occurrences: number }>;
     /** 待确认 / 已核对金额在结论中出现的总处数（同一金额多种写法合并前） */
     pendingOccurrences: number;
     ackedOccurrences: number;
   };
   onToggleAmount?: (key: string) => void;
+  /** 保存已核对金额的备注（写入交付包） */
+  onAmountNote?: (key: string, note: string) => void;
 }
 
 function typeTone(type: string): string {
@@ -42,8 +44,19 @@ const COMMENT_TEMPLATES = [
 ];
 
 /** 人工复核页签：税务师对工具核查与底稿比对发现的问题逐项确认或驳回。 */
-export function ReviewView({ issues, reviews, pending, status, onReview, onReopen, amounts, onToggleAmount }: Props) {
+export function ReviewView({
+  issues,
+  reviews,
+  pending,
+  status,
+  onReview,
+  onReopen,
+  amounts,
+  onToggleAmount,
+  onAmountNote,
+}: Props) {
   const [comments, setComments] = useState<Record<string, string>>({});
+  const [amountNotes, setAmountNotes] = useState<Record<string, string>>({});
   const [onlyPending, setOnlyPending] = useState(true);
   const reviewMap = new Map(reviews.map((r) => [r.issueId, r]));
 
@@ -95,26 +108,41 @@ export function ReviewView({ issues, reviews, pending, status, onReview, onReope
         {amounts.acked.length > 0 && (
           <ul className="mt-2 space-y-1">
             {amounts.acked.map((a) => (
-              <li
-                key={a.key}
-                className="flex items-center gap-2 rounded border border-jade-400/25 bg-jade-400/5 px-2 py-1"
-              >
-                <IconCheck className="h-3 w-3 shrink-0 text-jade-400" />
-                <span className="shrink-0 font-mono text-[11.5px] text-jade-300">{a.raw}</span>
-                {a.occurrences > 1 && (
-                  <span className="shrink-0 text-[10.5px] text-mist-600">出现 {a.occurrences} 处</span>
-                )}
-                <span className="font-mono text-[10.5px] text-mist-600">
-                  {new Date(a.at).toLocaleString("zh-CN", { hour12: false })}
-                </span>
-                <button
-                  type="button"
-                  className="action-btn ml-auto shrink-0"
-                  title="撤销核对标记，重新计入待确认"
-                  onClick={() => onToggleAmount?.(a.key)}
-                >
-                  撤销
-                </button>
+              <li key={a.key} className="rounded border border-jade-400/25 bg-jade-400/5 px-2 py-1">
+                <div className="flex items-center gap-2">
+                  <IconCheck className="h-3 w-3 shrink-0 text-jade-400" />
+                  <span className="shrink-0 font-mono text-[11.5px] text-jade-300">{a.raw}</span>
+                  {a.occurrences > 1 && (
+                    <span className="shrink-0 text-[10.5px] text-mist-600">出现 {a.occurrences} 处</span>
+                  )}
+                  <span className="font-mono text-[10.5px] text-mist-600">
+                    {new Date(a.at).toLocaleString("zh-CN", { hour12: false })}
+                  </span>
+                  <button
+                    type="button"
+                    className="action-btn ml-auto shrink-0"
+                    title="撤销核对标记，重新计入待确认"
+                    onClick={() => onToggleAmount?.(a.key)}
+                  >
+                    撤销
+                  </button>
+                </div>
+                <div className="mt-1 flex items-center gap-1.5">
+                  <input
+                    value={amountNotes[a.key] ?? a.note}
+                    onChange={(e) => setAmountNotes((prev) => ({ ...prev, [a.key]: e.target.value }))}
+                    placeholder="核对依据备注（写入交付包），例如：与辅助账第 3 行核对一致"
+                    className="min-w-0 flex-1 rounded border border-line bg-night-850 px-2 py-0.5 text-[11px] text-mist-100 outline-none focus:glow-ring"
+                  />
+                  <button
+                    type="button"
+                    className="action-btn shrink-0"
+                    title="保存备注并保持已核对状态"
+                    onClick={() => onAmountNote?.(a.key, (amountNotes[a.key] ?? a.note).trim())}
+                  >
+                    保存备注
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
