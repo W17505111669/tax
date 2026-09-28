@@ -27,6 +27,11 @@ export function CompareView({ compares, onOpenTarget }: Props) {
     return v === "mismatch" || v === "only_a" || v === "only_b" ? v : "all";
   });
   const [trendHover, setTrendHover] = useState<number | null>(null);
+  const [addrQuery, setAddrQuery] = useState("");
+
+  const matchFilter = (d: { kind: string; address: string }) =>
+    (kindFilter === "all" || d.kind === kindFilter) &&
+    (addrQuery.trim() === "" || d.address.toLowerCase().includes(addrQuery.trim().toLowerCase()));
 
   useEffect(() => {
     localStorage.setItem("taxai-compare-kind", kindFilter);
@@ -36,14 +41,11 @@ export function CompareView({ compares, onOpenTarget }: Props) {
       compares.flatMap((rec) =>
         rec.result?.totals
           ? rec.result.sheets.flatMap((s) =>
-              (kindFilter === "all" ? s.diffs : s.diffs.filter((d) => d.kind === kindFilter)).map((d) => ({
-                rec,
-                addr: d.address,
-              })),
+              s.diffs.filter(matchFilter).map((d) => ({ rec, addr: d.address })),
             )
           : [],
       ),
-    [compares, kindFilter],
+    [compares, kindFilter, addrQuery],
   );
 
   // ↑/↓ 选择差异行，Enter 在阅读器中打开双底稿定位
@@ -193,6 +195,15 @@ export function CompareView({ compares, onOpenTarget }: Props) {
             {label}
           </button>
         ))}
+        <input
+          value={addrQuery}
+          onChange={(e) => {
+            setAddrQuery(e.target.value);
+            setSel(null);
+          }}
+          placeholder="地址过滤…"
+          className="ml-auto w-32 rounded-full border border-line bg-night-850 px-2.5 py-0.5 text-[11px] text-mist-100 outline-none placeholder:text-mist-600 focus:glow-ring"
+        />
       </div>
       {compares.length > 1 &&
         (() => {
@@ -346,7 +357,7 @@ export function CompareView({ compares, onOpenTarget }: Props) {
                     <IconCheck className="h-3.5 w-3.5" />
                     该工作表全部比对项一致
                   </div>
-                ) : (kindFilter === "all" ? s.diffs : s.diffs.filter((d) => d.kind === kindFilter)).length === 0 ? (
+                ) : s.diffs.filter(matchFilter).length === 0 ? (
                   <div className="mt-2 text-[12px] text-mist-600">当前筛选类型下无差异行</div>
                 ) : (
                   <div className="mt-2 overflow-x-auto">
@@ -364,7 +375,7 @@ export function CompareView({ compares, onOpenTarget }: Props) {
                         </tr>
                       </thead>
                       <tbody>
-                      {(kindFilter === "all" ? s.diffs : s.diffs.filter((d) => d.kind === kindFilter)).map((d, i) => {
+                      {s.diffs.filter(matchFilter).map((d, i) => {
                         const meta = KIND_META[d.kind];
                         const idx = (cursor += 1);
                         return (
