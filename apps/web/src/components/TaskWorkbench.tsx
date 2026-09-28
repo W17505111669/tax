@@ -1113,6 +1113,23 @@ function TimelineView({
         </button>
         <button
           type="button"
+          className="action-btn"
+          title="复制事件流 JSON（seq/kind/at/detail 截断 120 字，调试用）"
+          onClick={() =>
+            copyText(
+              JSON.stringify(
+                items.map((t) => ({ seq: t.seq, kind: t.kind, at: t.at, detail: (t.detail ?? "").slice(0, 120) })),
+                null,
+                2,
+              ),
+            )
+          }
+        >
+          <IconCopy className="h-3 w-3" />
+          事件 JSON
+        </button>
+        <button
+          type="button"
           className="action-btn ml-auto"
           title="复制全部工具调用摘要（名称/状态/耗时/关键入参）"
           onClick={() => {

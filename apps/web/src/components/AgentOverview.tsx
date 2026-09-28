@@ -379,7 +379,14 @@ export function AgentOverview({
                     style={{ width: `${(weekNow / Math.max(1, weekNow, weekPrev)) * 100}%` }}
                   />
                 </span>
-                <span className="text-right font-mono text-[11px] text-mist-300">{weekNow}</span>
+                <span className="text-right font-mono text-[11px] text-mist-300">
+                  {weekNow}
+                  {weekDelta !== 0 && (
+                    <span className={`ml-1 ${weekDelta > 0 ? "text-jade-400" : "text-rose-300"}`} title="本周较上周增量">
+                      {weekDelta > 0 ? `+${weekDelta}` : weekDelta}
+                    </span>
+                  )}
+                </span>
                 <span className="text-[11px] text-mist-500">上周</span>
                 <span className="bar-track">
                   <span
