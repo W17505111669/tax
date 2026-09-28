@@ -65,11 +65,12 @@ interface Props {
   onSelect: (index: number) => void;
   onCloseTab: (index: number) => void;
   onReorder: (from: number, to: number) => void;
+  onCloseAll: () => void;
   onClose: () => void;
 }
 
 /** 侧边可折叠阅读器：支持多文档标签页，网页阅读模式、任务资料与生成产物统一预览。 */
-export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder, onClose }: Props) {
+export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder, onCloseAll, onClose }: Props) {
   const [states, setStates] = useState<Record<string, ReaderState>>({});
   const { theme } = usePaperTheme();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -231,14 +232,21 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
               文件生成{gens.length > 0 ? ` ${gens.length}` : ""}
             </button>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            title="收起阅读器"
-            className="ml-auto rounded p-1 text-mist-600 hover:bg-night-900 hover:text-mist-100"
-          >
-            <IconX className="h-3.5 w-3.5" />
-          </button>
+          <div className="ml-auto flex items-center gap-1">
+            {tabs.length > 1 && (
+              <button type="button" className="action-btn" onClick={onCloseAll} title="关闭全部标签">
+                关闭全部
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              title="收起阅读器"
+              className="rounded p-1 text-mist-600 hover:bg-night-900 hover:text-mist-100"
+            >
+              <IconX className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
         <div className="mt-1.5 flex min-w-0 items-stretch overflow-x-auto">
           {visible.map(({ t: tab, i }) => {

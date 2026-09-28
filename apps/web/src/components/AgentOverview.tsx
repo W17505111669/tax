@@ -77,6 +77,7 @@ export function AgentOverview({ agents, activeAgentId, stats, breakdown, created
   const weekPrev = days.slice(0, 7).reduce((a, b) => a + b, 0);
   const weekDelta = weekNow - weekPrev;
   const [sparkHover, setSparkHover] = useState<number | null>(null);
+  const [toolSort, setToolSort] = useState(false);
   const sparkDate = (idx: number) => {
     const d = new Date();
     d.setDate(d.getDate() - (13 - idx));
@@ -289,9 +290,21 @@ export function AgentOverview({ agents, activeAgentId, stats, breakdown, created
             <div className="flex items-center gap-1.5 kicker">
               <IconTool className="h-3.5 w-3.5" />
               已注册工具
+              <button
+                type="button"
+                className="action-btn ml-auto"
+                data-on={toolSort}
+                onClick={() => setToolSort((v) => !v)}
+                title="按历史调用数排序"
+              >
+                按调用排序
+              </button>
             </div>
             <ul className="mt-2.5 space-y-2">
-              {agent.tools.map((tool) => (
+              {(toolSort
+                ? [...agent.tools].sort((a, b) => toolCount(b.name) - toolCount(a.name))
+                : agent.tools
+              ).map((tool) => (
                 <li key={tool.name} className="glow-card px-3 py-2">
                   <div className="flex items-center gap-2">
                     <span className="min-w-0 truncate font-mono text-[11.5px] text-glow-300">{tool.name}</span>

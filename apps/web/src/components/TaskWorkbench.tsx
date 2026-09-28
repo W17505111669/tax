@@ -761,6 +761,11 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
             onSelect={setReaderActive}
             onCloseTab={closeTab}
             onReorder={reorderTabs}
+            onCloseAll={() => {
+              setReaderTabs([]);
+              setReaderActive(0);
+              setReaderOpen(false);
+            }}
             onClose={closeReader}
           />
         )}
