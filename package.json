@@ -13,6 +13,7 @@
     "verify:template": "pnpm --filter @tax/document-tools verify:template",
     "verify:policy": "pnpm --filter @tax/agent-rd-audit verify:policy",
     "verify:compare": "pnpm --filter @tax/document-tools verify:compare",
+    "report:test": "pnpm --filter @tax/api exec tsx scripts/gen-test-report.ts",
     "verify:agents": "pnpm --filter @tax/api verify:agents",
     "typecheck": "pnpm -r typecheck"
   },

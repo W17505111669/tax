@@ -25,6 +25,7 @@ pnpm verify:docs     # Phase 2：Excel/CSV 解析与 Excel 底稿生成确定性
 pnpm verify:template # Phase 3：模板检查与保留式填列确定性验证
 pnpm verify:policy   # Phase 4：政策快照与加计比例规则确定性验证
 pnpm verify:compare  # 底稿比对：记录级/地址级逐格差异与准确率
+pnpm report:test     # 生成测试报告（实时跑验证矩阵 + 汇总真实任务台账与准确率）
 pnpm verify:agents   # Phase 1：两个 Agent 的系统提示词与工具集相互独立
 pnpm -r typecheck    # 全仓类型检查
 ```
