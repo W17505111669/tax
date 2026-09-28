@@ -151,6 +151,8 @@ export interface PlatformStats {
   artifacts: number;
   compareAccuracy: number | null;
   compareRuns: number;
+  ocrRuns: number;
+  ocrAvgConfidence: number | null;
   perAgent: Array<{
     agentId: string;
     tasks: number;

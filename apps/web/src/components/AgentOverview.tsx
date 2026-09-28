@@ -52,7 +52,7 @@ export function AgentOverview({ agents, activeAgentId, stats, onSelect }: Props)
         {stats.platform && (
           <div className="mt-5">
             <div className="kicker">平台应用效果 · 实时运行数据</div>
-            <div className="mt-2 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="mt-2 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
               {[
                 { label: "累计任务", value: String(stats.platform.tasks), unit: "个" },
                 { label: "已完成", value: String(stats.platform.completed), unit: "个" },
@@ -69,6 +69,12 @@ export function AgentOverview({ agents, activeAgentId, stats, onSelect }: Props)
                   label: "记录级比对准确率",
                   value: stats.platform.compareAccuracy !== null ? String(stats.platform.compareAccuracy) : "—",
                   unit: "%",
+                },
+                {
+                  label: "OCR 平均置信度",
+                  value:
+                    stats.platform.ocrAvgConfidence !== null ? String(stats.platform.ocrAvgConfidence) : "—",
+                  unit: stats.platform.ocrRuns > 0 ? `%·${stats.platform.ocrRuns}次` : "%",
                 },
               ].map((kpi) => (
                 <div key={kpi.label} className="glow-card px-4 py-3">

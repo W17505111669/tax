@@ -20,6 +20,8 @@ export interface PlatformStats {
   artifacts: number;
   compareAccuracy: number | null;
   compareRuns: number;
+  ocrRuns: number;
+  ocrAvgConfidence: number | null;
   perAgent: AgentStats[];
 }
 
@@ -37,6 +39,8 @@ export function computePlatformStats(): PlatformStats {
   let artifacts = 0;
   let compareAccuracy: number | null = null;
   let compareRuns = 0;
+  let ocrConfSum = 0;
+  let ocrRuns = 0;
 
   for (const task of tasks) {
     let agent = perAgentMap.get(task.agent_id);
@@ -64,6 +68,19 @@ export function computePlatformStats(): PlatformStats {
     }
 
     for (const call of calls) {
+      if (call.tool_name === "parse_uploaded_files" && call.ok === 1 && call.result) {
+        try {
+          const parsed = JSON.parse(call.result) as { parsed?: Array<{ ocrConfidence?: number }> };
+          for (const doc of parsed.parsed ?? []) {
+            if (typeof doc.ocrConfidence === "number") {
+              ocrRuns += 1;
+              ocrConfSum += doc.ocrConfidence;
+            }
+          }
+        } catch {
+          // 忽略坏记录
+        }
+      }
       if (call.tool_name !== "compare_workpapers" || call.ok !== 1 || !call.result) continue;
       try {
         const parsed = JSON.parse(call.result) as {
@@ -88,6 +105,8 @@ export function computePlatformStats(): PlatformStats {
     artifacts,
     compareAccuracy,
     compareRuns,
+    ocrRuns,
+    ocrAvgConfidence: ocrRuns > 0 ? Math.round((ocrConfSum / ocrRuns) * 100) / 100 : null,
     perAgent: [...perAgentMap.values()],
   };
 }

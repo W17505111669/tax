@@ -133,3 +133,33 @@ export function recentTaskLinks(agentId: string, limit = 3): Array<{ title: stri
     link: `#/agent/${agentId}/task/${r.id}/tab/result`,
   }));
 }
+
+export interface CompareLike {
+  totals: {
+    compared: number;
+    matched: number;
+    mismatched: number;
+    onlyA: number;
+    onlyB: number;
+    accuracyPercent: number;
+  };
+  sheets: Array<{ diffs: Array<{ kind: string; address: string; a: unknown; b: unknown }> }>;
+}
+
+/** 取该智能体最近一次记录级比对结果，供作品说明附录展示差异明细。 */
+export function latestCompareFor(agentId: string): CompareLike | null {
+  const row = db
+    .prepare(
+      `SELECT tc.result FROM tool_calls tc JOIN tasks t ON t.id = tc.task_id
+       WHERE t.agent_id = ? AND tc.tool_name = 'compare_workpapers' AND tc.ok = 1 AND tc.result IS NOT NULL
+       ORDER BY tc.started_at DESC LIMIT 1`,
+    )
+    .get(agentId) as { result: string } | undefined;
+  if (!row) return null;
+  try {
+    const parsed = JSON.parse(row.result) as CompareLike & { sheets?: Array<{ mode?: string }> };
+    return parsed.sheets?.[0]?.mode === "record" ? (parsed as CompareLike) : null;
+  } catch {
+    return null;
+  }
+}

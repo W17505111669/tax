@@ -10,7 +10,7 @@ import { createTaskDocumentTools, createTemplateTools } from "@tax/document-tool
 import rdAuditAgent from "@tax/agent-rd-audit";
 import landVatAgent from "@tax/agent-land-vat";
 import type { TaxAgentConfig } from "@tax/agent-core";
-import { BACKGROUND, FLOWS, GOALS, INNOVATIONS, statsFor } from "./materials-lib.ts";
+import { BACKGROUND, FLOWS, GOALS, INNOVATIONS, latestCompareFor, statsFor } from "./materials-lib.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..", "..", "..");
@@ -84,6 +84,24 @@ function build(agent: TaxAgentConfig, extra: Array<{ name: string; label: string
   );
   lines.push(`- 自动化验证：verify:pi / verify:docs / verify:template / verify:policy / verify:compare / verify:ocr / verify:agents 全部 PASS（见 docs/testing/test-report-*.md）`);
   lines.push("");
+  const cmp = latestCompareFor(agent.id);
+  if (cmp) {
+    lines.push(`### 附录：与人工底稿差异明细（最近一次记录级比对）`);
+    lines.push("");
+    lines.push(
+      `- 总准确率 ${cmp.totals.accuracyPercent}%（比对 ${cmp.totals.compared}：一致 ${cmp.totals.matched}、差异 ${cmp.totals.mismatched}、仅系统 ${cmp.totals.onlyA}、仅人工 ${cmp.totals.onlyB}）`,
+    );
+    lines.push(`- 差异项一律列为待核查事项，系统不按人工底稿自动"改正"。`);
+    lines.push("");
+    lines.push(`| 类型 | 位置 | 系统底稿 | 人工底稿 |`);
+    lines.push(`| --- | --- | --- | --- |`);
+    for (const s of cmp.sheets) {
+      for (const d of s.diffs.slice(0, 10)) {
+        lines.push(`| ${d.kind === "mismatch" ? "差异" : d.kind === "only_a" ? "仅系统" : "仅人工"} | ${d.address} | ${d.a ?? "∅"} | ${d.b ?? "∅"} |`);
+      }
+    }
+    lines.push("");
+  }
   lines.push(`## 八、演示与录屏清单`);
   lines.push("");
   lines.push(`- [ ] 启动平台并选择本智能体（首页 KPI 与工具清单）`);
