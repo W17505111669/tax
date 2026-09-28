@@ -1068,6 +1068,13 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                             {s.headers.map((h, hi) => (
                               <td
                                 key={h}
+                                onDoubleClick={() => {
+                                  const v = row[h];
+                                  if (v !== null && v !== undefined) {
+                                    void navigator.clipboard?.writeText(String(v)).catch(() => undefined);
+                                  }
+                                }}
+                                title="双击复制单元格"
                                 className={`border border-gray-200 px-2 py-1 align-top text-gray-700 ${
                                   freezeFirst && hi === 0 && !showRowNum ? "sticky left-0 z-20 bg-inherit" : ""
                                 }`}

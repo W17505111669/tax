@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentInfo, TaskInfo } from "../types.ts";
 import { IconBuilding, IconCopy, IconFlask, IconInfo, IconPanel, IconPlus, IconRefresh, IconX } from "./Icons.tsx";
-import { loadTags } from "../tags.ts";
+import { loadTags, saveTags } from "../tags.ts";
 
 interface Props {
   agents: AgentInfo[];
@@ -167,8 +167,27 @@ export function Sidebar({
   const [starOnly, setStarOnly] = useState(false);
   const [weekOnly, setWeekOnly] = useState(false);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
-  const tagsMap = loadTags();
+  const [managing, setManaging] = useState(false);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameVal, setRenameVal] = useState("");
+  const [tagNonce, setTagNonce] = useState(0);
+  const tagsMap = useMemo(() => loadTags(), [tagNonce, tasks]);
   const allTags = [...new Set(Object.values(tagsMap).flat())];
+
+  const mutateAllTags = (fn: (map: Record<string, string[]>) => Record<string, string[]>) => {
+    saveTags(fn(loadTags()));
+    setTagNonce((n) => n + 1);
+  };
+
+  const commitRename = (old: string) => {
+    const nv = renameVal.trim();
+    setRenaming(null);
+    if (!nv || nv === old) return;
+    mutateAllTags((map) => {
+      for (const k of Object.keys(map)) map[k] = (map[k] ?? []).map((x) => (x === old ? nv : x));
+      return map;
+    });
+  };
   const [sortTools, setSortTools] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
     try {
@@ -567,6 +586,14 @@ export function Sidebar({
             >
               本周
             </button>
+            <button
+              type="button"
+              className="action-btn !px-1.5 !py-0.5 !text-[10px]"
+              onClick={() => setManaging((v) => !v)}
+              title="标签管理（重命名/删除）"
+            >
+              管理
+            </button>
           </div>
           {allTags.length > 0 && (
             <div className="mt-1.5 flex flex-wrap gap-1">
@@ -583,6 +610,61 @@ export function Sidebar({
                 >
                   #{t}
                 </button>
+              ))}
+            </div>
+          )}
+          {managing && allTags.length > 0 && (
+            <div className="mt-1.5 space-y-1 rounded-md border border-line bg-night-850 p-2">
+              {allTags.map((t) => (
+                <div key={t} className="flex items-center gap-1.5">
+                  {renaming === t ? (
+                    <>
+                      <input
+                        autoFocus
+                        value={renameVal}
+                        onChange={(e) => setRenameVal(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") commitRename(t);
+                          if (e.key === "Escape") setRenaming(null);
+                        }}
+                        className="min-w-0 flex-1 rounded border border-line bg-night-800 px-1.5 py-0.5 text-[10.5px] text-mist-100 outline-none focus:glow-ring"
+                      />
+                      <button
+                        type="button"
+                        className="action-btn !px-1.5 !py-0.5 !text-[10px]"
+                        onClick={() => commitRename(t)}
+                      >
+                        确定
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="min-w-0 flex-1 truncate text-[10.5px] text-mist-300">#{t}</span>
+                      <button
+                        type="button"
+                        className="action-btn !px-1.5 !py-0.5 !text-[10px]"
+                        onClick={() => {
+                          setRenaming(t);
+                          setRenameVal(t);
+                        }}
+                      >
+                        重命名
+                      </button>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    className="action-btn !px-1.5 !py-0.5 !text-[10px] hover:!text-rose-300"
+                    onClick={() =>
+                      mutateAllTags((map) => {
+                        for (const k of Object.keys(map)) map[k] = (map[k] ?? []).filter((x) => x !== t);
+                        return map;
+                      })
+                    }
+                  >
+                    删除
+                  </button>
+                </div>
               ))}
             </div>
           )}
