@@ -20,7 +20,9 @@ const QUICK_COMMENTS = ["确认列入底稿", "无需处理", "需重新测算",
 /** 人工复核页签：税务师对工具核查与底稿比对发现的问题逐项确认或驳回。 */
 export function ReviewView({ issues, reviews, pending, onReview }: Props) {
   const [comments, setComments] = useState<Record<string, string>>({});
+  const [onlyPending, setOnlyPending] = useState(true);
   const reviewMap = new Map(reviews.map((r) => [r.issueId, r]));
+  const shown = onlyPending ? issues.filter((i) => !reviewMap.has(i.id)) : issues;
 
   if (issues.length === 0) {
     return (
@@ -93,7 +95,38 @@ export function ReviewView({ issues, reviews, pending, onReview }: Props) {
         </div>
       )}
 
-      {issues.map((issue) => {
+      <div className="flex gap-1.5">
+        <button
+          type="button"
+          onClick={() => setOnlyPending(true)}
+          className={`rounded-full border px-2.5 py-0.5 text-[11px] transition-colors ${
+            onlyPending
+              ? "border-glow-500 bg-glow-500/15 text-glow-300"
+              : "border-line bg-night-850 text-mist-500 hover:text-mist-100"
+          }`}
+        >
+          仅看待复核（{pending}）
+        </button>
+        <button
+          type="button"
+          onClick={() => setOnlyPending(false)}
+          className={`rounded-full border px-2.5 py-0.5 text-[11px] transition-colors ${
+            !onlyPending
+              ? "border-glow-500 bg-glow-500/15 text-glow-300"
+              : "border-line bg-night-850 text-mist-500 hover:text-mist-100"
+          }`}
+        >
+          全部（{issues.length}）
+        </button>
+      </div>
+
+      {shown.length === 0 && issues.length > 0 && (
+        <div className="rounded-md border border-jade-400/30 bg-jade-400/10 px-3 py-2 text-[12.5px] text-jade-400">
+          当前过滤下无事项；切换到「全部」可查看历史复核记录。
+        </div>
+      )}
+
+      {shown.map((issue) => {
         const rev = reviewMap.get(issue.id);
         const commentValue = comments[issue.id] ?? rev?.comment ?? "";
         return (

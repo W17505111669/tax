@@ -80,6 +80,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   const [reload, setReload] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [rot, setRot] = useState(0);
+  const [showRowNum, setShowRowNum] = useState(false);
   const [showLines, setShowLines] = useState(false);
   const [aliases, setAliases] = useState<Record<string, string>>(() => {
     try {
@@ -709,6 +710,15 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                 <div className="mb-1.5 flex items-baseline gap-2">
                   <span className="text-[13px] font-semibold text-gray-900">{s.name}</span>
                   <span className="text-[11px] text-gray-500">{s.rowCount} 行</span>
+                  <button
+                    type="button"
+                    className="action-btn ml-auto !text-gray-600 hover:!text-gray-900"
+                    data-on={showRowNum}
+                    onClick={() => setShowRowNum((v) => !v)}
+                    title="切换行号列"
+                  >
+                    行号
+                  </button>
                   {active && "highlight" in active && active.highlight && (
                     <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10.5px] text-amber-700">
                       定位：{active.highlight}
@@ -719,6 +729,11 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                   <table className="w-full border-collapse text-[11.5px]">
                     <thead>
                       <tr>
+                        {showRowNum && (
+                          <th className="sticky top-0 z-10 border border-gray-300 bg-gray-100 px-2 py-1 text-left font-semibold text-gray-800">
+                            #
+                          </th>
+                        )}
                         {s.headers.map((h) => (
                           <th
                             key={h}
@@ -750,8 +765,13 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                               ? "row-hl"
                               : undefined
                           }
-                        >
-                          {s.headers.map((h) => (
+                          >
+                            {showRowNum && (
+                              <td className="border border-gray-200 px-2 py-1 text-right font-mono text-[10.5px] text-gray-400">
+                                {i + 1}
+                              </td>
+                            )}
+                            {s.headers.map((h) => (
                             <td key={h} className="border border-gray-200 px-2 py-1 align-top text-gray-700">
                               {row[h] === null || row[h] === undefined ? "" : String(row[h])}
                             </td>
