@@ -87,6 +87,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   });
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+  const [sort, setSort] = useState<Record<string, { col: string; dir: 1 | -1 }>>({});
 
   const commitAlias = (key: string) => {
     const v = editValue.trim();
@@ -493,6 +494,23 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
           <div className="paper-sheet px-5 py-4">
             {(state.sheets ?? []).map((s) => (
               <section key={s.name} className="mb-5 last:mb-0">
+                {(() => {
+                  const sortKey = `${activeKey}:${s.name}`;
+                  const st = sort[sortKey];
+                  const rows = (() => {
+                    const base = s.rows.slice(0, 100);
+                    if (!st) return base;
+                    return [...base].sort((a, b) => {
+                      const av = a[st.col];
+                      const bv = b[st.col];
+                      const an = typeof av === "number" ? av : parseFloat(String(av ?? ""));
+                      const bn = typeof bv === "number" ? bv : parseFloat(String(bv ?? ""));
+                      if (!Number.isNaN(an) && !Number.isNaN(bn)) return (an - bn) * st.dir;
+                      return String(av ?? "").localeCompare(String(bv ?? ""), "zh-CN") * st.dir;
+                    });
+                  })();
+                  return (
+                    <>
                 <div className="mb-1.5 flex items-baseline gap-2">
                   <span className="text-[13px] font-semibold text-gray-900">{s.name}</span>
                   <span className="text-[11px] text-gray-500">{s.rowCount} 行</span>
@@ -509,15 +527,24 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                         {s.headers.map((h) => (
                           <th
                             key={h}
-                            className="sticky top-0 z-10 border border-gray-300 bg-gray-100 px-2 py-1 text-left font-semibold text-gray-800"
+                            onClick={() =>
+                              setSort((prev) => {
+                                const cur = prev[sortKey];
+                                const dir = cur?.col === h ? ((cur.dir === 1 ? -1 : 1) as 1 | -1) : 1;
+                                return { ...prev, [sortKey]: { col: h, dir } };
+                              })
+                            }
+                            title="点击排序（再点反向）"
+                            className="sticky top-0 z-10 cursor-pointer select-none border border-gray-300 bg-gray-100 px-2 py-1 text-left font-semibold text-gray-800 hover:bg-gray-200"
                           >
                             {h}
+                            {st?.col === h && <span className="ml-0.5 text-gray-500">{st.dir === 1 ? "↑" : "↓"}</span>}
                           </th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {s.rows.slice(0, 100).map((row, i) => (
+                      {rows.map((row, i) => (
                         <tr
                           key={i}
                           className={
@@ -539,6 +566,9 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                     </tbody>
                   </table>
                 </div>
+                    </>
+                  );
+                })()}
               </section>
             ))}
           </div>
