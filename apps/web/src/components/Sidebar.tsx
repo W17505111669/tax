@@ -311,7 +311,10 @@ export function Sidebar({
                 active ? "bg-night-700 text-mist-100 glow-ring" : "text-mist-500 hover:bg-night-800 hover:text-mist-100"
               }`}
             >
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-night-700 text-glow-300">
+              <span
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md"
+                style={{ background: `${agent.accent}2e`, color: agent.accent }}
+              >
                 <Icon className="h-4 w-4" />
               </span>
               <span className="min-w-0">

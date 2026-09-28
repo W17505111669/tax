@@ -253,9 +253,15 @@ export function AgentOverview({
   return (
     <section key={agent.id} className="starfield rise-in relative border-b border-line">
       <div className="px-8 pb-6 pt-7">
-        <div className="kicker">Tax AI Native · {agent.id}</div>
+        <div className="kicker flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full" style={{ background: agent.accent }} />
+          Tax AI Native · {agent.id}
+        </div>
         <div className="mt-3 flex items-start gap-4">
-          <span className="glow-card flex h-12 w-12 shrink-0 items-center justify-center text-glow-300">
+          <span
+            className="glow-card flex h-12 w-12 shrink-0 items-center justify-center text-glow-300"
+            style={{ boxShadow: `0 0 0 2px ${agent.accent}66, 0 10px 34px rgba(2, 8, 20, 0.55)` }}
+          >
             <Icon className="h-6 w-6" />
           </span>
           <div className="min-w-0">
@@ -588,6 +594,7 @@ export function AgentOverview({
                   : "border-line bg-night-850 text-mist-500 hover:border-glow-500 hover:text-mist-100"
               }`}
               >
+                <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full" style={{ background: a.accent }} />
                 {a.shortName}
                 {lastAt[a.id] && <span className="ml-1 text-[10px] opacity-70">{relTime(lastAt[a.id]!)}</span>}
               </button>
