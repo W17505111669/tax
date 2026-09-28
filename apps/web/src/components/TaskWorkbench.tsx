@@ -521,6 +521,9 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
                 data-on={tab === key}
               >
                 {label}
+                {key === "review" && liveStatus === "waiting_review" && (
+                  <span className="ml-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
+                )}
                 {key === "result" && citations.length > 0 && (
                   <span className="ml-1.5 rounded bg-glow-500/15 px-1 py-0.5 text-[10px] text-glow-300">
                     {citations.length}
@@ -866,6 +869,21 @@ function ToolRow({
     if (typeof v !== "string") return "";
     return v.length > 40 ? `${v.slice(0, 40)}…` : v;
   })();
+  // 成功时结果首关键字段预览（如 accuracyPercent、count）
+  const resultPreview = (() => {
+    if (!call || call.ok !== true || typeof call.result !== "string") return "";
+    try {
+      const r = JSON.parse(call.result) as Record<string, unknown>;
+      if (!r || typeof r !== "object") return "";
+      const entry = Object.entries(r).find(
+        ([, v]) => typeof v === "number" || (typeof v === "string" && v.length > 0 && v.length <= 24),
+      );
+      if (!entry) return "";
+      return `${entry[0]}: ${String(entry[1])}`;
+    } catch {
+      return "";
+    }
+  })();
   return (
     <details className="tool-row glow-card">
       <summary className="flex items-center gap-2 px-3.5 py-2">
@@ -896,6 +914,11 @@ function ToolRow({
             </span>
           )}
         </span>
+        {resultPreview && (
+          <span className="max-w-[140px] truncate text-[10.5px] text-jade-400/80" title={resultPreview}>
+            {resultPreview}
+          </span>
+        )}
         <span className="chev ml-1 text-[10px] text-glow-400">▶</span>
       </summary>
       <div className="grid gap-3 border-t border-line px-3.5 py-2.5 md:grid-cols-2">
