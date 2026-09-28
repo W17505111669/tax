@@ -47,6 +47,15 @@ const STATUS_FILTERS: Array<{ id: StatusFilter; label: string }> = [
   { id: "failed", label: "已中断" },
 ];
 
+// 搜索框支持状态关键字联合过滤（如输入「已完成」）
+const STATUS_KEYWORDS: Record<string, string> = {
+  已完成: "completed",
+  执行中: "processing",
+  待复核: "waiting_review",
+  已中断: "failed",
+  待执行: "created",
+};
+
 export function IconRail({
   sidebarOpen,
   onToggleSidebar,
@@ -161,10 +170,14 @@ export function Sidebar({
   }, []);
 
   const q = query.trim().toLowerCase();
+  const kwStatus = STATUS_KEYWORDS[query.trim()];
   const filtered = tasks.filter(
     (t) =>
       (statusFilter === "all" || t.status === statusFilter) &&
-      (q === "" || t.title.toLowerCase().includes(q) || (t.instruction ?? "").toLowerCase().includes(q)),
+      (q === "" ||
+        t.title.toLowerCase().includes(q) ||
+        (t.instruction ?? "").toLowerCase().includes(q) ||
+        kwStatus === t.status),
   );
   if (!open) return null;
   return (

@@ -858,11 +858,20 @@ function ToolRow({
     call && call.ok !== null && call.endedAt
       ? `${Math.max(0, (Date.parse(call.endedAt) - Date.parse(call.at)) / 1000).toFixed(1)}s`
       : "";
+  // 折叠态显示首个字符串入参作为摘要（如检索词、文件路径）
+  const argPreview = (() => {
+    const a = call?.args as Record<string, unknown> | null | undefined;
+    if (!a || typeof a !== "object") return "";
+    const v = Object.values(a).find((x) => typeof x === "string" && x.trim().length > 0);
+    if (typeof v !== "string") return "";
+    return v.length > 40 ? `${v.slice(0, 40)}…` : v;
+  })();
   return (
     <details className="tool-row glow-card">
       <summary className="flex items-center gap-2 px-3.5 py-2">
         <IconTool className="h-3.5 w-3.5 text-glow-400" />
         <span className="font-mono text-[12px] text-mist-100">{name}</span>
+        {argPreview && <span className="min-w-0 flex-1 truncate text-[11px] text-mist-600">{argPreview}</span>}
         {isSearch && (
           <span className="rounded border border-glow-500/40 bg-glow-500/10 px-1.5 py-0.5 text-[10px] text-glow-300">
             联网
