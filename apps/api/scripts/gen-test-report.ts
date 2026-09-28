@@ -49,6 +49,11 @@ const VERIFY_SCRIPTS: Array<{ name: string; cmd: string; scope: string }> = [
     cmd: "pnpm verify:rtools",
     scope: "工具调用清单（按运行分组 / 入参摘要 / 耗时 / 汇总）",
   },
+  {
+    name: "verify:revexp",
+    cmd: "pnpm verify:revexp",
+    scope: "人工复核记录导出（计数与后端同口径 / 转义 / 状态提示）",
+  },
 ];
 
 function runVerify(cmd: string): { pass: boolean; output: string } {

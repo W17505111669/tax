@@ -29,6 +29,7 @@
 | `pnpm verify:runart` | 运行时间窗推导与产物归属（导出「本次运行产物清单」的依据） | PASS |
 | `pnpm verify:artsrc` | 产物溯源（生成产物与工具调用的确定性对应） | PASS |
 | `pnpm verify:rtools` | 工具调用清单（按运行分组 / 入参摘要 / 耗时 / 汇总） | PASS |
+| `pnpm verify:revexp` | 人工复核记录导出（计数与后端同口径 / 转义 / 状态提示） | PASS |
 
 ## 三、真实任务台账
 

@@ -10,6 +10,7 @@ import { matchToolCalls } from "../timeline-calls.ts";
 import { artifactsOfRun, artifactTable, fmtBytes, runWindows, unattributedArtifacts } from "../run-artifacts.ts";
 import { artifactSources } from "../artifact-sources.ts";
 import { callStats, callsByRun, durationMs, fmtDuration, summarizeArgs } from "../run-tools.ts";
+import { reviewSection } from "../review-export.ts";
 import { CompareView } from "./CompareView.tsx";
 import { ThemeSwitch } from "./ThemeSwitch.tsx";
 import { ReviewView } from "./ReviewView.tsx";
@@ -712,6 +713,10 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     "## 工具调用清单（按运行分组）",
     "",
     ...toolCallSection(),
+    "",
+    "## 人工复核记录",
+    "",
+    ...reviewSection(issues, reviews, reopened ? "waiting_review" : task.status),
     "",
   ];
 
@@ -2486,7 +2491,7 @@ function ResultView({
           type="button"
           className="action-btn"
           onClick={onExportBundle}
-          title="导出元信息 + 目录 + 结论 + 引用 + 产物溯源表的单文件"
+          title="导出元信息 + 目录 + 结论 + 引用 + 产物溯源 + 工具调用清单 + 复核记录的单文件"
         >
           <IconDownload className="h-3.5 w-3.5" />
           导出整页
