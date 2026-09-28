@@ -72,6 +72,41 @@ interface Props {
 }
 
 /** 侧边可折叠阅读器：支持多文档标签页，网页阅读模式、任务资料与生成产物统一预览。 */
+/** 双栏对照的简化副栏：支持 markdown/text/image/pdf，表格与二进制引导回主栏。 */
+function MiniPane({ st, title }: { st: ReaderState; title: string }) {
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto border-l border-line px-3 py-3">
+      <div className="mb-2 truncate text-[11px] text-mist-500" title={title}>
+        对照：{title}
+      </div>
+      {st.loading && <div className="py-6 text-center text-[11.5px] text-mist-600">加载中…</div>}
+      {st.error && (
+        <div className="rounded border border-rose-500/40 bg-rose-500/10 px-2 py-1 text-[11px] text-rose-300">{st.error}</div>
+      )}
+      {!st.loading && !st.error && (st.kind === "markdown" || st.kind === "text") && (
+        <div className="paper-sheet theme-minimal px-3 py-2">
+          {st.kind === "markdown" ? (
+            <MarkdownView text={st.markdown} />
+          ) : (
+            <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-4 text-gray-700">{st.text}</pre>
+          )}
+        </div>
+      )}
+      {!st.loading && !st.error && st.kind === "image" && (
+        <img src={st.src} alt={title} className="max-w-full rounded border border-line" />
+      )}
+      {!st.loading && !st.error && st.kind === "pdf" && (
+        <iframe src={st.src} title={title} className="h-[50vh] w-full rounded border border-line bg-white" />
+      )}
+      {!st.loading && !st.error && (st.kind === "sheets" || st.kind === "binary") && (
+        <div className="rounded border border-line bg-night-850 px-2 py-3 text-center text-[11px] text-mist-600">
+          该类型请在主栏查看
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder, onCloseAll, onClose }: Props) {
   const [states, setStates] = useState<Record<string, ReaderState>>({});
   const { theme } = usePaperTheme();
@@ -89,6 +124,8 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   }, [freezeFirst]);
   const [pinned, setPinned] = useState<Set<string>>(new Set());
   const [armedKey, setArmedKey] = useState<string | null>(null);
+  const [splitView, setSplitView] = useState(false);
+  const [secondIdx, setSecondIdx] = useState(0);
   const [showLines, setShowLines] = useState(false);
   const [aliases, setAliases] = useState<Record<string, string>>(() => {
     try {
@@ -146,6 +183,10 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   const activeKey = active ? readerKey(active) : "";
   const state = states[activeKey] ?? INITIAL;
   const activeName = active && "name" in active ? active.name : "";
+  const secondIdxSafe = tabs.length > 0 ? Math.min(secondIdx, tabs.length - 1) : 0;
+  const secondTab = tabs[secondIdxSafe] ?? null;
+  const secondKey = secondTab ? readerKey(secondTab) : "";
+  const secondLabel = secondTab ? states[secondKey]?.title || fallbackTitle(secondTab) : "";
   const baseText = state.kind === "text" ? state.text : state.kind === "markdown" ? state.markdown : "";
   const matchCount = findTrim ? baseText.toLowerCase().split(findTrim.toLowerCase()).length - 1 : 0;
 
@@ -394,6 +435,29 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
             </button>
           </div>
           <div className="ml-auto flex items-center gap-1">
+            <button
+              type="button"
+              className="action-btn"
+              data-on={splitView}
+              onClick={() => setSplitView((v) => !v)}
+              title="双栏对照（主栏全功能 + 简化副栏）"
+            >
+              双栏
+            </button>
+            {splitView && tabs.length > 1 && (
+              <select
+                value={secondIdxSafe}
+                onChange={(e) => setSecondIdx(Number(e.target.value))}
+                className="rounded border border-line bg-night-850 px-1 py-0.5 text-[10.5px] text-mist-300 outline-none"
+                title="对照栏标签"
+              >
+                {tabs.map((t, i) => (
+                  <option key={readerKey(t)} value={i}>
+                    {(states[readerKey(t)]?.title || fallbackTitle(t)).slice(0, 18)}
+                  </option>
+                ))}
+              </select>
+            )}
             {tabs.length > 1 && (
               <button
                 type="button"
@@ -693,6 +757,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
         </div>
       )}
 
+      <div className={`min-h-0 flex-1 ${splitView && tabs.length > 1 ? "flex" : ""}`}>
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         {state.loading && !/\.xlsx?$/i.test(activeName) && (
           <div className="flex flex-col items-center gap-4 py-14">
@@ -960,6 +1025,8 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
             为准。
           </p>
         )}
+      </div>
+      {splitView && tabs.length > 1 && <MiniPane st={states[secondKey] ?? INITIAL} title={secondLabel} />}
       </div>
     </aside>
   );
