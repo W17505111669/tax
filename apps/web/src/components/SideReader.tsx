@@ -367,10 +367,20 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
         <div className="flex items-center gap-2 border-b border-line px-4 py-1.5">
           <span className="kicker">版式</span>
           <ThemeSwitch />
+          <button
+            type="button"
+            className="action-btn ml-auto"
+            title="复制正文全文"
+            onClick={() =>
+              void navigator.clipboard?.writeText(state.kind === "markdown" ? state.markdown : state.text).catch(() => undefined)
+            }
+          >
+            复制全文
+          </button>
           {state.kind === "text" && (
             <button
               type="button"
-              className="action-btn ml-auto"
+              className="action-btn"
               data-on={showLines}
               onClick={() => setShowLines((v) => !v)}
               title="切换行号显示"
