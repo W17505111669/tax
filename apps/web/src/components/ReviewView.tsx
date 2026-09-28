@@ -15,6 +15,8 @@ function typeTone(type: string): string {
   return "border-amber-400/40 bg-amber-400/10 text-amber-300";
 }
 
+const QUICK_COMMENTS = ["确认列入底稿", "无需处理", "需重新测算", "待客户补充资料"];
+
 /** 人工复核页签：税务师对工具核查与底稿比对发现的问题逐项确认或驳回。 */
 export function ReviewView({ issues, reviews, pending, onReview }: Props) {
   const [comments, setComments] = useState<Record<string, string>>({});
@@ -108,6 +110,18 @@ export function ReviewView({ issues, reviews, pending, onReview }: Props) {
             )}
 
             <div className="mt-3 flex flex-wrap items-center gap-2">
+              <div className="flex w-full flex-wrap gap-1.5">
+                {QUICK_COMMENTS.map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    onClick={() => setComments((prev) => ({ ...prev, [issue.id]: q }))}
+                    className="rounded-full border border-line bg-night-850 px-2 py-0.5 text-[10.5px] text-mist-500 transition-colors hover:border-glow-500 hover:text-mist-100"
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
               <input
                 value={commentValue}
                 onChange={(e) => setComments((prev) => ({ ...prev, [issue.id]: e.target.value }))}
