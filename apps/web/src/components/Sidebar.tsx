@@ -155,6 +155,7 @@ export function Sidebar({
 }: Props) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [starOnly, setStarOnly] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
     try {
       return JSON.parse(localStorage.getItem("taxai-sidebar-groups") ?? "{}") as Record<string, boolean>;
@@ -271,6 +272,7 @@ export function Sidebar({
   const filtered = tasks.filter(
     (t) =>
       (statusFilter === "all" || t.status === statusFilter) &&
+      (!starOnly || starred.has(t.id)) &&
       (q === "" ||
         t.title.toLowerCase().includes(q) ||
         (t.instruction ?? "").toLowerCase().includes(q) ||
@@ -370,6 +372,18 @@ export function Sidebar({
                 </button>
               );
             })}
+            <button
+              type="button"
+              onClick={() => setStarOnly((v) => !v)}
+              title="仅显示收藏任务"
+              className={`rounded border px-1.5 py-0.5 text-[10.5px] transition-colors ${
+                starOnly
+                  ? "border-amber-400/50 bg-amber-400/10 text-amber-300"
+                  : "border-line bg-night-850 text-mist-600 hover:text-mist-100"
+              }`}
+            >
+              ★ 收藏
+            </button>
           </div>
         </div>
         {filtered.length === 0 && <div className="px-2 py-3 text-[12px] text-mist-600">无匹配任务</div>}

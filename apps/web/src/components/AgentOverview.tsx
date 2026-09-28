@@ -115,6 +115,46 @@ export function AgentOverview({
   const [sparkHover, setSparkHover] = useState<number | null>(null);
   const [toolSort, setToolSort] = useState(false);
   const [capsOpen, setCapsOpen] = useState(false);
+  const [weekDeltas, setWeekDeltas] = useState<Record<string, number>>({});
+
+  // 平台指标周环比：每日快照入 localStorage，与 7 天前（或最近可得）快照对比
+  useEffect(() => {
+    if (!p) return;
+    const today = new Date().toISOString().slice(0, 10);
+    try {
+      const snap = JSON.parse(localStorage.getItem("taxai-stats-snapshots") ?? "{}") as Record<
+        string,
+        { tasks: number; completed: number; artifacts: number }
+      >;
+      snap[today] = { tasks: p.tasks, completed: p.completed, artifacts: p.artifacts };
+      const keys = Object.keys(snap).sort();
+      if (keys.length > 60) for (const k of keys.slice(0, keys.length - 60)) delete snap[k];
+      localStorage.setItem("taxai-stats-snapshots", JSON.stringify(snap));
+      const d = new Date();
+      d.setDate(d.getDate() - 7);
+      const target = d.toISOString().slice(0, 10);
+      const prevKey = snap[target] ? target : [...Object.keys(snap).filter((k) => k <= target)].sort().pop();
+      const prev = prevKey ? snap[prevKey] : undefined;
+      setWeekDeltas(
+        prev
+          ? { tasks: p.tasks - prev.tasks, completed: p.completed - prev.completed, artifacts: p.artifacts - prev.artifacts }
+          : {},
+      );
+    } catch {
+      /* 忽略存储不可用 */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p?.tasks, p?.completed, p?.artifacts]);
+
+  const deltaBadge = (k: string) => {
+    const v = weekDeltas[k];
+    if (v === undefined || v === 0) return null;
+    return (
+      <span className={`ml-1 text-[10px] ${v > 0 ? "text-jade-400" : "text-rose-300"}`} title="较 7 天前快照">
+        {v > 0 ? `▲${v}` : `▼${Math.abs(v)}`}
+      </span>
+    );
+  };
   const sparkDate = (idx: number) => {
     const d = new Date();
     d.setDate(d.getDate() - (13 - idx));
@@ -376,8 +416,8 @@ export function AgentOverview({
             </div>
             <div className="mt-2 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
               {[
-                { label: "累计任务", value: stats.platform.tasks.toLocaleString("zh-CN"), unit: "个", desc: "全平台已创建任务总数（含未完成）" },
-                { label: "已完成", value: stats.platform.completed.toLocaleString("zh-CN"), unit: "个", desc: "状态为 completed 的任务数" },
+                { label: "累计任务", key: "tasks", value: stats.platform.tasks.toLocaleString("zh-CN"), unit: "个", desc: "全平台已创建任务总数（含未完成）" },
+                { label: "已完成", key: "completed", value: stats.platform.completed.toLocaleString("zh-CN"), unit: "个", desc: "状态为 completed 的任务数" },
                 {
                   label: "工具成功率",
                   desc: "tool_calls 中 ok=1 的占比",
@@ -387,7 +427,7 @@ export function AgentOverview({
                       : "—",
                   unit: "%",
                 },
-                { label: "底稿产物", value: stats.platform.artifacts.toLocaleString("zh-CN"), unit: "份", desc: "各任务 outputs 目录文件计数" },
+                { label: "底稿产物", key: "artifacts", value: stats.platform.artifacts.toLocaleString("zh-CN"), unit: "份", desc: "各任务 outputs 目录文件计数" },
                 {
                   label: "记录级比对准确率",
                   desc: "最近一次记录级 compare_workpapers 的准确率",
@@ -406,6 +446,7 @@ export function AgentOverview({
                   <div className="text-[11px] text-mist-600">{kpi.label}</div>
                   <div className="mt-1 flex items-baseline gap-1">
                     <span className="text-[22px] font-semibold tracking-tight text-jade-400">{kpi.value}</span>
+                    {kpi.key ? deltaBadge(kpi.key) : null}
                     <span className="text-[11px] text-mist-600">{kpi.unit}</span>
                   </div>
                 </div>
