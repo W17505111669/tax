@@ -211,6 +211,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     const key = readerKey(target);
     const idx = readerTabs.findIndex((t) => readerKey(t) === key);
     if (idx >= 0) {
+      // 同一文件再次打开时刷新定位信息，否则连点两条差异行会停留在上一次的定位
+      setReaderTabs((prev) => prev.map((t, i) => (i === idx ? target : t)));
       setReaderActive(idx);
     } else {
       setReaderTabs((prev) => [...prev, target]);
@@ -333,13 +335,32 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     }
   };
 
-  const openCompareTarget = (ref: { kind: "upload" | "artifact"; name: string; highlight?: string }) => {
+  const openCompareTarget = (ref: {
+    kind: "upload" | "artifact";
+    name: string;
+    highlight?: string;
+    highlightValue?: string | number | null;
+  }) => {
     if (ref.kind === "artifact") {
-      openReader({ kind: "artifact", taskId: task.id, name: ref.name, highlight: ref.highlight });
+      openReader({
+        kind: "artifact",
+        taskId: task.id,
+        name: ref.name,
+        highlight: ref.highlight,
+        highlightValue: ref.highlightValue,
+      });
       return;
     }
     const file = files.find((f) => f.fileName === ref.name);
-    if (file) openReader({ kind: "file", taskId: task.id, fileId: file.id, name: file.fileName, highlight: ref.highlight });
+    if (file)
+      openReader({
+        kind: "file",
+        taskId: task.id,
+        fileId: file.id,
+        name: file.fileName,
+        highlight: ref.highlight,
+        highlightValue: ref.highlightValue,
+      });
   };
 
   const finalResult = useMemo(() => {

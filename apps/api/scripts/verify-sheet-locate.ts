@@ -3,7 +3,7 @@
  * 数据形态取自真实比对结果：工作表「归集比对」，差异地址「直接投入/金额（元）」。
  * 运行：pnpm verify:locate
  */
-import { colLettersToIndex, sheetLocate, type LocateRow } from "../../web/src/sheet-locate.ts";
+import { colLettersToIndex, sameValue, sheetLocate, type LocateRow } from "../../web/src/sheet-locate.ts";
 
 const headers = ["费用类别", "金额（元）"];
 const rows: [LocateRow, LocateRow] = [
@@ -62,10 +62,53 @@ expect("文本-包含命中", sheetLocate(rows[0], headers, 0, "人员", sheet, 
 expect("文本-未命中", sheetLocate(rows[0], headers, 0, "不存在的关键词", sheet, false), { hit: false, cols: [] });
 expect("文本-空关键字", sheetLocate(rows[0], headers, 0, "   ", sheet, false), { hit: false, cols: [] });
 
+// 4) 期望值校验（比对侧 A/B 值）：值不符就不高亮，避免定位落到错误行
+expect("值校验-记录地址+值命中", sheetLocate(rows[1], headers, 1, "直接投入/金额（元）", sheet, false, 420000), {
+  hit: true,
+  cols: ["金额（元）"],
+});
+expect("值校验-记录对但值不符", sheetLocate(rows[1], headers, 1, "直接投入/金额（元）", sheet, false, 410000), {
+  hit: false,
+  cols: [],
+});
+expect("值校验-错行不命中", sheetLocate(rows[0], headers, 0, "直接投入/金额（元）", sheet, false, 420000), {
+  hit: false,
+  cols: [],
+});
+expect("值校验-千分位与小数等价", [sameValue("420,000.00", "420000"), sameValue("420000", "410000")], [
+  true,
+  false,
+]);
+expect("值校验-A1 几何+值通过", sheetLocate(rows[1], headers, 1, "B3", sheet, false, "420000"), {
+  hit: true,
+  cols: ["金额（元）"],
+});
+expect("值校验-A1 几何+值不符", sheetLocate(rows[1], headers, 1, "归集比对!B3", sheet, false, 1), {
+  hit: false,
+  cols: [],
+});
+expect("值校验-仅给期望值（纯值定位）", sheetLocate(rows[0], headers, 0, "", sheet, false, 860000), {
+  hit: true,
+  cols: ["金额（元）"],
+});
+expect(
+  "值校验-期望值为 null（仅系统/仅人工）",
+  sheetLocate(rows[1], headers, 1, "直接投入/金额（元）", sheet, false, null),
+  { hit: true, cols: ["金额（元）"] },
+);
+
+// 5) 同一行多列同值时，按地址里的列名收窄加深范围
+const headers2 = ["项目", "系统", "人工"];
+const row2: LocateRow = { 项目: "直接投入", 系统: 420000, 人工: 420000 };
+expect("值校验-同值多列按列名收窄", sheetLocate(row2, headers2, 0, "直接投入/人工", "S", false, 420000), {
+  hit: true,
+  cols: ["人工"],
+});
+
 console.log(`[verify] 表格定位检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  - ${f}`);
   console.log("[FAIL] 表格定位规则不符");
   process.exit(1);
 }
-console.log("[PASS] 表格定位规则正确（记录地址 / A1 地址 / 普通文本）");
+console.log("[PASS] 表格定位规则正确（记录地址 / A1 地址 / 普通文本 / 期望值校验）");

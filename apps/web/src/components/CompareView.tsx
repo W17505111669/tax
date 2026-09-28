@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { CompareRecord, CompareRef } from "../types.ts";
+import type { CompareDiff, CompareRecord, CompareRef } from "../types.ts";
 import { IconAlert, IconCheck, IconCopy, IconDownload } from "./Icons.tsx";
 
 const KIND_META = {
@@ -51,7 +51,7 @@ export function CompareView({ compares, onOpenTarget }: Props) {
       shownCompares.flatMap((rec) =>
         rec.result?.totals
           ? rec.result.sheets.flatMap((s) =>
-              s.diffs.filter(matchFilter).map((d) => ({ rec, addr: d.address })),
+              s.diffs.filter(matchFilter).map((d) => ({ rec, diff: d })),
             )
           : [],
       ),
@@ -75,7 +75,7 @@ export function CompareView({ compares, onOpenTarget }: Props) {
         );
       } else if (e.key === "Enter" && sel !== null) {
         const item = flat[sel];
-        if (item) openBoth(item.rec, item.addr);
+        if (item) openBoth(item.rec, item.diff);
       }
     };
     window.addEventListener("keydown", handler);
@@ -186,10 +186,14 @@ export function CompareView({ compares, onOpenTarget }: Props) {
     void navigator.clipboard?.writeText(lines.join("\n")).catch(() => undefined);
   };
 
-  const openBoth = (rec: CompareRecord, addr: string) => {
-    const key = addr.includes("/") && !/^[A-Za-z]{1,3}\d+$/i.test(addr) ? addr.slice(0, addr.indexOf("/")) : undefined;
-    if (rec.result.a) onOpenTarget({ ...rec.result.a, highlight: key });
-    if (rec.result.b) onOpenTarget({ ...rec.result.b, highlight: key });
+  /**
+   * 差异行联动：两份底稿同时进阅读器，带上完整地址与该侧期望值。
+   * 完整地址（含「/列名」或 A1 形式）由阅读器的 sheetLocate 解析到行与列，
+   * 期望值用于值校验，避免解析器跳行时高亮落到错误行。
+   */
+  const openBoth = (rec: CompareRecord, d: CompareDiff) => {
+    if (rec.result.a) onOpenTarget({ ...rec.result.a, highlight: d.address, highlightValue: d.a });
+    if (rec.result.b) onOpenTarget({ ...rec.result.b, highlight: d.address, highlightValue: d.b });
   };
 
   // 差异表导出 CSV（BOM + 引号转义，Excel 中文可直接打开）
@@ -605,7 +609,7 @@ export function CompareView({ compares, onOpenTarget }: Props) {
                             data-diffidx={idx}
                             onClick={() => {
                               setSel(idx);
-                              openBoth(rec, d.address);
+                              openBoth(rec, d);
                             }}
                             title="点击同时在阅读器中打开两份底稿并定位该行"
                             className={`group cursor-pointer transition-colors hover:bg-night-700 ${

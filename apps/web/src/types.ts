@@ -150,6 +150,8 @@ export interface CompareRef {
   kind: "upload" | "artifact";
   name: string;
   highlight?: string;
+  /** 该侧的期望值（差异行的 A/B 值），供阅读器表格定位做值校验 */
+  highlightValue?: string | number | null;
 }
 
 export interface PlatformStats {

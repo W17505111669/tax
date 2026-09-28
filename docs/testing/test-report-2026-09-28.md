@@ -23,7 +23,7 @@
 | `pnpm verify:diagram` | 关联关系图 mermaid 确定性生成 | PASS |
 | `pnpm verify:agents` | 双 Agent 独立性与内置工具禁用 | PASS |
 | `pnpm verify:progress` | 列表执行进度 0-5 步推导规则 | PASS |
-| `pnpm verify:locate` | 阅读器表格定位命中规则（记录地址 / A1 / 文本） | PASS |
+| `pnpm verify:locate` | 阅读器表格定位命中规则（记录地址 / A1 / 文本 / 差异值校验） | PASS |
 
 ## 三、真实任务台账
 

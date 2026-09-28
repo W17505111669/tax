@@ -9,8 +9,22 @@ import { sheetLocate } from "../sheet-locate.ts";
 
 export type ReaderTarget =
   | { kind: "url"; url: string }
-  | { kind: "file"; taskId: string; fileId: string; name: string; highlight?: string }
-  | { kind: "artifact"; taskId: string; name: string; highlight?: string };
+  | {
+      kind: "file";
+      taskId: string;
+      fileId: string;
+      name: string;
+      highlight?: string;
+      /** 比对侧期望值（差异行的 A/B 值），用于表格定位时做值校验 */
+      highlightValue?: string | number | null;
+    }
+  | {
+      kind: "artifact";
+      taskId: string;
+      name: string;
+      highlight?: string;
+      highlightValue?: string | number | null;
+    };
 
 export function readerKey(target: ReaderTarget): string {
   if (target.kind === "url") return `url:${target.url}`;
@@ -106,6 +120,7 @@ function MiniPane({
   find,
   mainSort,
   highlight,
+  highlightValue,
 }: {
   st: ReaderState;
   title: string;
@@ -115,6 +130,8 @@ function MiniPane({
   mainSort?: Record<string, { col: string; dir: 1 | -1 }>;
   /** 比对定位关键字，与主栏同源；副栏同步标出命中行与单元格 */
   highlight?: string;
+  /** 该侧差异值，与主栏同源；用于命中校验 */
+  highlightValue?: string | number | null;
 }) {
   const [z, setZ] = useState(1);
   const [mfind, setMfind] = useState("");
@@ -195,7 +212,7 @@ function MiniPane({
           })();
           const hl = (highlight ?? "").trim();
           const hlHits = hl
-            ? rows.map((row, i) => sheetLocate(row, s.headers, i, hl, s.name, Boolean(spec)))
+            ? rows.map((row, i) => sheetLocate(row, s.headers, i, hl, s.name, Boolean(spec), highlightValue))
             : [];
           const hlCount = hlHits.filter((h) => h.hit).length;
           return (
@@ -505,11 +522,12 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
 
   // 表格预览加载完成后，把比对定位的高亮行滚到视口中央
   const activeHl = active && "highlight" in active ? (active.highlight ?? "") : "";
+  const activeHlValue = active && "highlightValue" in active ? active.highlightValue : undefined;
   useEffect(() => {
     if (state.loading || state.kind !== "sheets") return;
     const el = scrollRef.current?.querySelector(".row-hl");
     el?.scrollIntoView({ block: "center" });
-  }, [state.loading, state.kind, activeKey, activeHl, state.sheets]);
+  }, [state.loading, state.kind, activeKey, activeHl, activeHlValue, state.sheets]);
 
   // 切换标签时重置缩放
   useEffect(() => {
@@ -1228,7 +1246,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                   })();
                   const hl = activeHl.trim();
                   const hlHits = hl
-                    ? rows.map((row, i) => sheetLocate(row, s.headers, i, hl, s.name, Boolean(st)))
+                    ? rows.map((row, i) => sheetLocate(row, s.headers, i, hl, s.name, Boolean(st), activeHlValue))
                     : [];
                   const hlCount = hlHits.filter((h) => h.hit).length;
                   return (
@@ -1281,7 +1299,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                       }`}
                       title={
                         hlCount > 0
-                          ? "命中行以琥珀底标出，命中单元格加深，并已自动滚入视口；支持「记录名/列名」与 A1 地址"
+                          ? "命中行以琥珀底标出，命中单元格加深，并已自动滚入视口；支持「记录名/列名」与 A1 地址，并按该侧差异值校验"
                           : "本表未匹配到定位关键字；A1 地址在排序状态下不生效，可取消排序或改用页内搜索"
                       }
                     >
@@ -1385,6 +1403,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
           innerRef={miniRef}
           find={findTrim}
           highlight={activeHl}
+          highlightValue={activeHlValue}
           mainSort={Object.fromEntries(
             Object.entries(sort)
               .filter(([k]) => k.startsWith(`${activeKey}:`))
