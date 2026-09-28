@@ -947,6 +947,8 @@ function TimelineView({
   let runSeq = 0;
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [view, setView] = useState<"all" | "tools" | "text">("all");
+  const [showTs, setShowTs] = useState(false);
+  const fmtTs = (iso: string) => new Date(iso).toLocaleTimeString("zh-CN", { hour12: false });
 
   const copyText = (text: string) => {
     void navigator.clipboard?.writeText(text).catch(() => undefined);
@@ -979,6 +981,16 @@ function TimelineView({
             {label}
           </button>
         ))}
+        <button
+          type="button"
+          onClick={() => setShowTs((v) => !v)}
+          title="显示每条事件的时间戳（调试视角）"
+          className={`rounded-full border px-2.5 py-0.5 text-[11px] transition-colors ${
+            showTs ? "border-glow-500 bg-glow-500/15 text-glow-300" : "border-line bg-night-850 text-mist-500 hover:text-mist-100"
+          }`}
+        >
+          时间戳
+        </button>
         <button
           type="button"
           className="action-btn ml-auto"
@@ -1029,7 +1041,7 @@ function TimelineView({
           const call = toolCalls.filter((c) => c.toolName === name)[idx];
           return (
             <div key={item.id} className={cls}>
-              <ToolRow name={name} call={call} />
+              <ToolRow name={name} call={call} ts={showTs ? fmtTs(item.at) : undefined} />
             </div>
           );
         }
@@ -1058,6 +1070,7 @@ function TimelineView({
           }
           return (
             <div key={item.id} className={`flex items-center gap-2 text-[11.5px] text-mist-600 ${cls}`}>
+              {showTs && <span className="font-mono text-[9.5px] text-mist-600">{fmtTs(item.at)}</span>}
               <span className="h-1 w-1 rounded-full bg-glow-500" />
               {item.detail ?? item.title}
             </div>
@@ -1066,6 +1079,7 @@ function TimelineView({
 
         return (
           <div key={item.id} className={`group glow-card relative px-4 py-3 ${cls}`}>
+            {showTs && <div className="mb-1 font-mono text-[9.5px] text-mist-600">{fmtTs(item.at)}</div>}
             {isText && (
               <button
                 type="button"
@@ -1170,11 +1184,13 @@ function TimelineView({
 function ToolRow({
   name,
   call,
+  ts,
 }: {
   name: string;
   call:
     | { args: unknown; result: unknown; ok: boolean | null; at: string; endedAt: string | null }
     | undefined;
+  ts?: string;
 }) {
   const isSearch = SEARCH_TOOLS.has(name);
   const duration =
@@ -1224,6 +1240,7 @@ function ToolRow({
   return (
     <details className="tool-row glow-card">
       <summary className="flex items-center gap-2 px-3.5 py-2">
+        {ts && <span className="font-mono text-[9.5px] text-mist-600">{ts}</span>}
         <IconTool className="h-3.5 w-3.5 text-glow-400" />
         <span className="font-mono text-[12px] text-mist-100">{name}</span>
         {argPreview && <span className="min-w-0 flex-1 truncate text-[11px] text-mist-600">{argPreview}</span>}
