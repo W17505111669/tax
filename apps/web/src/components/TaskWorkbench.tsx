@@ -10,12 +10,14 @@ import { ReviewView } from "./ReviewView.tsx";
 import {
   IconAlert,
   IconCheck,
+  IconCopy,
   IconDownload,
   IconExternal,
   IconFile,
   IconPanel,
   IconPlay,
   IconPrint,
+  IconRefresh,
   IconSpinner,
   IconTool,
 } from "./Icons.tsx";
@@ -380,7 +382,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
 
       <div className="flex min-h-0 flex-1 gap-0">
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="no-print flex items-center gap-1 border-b border-line bg-night-950 px-8">
+          <div className="no-print flex justify-center border-b border-line bg-night-950 py-2">
+            <div className="seg-tabs">
             {(
               [
                 ["timeline", "执行过程"],
@@ -393,11 +396,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
                 key={key}
                 type="button"
                 onClick={() => onTabChange(key)}
-                className={`-mb-px border-b-2 px-3 py-2.5 text-[12.5px] transition-colors ${
-                  tab === key
-                    ? "border-glow-400 font-medium text-glow-300"
-                    : "border-transparent text-mist-600 hover:text-mist-100"
-                }`}
+                className="seg-tab"
+                data-on={tab === key}
               >
                 {label}
                 {key === "result" && citations.length > 0 && (
@@ -417,15 +417,19 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
                 )}
               </button>
             ))}
+            </div>
           </div>
 
-          <div ref={scrollRef} className="print-scroll min-h-0 flex-1 overflow-y-auto px-8 py-5">
+          <div ref={scrollRef} className="print-scroll min-h-0 flex-1 overflow-y-auto px-6 py-5">
+            <div className="chat-col mx-auto">
             {tab === "timeline" && (
               <TimelineView
                 instruction={task.instruction}
                 items={timeline}
                 toolCalls={toolCalls}
+                citations={citations}
                 onOpenUrl={openReader}
+                onRerun={onRerun}
               />
             )}
             {tab === "result" && (
@@ -458,6 +462,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
             {tab === "review" && (
               <ReviewView issues={issues} reviews={reviews} pending={pendingReviews} onReview={handleReview} />
             )}
+            </div>
           </div>
         </div>
 
@@ -549,15 +554,24 @@ function TimelineView({
   instruction,
   items,
   toolCalls,
+  citations,
   onOpenUrl,
+  onRerun,
 }: {
   instruction: string;
   items: ReturnType<typeof useTaskEvents>["timeline"];
   toolCalls: ReturnType<typeof useTaskEvents>["toolCalls"];
+  citations: Citation[];
   onOpenUrl: (target: ReaderTarget) => void;
+  onRerun: () => void;
 }) {
   const counters = useRef<Record<string, number>>({});
   counters.current = {};
+  const lastTextId = [...items].reverse().find((t) => t.kind === "agent_text" && t.detail)?.id;
+
+  const copyText = (text: string) => {
+    void navigator.clipboard?.writeText(text).catch(() => undefined);
+  };
 
   if (items.length === 0) {
     return <div className="py-10 text-center text-[13px] text-mist-600">等待执行事件…</div>;
@@ -610,6 +624,39 @@ function TimelineView({
             {isText && item.streaming && (
               <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-glow-400 align-middle" />
             )}
+            {isText && item.id === lastTextId && !item.streaming && (
+              <>
+                {citations.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {citations.map((c) => (
+                      <button
+                        key={c.url}
+                        type="button"
+                        onClick={() => onOpenUrl({ kind: "url", url: c.url })}
+                        title={c.url}
+                        className="inline-flex max-w-[260px] items-center gap-1.5 rounded-full border border-glow-500/40 bg-glow-500/10 px-2.5 py-0.5 text-[11px] text-glow-300 transition-colors hover:border-glow-400"
+                      >
+                        <IconExternal className="h-3 w-3 shrink-0" />
+                        <span className="truncate">{c.title}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="mt-2.5 flex items-center gap-1 border-t border-line pt-2">
+                  <button type="button" className="action-btn" onClick={() => copyText(item.detail ?? "")}>
+                    <IconCopy className="h-3.5 w-3.5" />
+                    复制
+                  </button>
+                  <button type="button" className="action-btn" onClick={onRerun} title="重新执行本任务">
+                    <IconRefresh className="h-3.5 w-3.5" />
+                    重新生成
+                  </button>
+                  <span className="ml-auto text-[11px] text-mist-600">
+                    {citations.length > 0 ? `${citations.length} 条联网引用` : "无联网引用"}
+                  </span>
+                </div>
+              </>
+            )}
             {isDone && (
               <span className="inline-flex items-center gap-1 text-[12px] text-jade-400">
                 <IconCheck className="h-3.5 w-3.5" />
@@ -634,7 +681,6 @@ function ToolRow({ name, call }: { name: string; call: { args: unknown; result: 
   return (
     <details className="tool-row glow-card">
       <summary className="flex items-center gap-2 px-3.5 py-2">
-        <span className="chev text-[10px] text-glow-400">▶</span>
         <IconTool className="h-3.5 w-3.5 text-glow-400" />
         <span className="font-mono text-[12px] text-mist-100">{name}</span>
         {isSearch && (
@@ -660,6 +706,7 @@ function ToolRow({ name, call }: { name: string; call: { args: unknown; result: 
             </span>
           )}
         </span>
+        <span className="chev ml-1 text-[10px] text-glow-400">▶</span>
       </summary>
       <div className="grid gap-3 border-t border-line px-3.5 py-2.5 md:grid-cols-2">
         <div>
@@ -718,6 +765,25 @@ function ResultView({
       <article className="glow-card px-6 py-5">
         <MarkdownView text={result} onOpenUrl={(url) => onOpenUrl({ kind: "url", url })} />
       </article>
+
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          className="action-btn"
+          onClick={() => void navigator.clipboard?.writeText(result).catch(() => undefined)}
+        >
+          <IconCopy className="h-3.5 w-3.5" />
+          复制全文
+        </button>
+        <button type="button" className="action-btn" onClick={onPrint}>
+          <IconPrint className="h-3.5 w-3.5" />
+          打印 / PDF
+        </button>
+        <button type="button" className="action-btn" onClick={onDownloadReport}>
+          <IconDownload className="h-3.5 w-3.5" />
+          下载报告
+        </button>
+      </div>
 
       {citations.length > 0 && (
         <div>

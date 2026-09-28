@@ -1,12 +1,13 @@
 import { useState } from "react";
 import type { AgentInfo, TaskInfo } from "../types.ts";
-import { IconBuilding, IconFlask } from "./Icons.tsx";
+import { IconBuilding, IconFlask, IconPanel, IconPlus, IconRefresh } from "./Icons.tsx";
 
 interface Props {
   agents: AgentInfo[];
   activeAgentId: string | null;
   activeTaskId: string | null;
   tasks: TaskInfo[];
+  open: boolean;
   onSelectAgent: (id: string) => void;
   onSelectTask: (id: string) => void;
   onNewTask: () => void;
@@ -38,7 +39,58 @@ const STATUS_FILTERS: Array<{ id: StatusFilter; label: string }> = [
   { id: "failed", label: "已中断" },
 ];
 
-export function Sidebar({ agents, activeAgentId, activeTaskId, tasks, onSelectAgent, onSelectTask, onNewTask }: Props) {
+export function IconRail({
+  sidebarOpen,
+  onToggleSidebar,
+  onNewTask,
+  onRefresh,
+}: {
+  sidebarOpen: boolean;
+  onToggleSidebar: () => void;
+  onNewTask: () => void;
+  onRefresh: () => void;
+}) {
+  return (
+    <div className="icon-rail no-print flex w-[46px] shrink-0 flex-col items-center gap-1.5 py-3">
+      <div
+        className="mb-1.5 flex h-8 w-8 items-center justify-center rounded-[10px] bg-night-950/45 text-[14px] font-bold text-white"
+        title="税务智能审查平台"
+      >
+        税
+      </div>
+      <button
+        type="button"
+        className="rail-btn"
+        data-on={sidebarOpen}
+        onClick={onToggleSidebar}
+        title={sidebarOpen ? "收起会话侧栏" : "展开会话侧栏"}
+      >
+        <IconPanel className="h-4 w-4" />
+      </button>
+      <button type="button" className="rail-btn" onClick={onNewTask} title="新建任务">
+        <IconPlus className="h-4 w-4" />
+      </button>
+      <button type="button" className="rail-btn" onClick={onRefresh} title="刷新任务列表">
+        <IconRefresh className="h-4 w-4" />
+      </button>
+      <div className="mt-auto flex flex-col items-center gap-2">
+        <span className="h-1.5 w-1.5 rounded-full bg-jade-400" title="后端服务已连接" />
+        <span className="text-[9px] font-semibold tracking-[0.08em] text-white/70">v1</span>
+      </div>
+    </div>
+  );
+}
+
+export function Sidebar({
+  agents,
+  activeAgentId,
+  activeTaskId,
+  tasks,
+  open,
+  onSelectAgent,
+  onSelectTask,
+  onNewTask,
+}: Props) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const q = query.trim().toLowerCase();
@@ -47,6 +99,7 @@ export function Sidebar({ agents, activeAgentId, activeTaskId, tasks, onSelectAg
       (statusFilter === "all" || t.status === statusFilter) &&
       (q === "" || t.title.toLowerCase().includes(q) || (t.instruction ?? "").toLowerCase().includes(q)),
   );
+  if (!open) return null;
   return (
     <aside className="no-print relative flex w-[268px] shrink-0 flex-col border-r border-line bg-night-950 text-mist-300">
       <div className="rail-gradient absolute inset-y-0 left-0 w-[3px]" aria-hidden />

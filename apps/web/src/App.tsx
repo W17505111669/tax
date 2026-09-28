@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api.ts";
 import type { AgentInfo, FileInfo, PlatformStats, TaskInfo } from "./types.ts";
-import { Sidebar } from "./components/Sidebar.tsx";
+import { IconRail, Sidebar } from "./components/Sidebar.tsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
 import { AgentOverview } from "./components/AgentOverview.tsx";
 import { NewTaskPanel } from "./components/NewTaskPanel.tsx";
@@ -36,6 +36,7 @@ export default function App() {
   const [backendDown, setBackendDown] = useState(false);
   const [platform, setPlatform] = useState<PlatformStats | null>(null);
   const [wbTab, setWbTab] = useState<WbTab>("timeline");
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const applyingHash = useRef(false);
 
   const refreshTasks = useCallback(async () => {
@@ -185,11 +186,18 @@ export default function App() {
   return (
     <ErrorBoundary>
       <div className="flex h-full">
+      <IconRail
+        sidebarOpen={sidebarOpen}
+        onToggleSidebar={() => setSidebarOpen((v) => !v)}
+        onNewTask={() => setActiveTaskId(null)}
+        onRefresh={() => void refreshTasks()}
+      />
       <Sidebar
         agents={agents}
         activeAgentId={activeAgentId}
         activeTaskId={activeTaskId}
         tasks={visibleTasks}
+        open={sidebarOpen}
         onSelectAgent={(id) => {
           setActiveAgentId(id);
           setActiveTaskId(null);
@@ -226,6 +234,12 @@ export default function App() {
                 completed: visibleTasks.filter((t) => t.status === "completed").length,
                 platform,
               }}
+              breakdown={{
+                processing: visibleTasks.filter((t) => t.status === "processing").length,
+                waiting_review: visibleTasks.filter((t) => t.status === "waiting_review").length,
+                completed: visibleTasks.filter((t) => t.status === "completed").length,
+                failed: visibleTasks.filter((t) => t.status === "failed").length,
+              }}
               onSelect={(id) => {
                 setActiveAgentId(id);
                 setActiveTaskId(null);
@@ -236,6 +250,11 @@ export default function App() {
         ) : (
           <div className="flex flex-1 items-center justify-center text-[13px] text-mist-600">正在加载智能体配置…</div>
         )}
+
+        <footer className="no-print flex shrink-0 items-center justify-between border-t border-line bg-night-950 px-6 py-1.5 text-[10.5px]">
+          <span className="font-medium tracking-[0.16em] text-glow-400/80">税务智能审查平台 · TAX AI NATIVE</span>
+          <span className="text-mist-600">Pi Agent SDK · Fastify · React · SSE 实时事件流</span>
+        </footer>
       </main>
       </div>
     </ErrorBoundary>

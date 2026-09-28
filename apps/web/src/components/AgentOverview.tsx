@@ -5,19 +5,32 @@ interface Props {
   agents: AgentInfo[];
   activeAgentId: string;
   stats: { tasks: number; completed: number; platform: PlatformStats | null };
+  breakdown: { processing: number; waiting_review: number; completed: number; failed: number };
   onSelect: (id: string) => void;
 }
 
-export function AgentOverview({ agents, activeAgentId, stats, onSelect }: Props) {
+export function AgentOverview({ agents, activeAgentId, stats, breakdown, onSelect }: Props) {
   const agent = agents.find((a) => a.id === activeAgentId);
   if (!agent) return null;
   const Icon = agent.id === "rd-audit" ? IconFlask : IconBuilding;
-
-  const kpis = [
-    { label: "业务工具", value: String(agent.tools.length), unit: "个" },
-    { label: "核心能力", value: String(agent.capabilities.length), unit: "项" },
-    { label: "历史任务", value: String(stats.tasks), unit: "个" },
-    { label: "已完成", value: String(stats.completed), unit: "个" },
+  const p = stats.platform;
+  const heroValue = p?.tasks ?? stats.tasks;
+  const bars = [
+    { label: "已完成", value: breakdown.completed },
+    { label: "执行中", value: breakdown.processing },
+    { label: "待复核", value: breakdown.waiting_review },
+    { label: "已中断", value: breakdown.failed },
+  ];
+  const barMax = Math.max(1, ...bars.map((b) => b.value));
+  const chips = [
+    {
+      label:
+        p && p.toolCalls > 0
+          ? `工具成功率 ${String(Math.round((p.toolOk / p.toolCalls) * 10000) / 100)}%`
+          : `业务工具 ${agent.tools.length} 个`,
+    },
+    { label: p ? `底稿产物 ${p.artifacts} 份` : `核心能力 ${agent.capabilities.length} 项` },
+    { label: p && p.compareAccuracy !== null ? `比对准确率 ${p.compareAccuracy}%` : `历史任务 ${stats.tasks} 个` },
   ];
 
   return (
@@ -37,16 +50,41 @@ export function AgentOverview({ agents, activeAgentId, stats, onSelect }: Props)
           </div>
         </div>
 
-        <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {kpis.map((kpi) => (
-            <div key={kpi.label} className="glow-card px-4 py-3">
-              <div className="text-[11px] text-mist-600">{kpi.label}</div>
-              <div className="mt-1 flex items-baseline gap-1">
-                <span className="text-[26px] font-semibold tracking-tight text-glow-300">{kpi.value}</span>
-                <span className="text-[11px] text-mist-600">{kpi.unit}</span>
-              </div>
+        <div className="mt-7 grid gap-8 lg:grid-cols-[300px_1fr]">
+          <div>
+            <div className="stat-hero">{heroValue}</div>
+            <div className="mt-1.5 text-[13px] font-medium text-mist-100">
+              累计审查任务
+              <span className="ml-2 text-[11px] font-normal text-mist-600">逐条 OCR · 行级定位</span>
             </div>
-          ))}
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {chips.map((c) => (
+                <span
+                  key={c.label}
+                  className="rounded-full border border-glow-500/35 bg-glow-500/10 px-2.5 py-1 text-[11px] text-glow-300"
+                >
+                  {c.label}
+                </span>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div className="kicker flex items-center justify-between">
+              <span>任务状态分布 · 件数</span>
+              <span>共 {stats.tasks} 件</span>
+            </div>
+            <ul className="mt-3 space-y-2.5">
+              {bars.map((b) => (
+                <li key={b.label} className="grid grid-cols-[56px_1fr_36px] items-center gap-3">
+                  <span className="text-[11.5px] text-mist-500">{b.label}</span>
+                  <span className="bar-track">
+                    <span className="bar-fill block" style={{ width: `${(b.value / barMax) * 100}%` }} />
+                  </span>
+                  <span className="text-right font-mono text-[11.5px] text-mist-300">{b.value}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
 
         {stats.platform && (
