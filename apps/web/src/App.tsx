@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api.ts";
 import type { AgentInfo, FileInfo, PlatformStats, TaskInfo } from "./types.ts";
 import { Sidebar } from "./components/Sidebar.tsx";
+import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
 import { AgentOverview } from "./components/AgentOverview.tsx";
 import { NewTaskPanel } from "./components/NewTaskPanel.tsx";
 import { TaskWorkbench } from "./components/TaskWorkbench.tsx";
@@ -182,7 +183,8 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-full">
+    <ErrorBoundary>
+      <div className="flex h-full">
       <Sidebar
         agents={agents}
         activeAgentId={activeAgentId}
@@ -235,6 +237,7 @@ export default function App() {
           <div className="flex flex-1 items-center justify-center text-[13px] text-mist-600">正在加载智能体配置…</div>
         )}
       </main>
-    </div>
+      </div>
+    </ErrorBoundary>
   );
 }

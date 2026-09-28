@@ -8,6 +8,7 @@ data/agent-home/*
 data/sessions/*
 data/ocr-cache/*
 data/ocr-tessdata/*
+data/evidence-*/*
 !data/**/.gitkeep
 *.log
 .DS_Store

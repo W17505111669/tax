@@ -51,7 +51,7 @@ interface Citation {
 }
 
 export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }: Props) {
-  const { timeline, toolCalls, status } = useTaskEvents(task.id);
+  const { timeline, toolCalls, status, connected } = useTaskEvents(task.id);
   const [compares, setCompares] = useState<CompareRecord[]>([]);
   const [issues, setIssues] = useState<TaskIssue[]>([]);
   const [reviews, setReviews] = useState<ReviewRecord[]>([]);
@@ -253,6 +253,14 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
             <span>案例 {task.caseId}</span>
             <span className="text-line">|</span>
             <span>工具调用 {toolCalls.length} 次</span>
+            <span className="text-line">|</span>
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-jade-400" : "bg-amber-400"}`}
+                title={connected ? "SSE 事件流已连接" : "SSE 事件流断开，自动重连中"}
+              />
+              {connected ? "事件流已连接" : "事件流重连中"}
+            </span>
             <span className="text-line">|</span>
             <span>{new Date(task.createdAt).toLocaleString("zh-CN", { hour12: false })}</span>
           </div>
