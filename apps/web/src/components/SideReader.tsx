@@ -746,6 +746,28 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
               行号
             </button>
           )}
+          <button
+            type="button"
+            className="action-btn"
+            title="复制当前视图状态（缩放/旋转/行号/搜索/排序）"
+            onClick={() =>
+              void navigator.clipboard
+                ?.writeText(
+                  JSON.stringify({
+                    key: activeKey,
+                    zoom,
+                    rot,
+                    fitWidth,
+                    showLines,
+                    find: findQuery,
+                    sort: Object.fromEntries(Object.entries(sort).filter(([k]) => k.startsWith(`${activeKey}:`))),
+                  }),
+                )
+                .catch(() => undefined)
+            }
+          >
+            复制状态
+          </button>
         </div>
       )}
 

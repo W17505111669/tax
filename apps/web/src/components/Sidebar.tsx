@@ -609,6 +609,9 @@ export function Sidebar({
                   }`}
                 >
                   #{t}
+                  <span className="ml-1 opacity-70">
+                    {Object.values(tagsMap).filter((arr) => arr.includes(t)).length}
+                  </span>
                 </button>
               ))}
             </div>
