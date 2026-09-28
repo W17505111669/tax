@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AgentInfo, TaskInfo } from "../types.ts";
 import { IconBuilding, IconFlask, IconPanel, IconPlus, IconRefresh } from "./Icons.tsx";
 
@@ -93,6 +93,20 @@ export function Sidebar({
 }: Props) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // Ctrl/Cmd+K 聚焦任务搜索
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
   const q = query.trim().toLowerCase();
   const filtered = tasks.filter(
     (t) =>
@@ -150,9 +164,10 @@ export function Sidebar({
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
         <div className="mb-2 px-1">
           <input
+            ref={searchRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索任务…"
+            placeholder="搜索任务…（Ctrl+K）"
             className="w-full rounded-md border border-line bg-night-850 px-2.5 py-1.5 text-[12px] text-mist-100 outline-none placeholder:text-mist-600 focus:glow-ring"
           />
           <div className="mt-1.5 flex flex-wrap gap-1">

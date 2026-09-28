@@ -230,6 +230,17 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
     if (el && tab === "timeline") el.scrollTop = el.scrollHeight;
   }, [timeline, tab]);
 
+  // Esc 依次收起续跑面板与侧边阅读器
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (resumeOpen) setResumeOpen(false);
+      else if (readerOpen) setReaderOpen(false);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [resumeOpen, readerOpen]);
+
   const download = (name: string, content: string) => {
     const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
