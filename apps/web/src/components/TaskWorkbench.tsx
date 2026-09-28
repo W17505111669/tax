@@ -247,6 +247,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
     return s >= 90 ? `${Math.round(s / 60)} 分钟` : `${s.toFixed(0)} 秒`;
   }, [timeline, running, tick]);
 
+  const runCount = useMemo(() => timeline.filter((t) => t.kind === "run_started").length, [timeline]);
+
   const toc = useMemo(
     () =>
       (finalResult.match(/^#{2,3} .+$/gm) ?? [])
@@ -327,6 +329,14 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
             <button type="button" onClick={() => void copyId()} title="复制任务 ID" className="action-btn shrink-0">
               {copied ? <span className="text-jade-400">已复制</span> : <IconCopy className="h-3.5 w-3.5" />}
             </button>
+            {runCount > 1 && (
+              <span
+                className="rounded border border-line bg-night-800 px-1.5 py-0.5 text-[11px] text-mist-600"
+                title="本任务含续跑运行次数"
+              >
+                第 {runCount} 次运行
+              </span>
+            )}
           </div>
           <div className="mt-0.5 flex items-center gap-2 text-[11.5px] text-mist-600">
             <span className="text-glow-300">{agent.shortName}</span>

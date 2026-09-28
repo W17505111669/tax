@@ -151,8 +151,8 @@ export function AgentOverview({ agents, activeAgentId, stats, breakdown, created
             <div className="kicker">平台应用效果 · 实时运行数据</div>
             <div className="mt-2 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
               {[
-                { label: "累计任务", value: String(stats.platform.tasks), unit: "个" },
-                { label: "已完成", value: String(stats.platform.completed), unit: "个" },
+                { label: "累计任务", value: stats.platform.tasks.toLocaleString("zh-CN"), unit: "个" },
+                { label: "已完成", value: stats.platform.completed.toLocaleString("zh-CN"), unit: "个" },
                 {
                   label: "工具成功率",
                   value:
@@ -161,7 +161,7 @@ export function AgentOverview({ agents, activeAgentId, stats, breakdown, created
                       : "—",
                   unit: "%",
                 },
-                { label: "底稿产物", value: String(stats.platform.artifacts), unit: "份" },
+                { label: "底稿产物", value: stats.platform.artifacts.toLocaleString("zh-CN"), unit: "份" },
                 {
                   label: "记录级比对准确率",
                   value: stats.platform.compareAccuracy !== null ? String(stats.platform.compareAccuracy) : "—",
