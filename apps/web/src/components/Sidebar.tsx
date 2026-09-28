@@ -111,6 +111,7 @@ export function IconRail({
                 { keys: "Esc", desc: "收起续跑面板 / 阅读器" },
                 { keys: "↑ / ↓", desc: "选择比对差异行" },
                 { keys: "Enter", desc: "阅读器双底稿定位" },
+                { keys: "Alt+1~4", desc: "切换工作台页签" },
               ].map((s) => (
                 <li key={s.keys} className="flex items-center justify-between gap-2">
                   <span>{s.desc}</span>

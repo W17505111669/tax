@@ -366,6 +366,19 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
     return () => window.removeEventListener("keydown", handler);
   }, [resumeOpen, readerOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Alt+1~4 切换工作台页签
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!e.altKey) return;
+      const idx = ["1", "2", "3", "4"].indexOf(e.key);
+      if (idx < 0) return;
+      e.preventDefault();
+      onTabChange((["timeline", "result", "compare", "review"] as const)[idx]!);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onTabChange]);
+
   const download = (name: string, content: string) => {
     const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -574,13 +587,14 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
                 ["compare", "底稿比对"],
                 ["review", "人工复核"],
               ] as const
-            ).map(([key, label]) => (
+            ).map(([key, label], tabIdx) => (
               <button
                 key={key}
                 type="button"
                 onClick={() => onTabChange(key)}
                 className="seg-tab"
                 data-on={tab === key}
+                title={`${label}（Alt+${tabIdx + 1}）`}
               >
                 {label}
                 {key === "review" && liveStatus === "waiting_review" && (

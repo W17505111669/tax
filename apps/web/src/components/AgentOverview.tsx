@@ -244,6 +244,7 @@ export function AgentOverview({
                     >
                       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${RECENT_DOT[r.status] ?? "bg-mist-600"}`} />
                       <span className="min-w-0 flex-1 truncate text-[12px] text-mist-300">{r.title}</span>
+                      <span className="shrink-0 text-[10px] text-mist-600">{RECENT_TEXT[r.status] ?? r.status}</span>
                       <span className="shrink-0 text-[10.5px] text-mist-600">{relTime(r.at)}</span>
                     </button>
                   </li>
@@ -401,6 +402,14 @@ const RECENT_DOT: Record<string, string> = {
   completed: "bg-jade-400",
   failed: "bg-rose-400",
   created: "bg-mist-600",
+};
+
+const RECENT_TEXT: Record<string, string> = {
+  processing: "执行中",
+  waiting_review: "待复核",
+  completed: "已完成",
+  failed: "已中断",
+  created: "待执行",
 };
 
 function relTime(iso: string): string {
