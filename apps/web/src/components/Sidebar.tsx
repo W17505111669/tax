@@ -195,6 +195,7 @@ export function Sidebar({
               key={task.id}
               type="button"
               onClick={() => onSelectTask(task.id)}
+              title={task.instruction ? `${task.title}\n${task.instruction.slice(0, 140)}` : task.title}
               className={`mb-1 block w-full rounded-lg px-2.5 py-2 text-left transition-colors ${
                 active ? "bg-night-700 glow-ring" : "hover:bg-night-800"
               }`}

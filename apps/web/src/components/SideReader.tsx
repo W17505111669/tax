@@ -75,7 +75,13 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onClose }:
   const active = tabs[activeIndex] ?? null;
   const activeKey = active ? readerKey(active) : "";
   const state = states[activeKey] ?? INITIAL;
-  const [group, setGroup] = useState<"refs" | "gens">("refs");
+  const [group, setGroup] = useState<"refs" | "gens">(() =>
+    localStorage.getItem("taxai-reader-group") === "gens" ? "gens" : "refs",
+  );
+  const chooseGroup = (g: "refs" | "gens") => {
+    setGroup(g);
+    localStorage.setItem("taxai-reader-group", g);
+  };
   const indexed = tabs.map((t, i) => ({ t, i }));
   const refs = indexed.filter((x) => x.t.kind !== "artifact");
   const gens = indexed.filter((x) => x.t.kind === "artifact");
@@ -84,7 +90,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onClose }:
   // 活动标签切换时自动归入对应分组
   useEffect(() => {
     if (!active) return;
-    setGroup(active.kind === "artifact" ? "gens" : "refs");
+    chooseGroup(active.kind === "artifact" ? "gens" : "refs");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeKey]);
 
@@ -207,10 +213,10 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onClose }:
       <header className="border-b border-line">
         <div className="flex items-center gap-2 px-3 pt-2">
           <div className="seg-tabs">
-            <button type="button" className="seg-tab" data-on={group === "refs"} onClick={() => setGroup("refs")}>
+            <button type="button" className="seg-tab" data-on={group === "refs"} onClick={() => chooseGroup("refs")}>
               引用文件{refs.length > 0 ? ` ${refs.length}` : ""}
             </button>
-            <button type="button" className="seg-tab" data-on={group === "gens"} onClick={() => setGroup("gens")}>
+            <button type="button" className="seg-tab" data-on={group === "gens"} onClick={() => chooseGroup("gens")}>
               文件生成{gens.length > 0 ? ` ${gens.length}` : ""}
             </button>
           </div>
