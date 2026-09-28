@@ -530,6 +530,15 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     }, 80);
   };
 
+  // 交付包里的产物溯源表：来源工具 + 所属运行（复用时间线导出的同一套时间窗判定）
+  const runWins = useMemo(() => runWindows(timeline), [timeline]);
+  const runOfArtifact = (name: string): number | null => {
+    const a = artifacts.find((x) => x.name === name);
+    if (!a) return null;
+    const w = runWins.find((x) => artifactsOfRun([a], x).length > 0);
+    return w ? w.run : null;
+  };
+
   const toc = useMemo(
     () =>
       (finalResult.match(/^#{2,3} .+$/gm) ?? [])
@@ -650,6 +659,24 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     "## 联网引用",
     "",
     ...(citations.length > 0 ? citations.map((c, i) => `${i + 1}. ${c.title}\n   ${c.url}`) : ["（本次任务无联网引用）"]),
+    "",
+    "## 生成产物与溯源",
+    "",
+    ...(artifacts.length > 0
+      ? [
+          "| 文件 | 大小 | 来源工具 | 关系 | 时间 | 所属运行 |",
+          "| --- | --- | --- | --- | --- | --- |",
+          ...artifacts.map((a) => {
+            const src = artSrc.get(a.name);
+            const run = runOfArtifact(a.name);
+            return `| ${a.name} | ${fmtBytes(a.byteSize)} | ${src?.toolName ?? "—"} | ${
+              src ? (src.role === "producer" ? "生成" : "引用") : "未识别"
+            } | ${src ? new Date(src.at).toLocaleString("zh-CN", { hour12: false }) : "—"} | ${
+              run !== null ? `第 ${run} 次` : "—"
+            } |`;
+          }),
+        ]
+      : ["（本次任务无生成产物）"]),
     "",
   ];
 
@@ -2420,7 +2447,12 @@ function ResultView({
           <IconPrint className="h-3.5 w-3.5" />
           打印 / PDF
         </button>
-        <button type="button" className="action-btn" onClick={onExportBundle} title="导出元信息+目录+结论+引用单文件">
+        <button
+          type="button"
+          className="action-btn"
+          onClick={onExportBundle}
+          title="导出元信息 + 目录 + 结论 + 引用 + 产物溯源表的单文件"
+        >
           <IconDownload className="h-3.5 w-3.5" />
           导出整页
         </button>
