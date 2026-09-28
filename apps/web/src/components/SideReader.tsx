@@ -76,6 +76,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [reload, setReload] = useState(0);
   const [zoom, setZoom] = useState(1);
+  const [showLines, setShowLines] = useState(false);
   const active = tabs[activeIndex] ?? null;
   const activeKey = active ? readerKey(active) : "";
   const state = states[activeKey] ?? INITIAL;
@@ -108,6 +109,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   // 切换标签时重置缩放
   useEffect(() => {
     setZoom(1);
+    setShowLines(false);
   }, [activeKey]);
 
   useEffect(() => {
@@ -298,6 +300,17 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
         <div className="flex items-center gap-2 border-b border-line px-4 py-1.5">
           <span className="kicker">版式</span>
           <ThemeSwitch />
+          {state.kind === "text" && (
+            <button
+              type="button"
+              className="action-btn ml-auto"
+              data-on={showLines}
+              onClick={() => setShowLines((v) => !v)}
+              title="切换行号显示"
+            >
+              行号
+            </button>
+          )}
         </div>
       )}
 
@@ -387,7 +400,14 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
               <MarkdownView text={state.markdown} />
             ) : (
               <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-gray-700">
-                {state.text}
+                {showLines
+                  ? state.text.split("\n").map((ln, i) => (
+                      <div key={i} className="grid grid-cols-[3ch_1fr] gap-2">
+                        <span className="select-none text-right text-gray-400">{i + 1}</span>
+                        <span className="whitespace-pre-wrap">{ln}</span>
+                      </div>
+                    ))
+                  : state.text}
               </pre>
             )}
           </div>

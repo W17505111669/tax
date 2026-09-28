@@ -21,16 +21,22 @@ interface Props {
 }
 
 export function CompareView({ compares, onOpenTarget }: Props) {
+  const [sel, setSel] = useState<number | null>(null);
+  const [kindFilter, setKindFilter] = useState<"all" | "mismatch" | "only_a" | "only_b">("all");
   const flat = useMemo(
     () =>
       compares.flatMap((rec) =>
         rec.result?.totals
-          ? rec.result.sheets.flatMap((s) => s.diffs.map((d) => ({ rec, addr: d.address })))
+          ? rec.result.sheets.flatMap((s) =>
+              (kindFilter === "all" ? s.diffs : s.diffs.filter((d) => d.kind === kindFilter)).map((d) => ({
+                rec,
+                addr: d.address,
+              })),
+            )
           : [],
       ),
-    [compares],
+    [compares, kindFilter],
   );
-  const [sel, setSel] = useState<number | null>(null);
 
   // ↑/↓ 选择差异行，Enter 在阅读器中打开双底稿定位
   useEffect(() => {
@@ -112,6 +118,32 @@ export function CompareView({ compares, onOpenTarget }: Props) {
       {flat.length > 0 && (
         <div className="text-[11px] text-mist-600">↑/↓ 选择差异行 · Enter 在阅读器中打开双底稿并定位</div>
       )}
+      <div className="flex flex-wrap gap-1.5">
+        {(
+          [
+            ["all", "全部"],
+            ["mismatch", "差异"],
+            ["only_a", "仅系统"],
+            ["only_b", "仅人工"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => {
+              setKindFilter(id);
+              setSel(null);
+            }}
+            className={`rounded-full border px-2.5 py-0.5 text-[11px] transition-colors ${
+              kindFilter === id
+                ? "border-glow-500 bg-glow-500/15 text-glow-300"
+                : "border-line bg-night-850 text-mist-500 hover:text-mist-100"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       {compares.map((rec) => {
         const t = rec.result?.totals;
         if (!t) return null;
@@ -188,6 +220,8 @@ export function CompareView({ compares, onOpenTarget }: Props) {
                     <IconCheck className="h-3.5 w-3.5" />
                     该工作表全部比对项一致
                   </div>
+                ) : (kindFilter === "all" ? s.diffs : s.diffs.filter((d) => d.kind === kindFilter)).length === 0 ? (
+                  <div className="mt-2 text-[12px] text-mist-600">当前筛选类型下无差异行</div>
                 ) : (
                   <div className="mt-2 overflow-x-auto">
                     <table className="w-full border-collapse text-[12px]">
@@ -204,7 +238,7 @@ export function CompareView({ compares, onOpenTarget }: Props) {
                         </tr>
                       </thead>
                       <tbody>
-                      {s.diffs.map((d, i) => {
+                      {(kindFilter === "all" ? s.diffs : s.diffs.filter((d) => d.kind === kindFilter)).map((d, i) => {
                         const meta = KIND_META[d.kind];
                         const idx = (cursor += 1);
                         return (
