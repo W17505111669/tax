@@ -23,6 +23,7 @@ import { amountKey, traceAmounts } from "../amount-trace.ts";
 import { reviewSection } from "../review-export.ts";
 import { deliveryCheck, deliverySection, type CheckInput, type CheckResult } from "../delivery-check.ts";
 import { linkVerdict, summarizeLinkChecks, VERDICT_HINT, VERDICT_TEXT, type LinkSummary } from "../link-check.ts";
+import { parsedByFileName, parseStatusText } from "../file-parse.ts";
 import { CompareView } from "./CompareView.tsx";
 import { ThemeSwitch } from "./ThemeSwitch.tsx";
 import { ReviewView } from "./ReviewView.tsx";
@@ -809,6 +810,12 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
 
   // 链接核验汇总：可访问 / 失效 / 拒绝自动访问（反爬）/ 无法核验，四类分开计数
   const linkSummary = useMemo(() => summarizeLinkChecks(Object.values(linkChecks)), [linkChecks]);
+
+  // 上传资料的解析摘要：来自 parse_uploaded_files 的真实返回，按文件名对应
+  const fileParsed = useMemo(
+    () => parsedByFileName(toolCalls.map((c) => ({ toolName: c.toolName, result: c.result }))),
+    [toolCalls],
+  );
 
   // 交付自检输入：结论字数、产物与溯源、工具调用结果、待复核与联网引用
   const deliveryInput = (): CheckInput => ({
@@ -1748,24 +1755,57 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
             <p className="mt-1.5 text-[12px] text-mist-600">本任务未上传资料</p>
           ) : (
             <ul className="mt-1.5 space-y-1">
-              {files.map((f) => (
-                <li key={f.id}>
-                  <button
-                    type="button"
-                    onClick={() => openReader({ kind: "file", taskId: task.id, fileId: f.id, name: f.fileName })}
-                    className="flex w-full items-start gap-2 rounded border border-line bg-night-850 px-2 py-1.5 text-left transition-colors hover:border-glow-500"
-                    title="在侧边阅读器中预览"
-                  >
-                    <IconFile className="mt-0.5 h-3.5 w-3.5 shrink-0 text-glow-400" />
-                    <span className="min-w-0">
-                      <span className="block truncate text-[12px] text-mist-300">{f.fileName}</span>
-                      <span className="block text-[11px] text-mist-600">
-                        {(f.byteSize / 1024).toFixed(1)} KB · {f.parseStatus}
+              {files.map((f) => {
+                const p = fileParsed.get(f.fileName);
+                const detail =
+                  p?.kind === "sheets"
+                    ? `${p.sheetCount} 个工作表 · ${p.rowCount} 行 · 最多 ${p.columnCount} 列`
+                    : p?.kind === "ocr"
+                      ? `OCR ${p.ocrProvider || "引擎"} · 置信度 ${
+                          p.ocrConfidence !== null ? `${p.ocrConfidence.toFixed(1)}%` : "—"
+                        }`
+                      : p
+                        ? "已解析"
+                        : "尚无解析结果";
+                return (
+                  <li key={f.id}>
+                    <button
+                      type="button"
+                      onClick={() => openReader({ kind: "file", taskId: task.id, fileId: f.id, name: f.fileName })}
+                      className="flex w-full items-start gap-2 rounded border border-line bg-night-850 px-2 py-1.5 text-left transition-colors hover:border-glow-500"
+                      title={`在侧边阅读器中预览\n解析：${detail}${p?.preview ? `\n摘录：${p.preview}` : ""}`}
+                    >
+                      <IconFile className="mt-0.5 h-3.5 w-3.5 shrink-0 text-glow-400" />
+                      <span className="min-w-0">
+                        <span className="block truncate text-[12px] text-mist-300">{f.fileName}</span>
+                        <span className="block text-[11px] text-mist-600">
+                          {fmtBytes(f.byteSize)} ·{" "}
+                          <span
+                            className={
+                              f.parseStatus === "failed"
+                                ? "text-rose-300"
+                                : f.parseStatus === "parsed"
+                                  ? "text-jade-300"
+                                  : "text-mist-500"
+                            }
+                          >
+                            {parseStatusText(f.parseStatus)}
+                          </span>
+                          {p ? ` · ${detail}` : ""}
+                        </span>
+                        {f.businessCategory && (
+                          <span className="block truncate text-[10.5px] text-mist-600">
+                            分类：{f.businessCategory}
+                          </span>
+                        )}
+                        {p?.preview && (
+                          <span className="block truncate text-[10.5px] text-mist-600">摘录：{p.preview}</span>
+                        )}
                       </span>
-                    </span>
-                  </button>
-                </li>
-              ))}
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           )}
 

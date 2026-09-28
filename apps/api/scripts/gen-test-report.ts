@@ -69,6 +69,11 @@ const VERIFY_SCRIPTS: Array<{ name: string; cmd: string; scope: string }> = [
     cmd: "pnpm verify:links",
     scope: "引用链接核验分级（可访问 / 反爬拒绝 / 失效 / 无法核验）",
   },
+  {
+    name: "verify:fileparse",
+    cmd: "pnpm verify:fileparse",
+    scope: "上传资料解析摘要（状态中文化 / 表格与 OCR 摘要 / 按文件名汇总）",
+  },
 ];
 
 function runVerify(cmd: string): { pass: boolean; output: string } {

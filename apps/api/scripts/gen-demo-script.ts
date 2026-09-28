@@ -104,7 +104,7 @@ const scenes: Array<{
     tab: "timeline",
     talk: "上传 Excel 辅助账 → parse_uploaded_files 结构化 → generate_workpaper 生成底稿 → 产物栏预览。",
     expect:
-      "工具链四连（含耗时）、生成产物列表（每份产物标出大小与「由哪个工具在何时生成」，点「定位」跳到时间线对应调用）、阅读器「文件生成」分组与 Excel 表格预览。",
+      "工具链四连（含耗时）、业务资料面板的解析摘要（已解析 · N 个工作表 · M 行）、生成产物列表（每份产物标出大小与「由哪个工具在何时生成」，点「定位」跳到时间线对应调用）、阅读器「文件生成」分组与 Excel 表格预览。",
     seconds: 50,
   },
   {
@@ -112,7 +112,8 @@ const scenes: Array<{
     task: pick((t) => t.hasImageFile && t.tools.has("parse_uploaded_files")),
     tab: "timeline",
     talk: "tesseract.js 本地引擎识别中文扫描件，返回置信度；无文本层 PDF 的降级提示。",
-    expect: "parse_uploaded_files 行与 OCR 文本摘录。",
+    expect:
+      "parse_uploaded_files 行、业务资料面板上的 OCR 引擎与置信度（如 tesseract 92.3%）、文本摘录与解析状态中文化。",
     seconds: 35,
   },
   {
