@@ -2,6 +2,7 @@ import Fastify, { type FastifyError } from "fastify";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import { apiHost, apiPort, maxUploadBytes } from "./config.ts";
+import { db } from "./db.ts";
 import { agentsRoutes } from "./routes/agents.ts";
 import { taskRoutes } from "./routes/tasks.ts";
 import { readerRoutes } from "./routes/reader.ts";
@@ -28,6 +29,12 @@ app.setErrorHandler((error: FastifyError, _req, reply) => {
     error: error.message,
   });
 });
+
+// 服务重启后不可能还有正在运行的 Agent，把残留的 processing 任务标记为中断，避免前端永远转圈
+const stale = db
+  .prepare(`UPDATE tasks SET status = 'failed', error = COALESCE(error, '服务重启导致执行中断'), updated_at = ? WHERE status = 'processing'`)
+  .run(new Date().toISOString());
+if (Number(stale.changes) > 0) app.log.warn(`已将 ${stale.changes} 个中断任务标记为 failed`);
 
 try {
   await app.listen({ port: apiPort, host: apiHost });
