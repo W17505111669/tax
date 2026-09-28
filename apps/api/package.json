@@ -16,6 +16,7 @@
     "verify:artsrc": "tsx scripts/verify-artifact-sources.ts",
     "verify:revexp": "tsx scripts/verify-review-export.ts",
     "verify:rtools": "tsx scripts/verify-run-tools.ts",
+    "verify:dcheck": "tsx scripts/verify-delivery-check.ts",
     "case:run": "tsx scripts/run-case.ts"
   },
   "dependencies": {

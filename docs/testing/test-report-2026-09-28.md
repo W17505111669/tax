@@ -30,6 +30,7 @@
 | `pnpm verify:artsrc` | 产物溯源（生成产物与工具调用的确定性对应） | PASS |
 | `pnpm verify:rtools` | 工具调用清单（按运行分组 / 入参摘要 / 耗时 / 汇总） | PASS |
 | `pnpm verify:revexp` | 人工复核记录导出（计数与后端同口径 / 转义 / 状态提示） | PASS |
+| `pnpm verify:dcheck` | 交付自检分级规则（阻断 / 提醒 / 可交付）与真实任务走查 | PASS |
 
 ## 三、真实任务台账
 

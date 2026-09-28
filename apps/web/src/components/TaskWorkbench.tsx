@@ -11,6 +11,7 @@ import { artifactsOfRun, artifactTable, fmtBytes, runWindows, unattributedArtifa
 import { artifactSources } from "../artifact-sources.ts";
 import { callStats, callsByRun, durationMs, fmtDuration, summarizeArgs } from "../run-tools.ts";
 import { reviewSection } from "../review-export.ts";
+import { deliveryCheck, deliverySection, type CheckInput, type CheckResult } from "../delivery-check.ts";
 import { CompareView } from "./CompareView.tsx";
 import { ThemeSwitch } from "./ThemeSwitch.tsx";
 import { ReviewView } from "./ReviewView.tsx";
@@ -642,6 +643,24 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   const doneCount = steps.filter((s) => s.state === "done").length;
 
   // 整页 MD 包行（下载与复制共用）
+  // 交付自检输入：结论字数、产物与溯源、工具调用结果、待复核与联网引用
+  const deliveryInput = (): CheckInput => ({
+    status: reopened ? "waiting_review" : task.status,
+    resultChars: finalResult.trim().length,
+    artifacts: artifacts.length,
+    unattributedArtifacts: artifacts.filter((a) => !artSrc.has(a.name)).length,
+    toolTotal: toolCalls.length,
+    toolFailed: toolCalls.filter((c) => c.ok === false).length,
+    toolRunning: toolCalls.filter((c) => c.ok === null).length,
+    pendingReview: pendingReviews,
+    citations: citations.length,
+  });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const delivery = useMemo(
+    () => deliveryCheck(deliveryInput()),
+    [reopened, task.status, finalResult, artifacts, artSrc, toolCalls, pendingReviews, citations],
+  );
+
   // 交付包里的工具调用清单：按运行分组，含结果、耗时与入参摘要（表格单元格已做竖线/换行安全化）
   const toolCallSection = (): string[] => {
     if (toolCalls.length === 0) return ["（本次任务没有工具调用记录）"];
@@ -679,6 +698,10 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     `- 智能体：${agent.shortName}${agent.model ? `（${agent.model}）` : ""}`,
     `- 案例：${task.caseId}　状态：${liveStatus}　运行次数：${runCount}`,
     `- 创建：${new Date(task.createdAt).toLocaleString("zh-CN", { hour12: false })}　导出：${new Date().toLocaleString("zh-CN", { hour12: false })}`,
+    "",
+    "## 交付自检",
+    "",
+    ...deliverySection(deliveryInput()),
     "",
     "## 目录",
     "",
@@ -1377,6 +1400,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
               onPrint={() => window.print()}
                 fs={fs}
                 onFs={setFs}
+                delivery={delivery}
                 onCopyBundle={() =>
                   void navigator.clipboard?.writeText(bundleLines().join("\n")).catch(() => undefined)
                 }
@@ -2409,6 +2433,7 @@ function ResultView({
   onDownloadBibtex,
   onCopyBibtex,
   onCopyBundle,
+  delivery,
   onPrint,
   fs,
   onFs,
@@ -2424,6 +2449,7 @@ function ResultView({
   onDownloadBibtex: () => void;
   onCopyBibtex: () => void;
   onCopyBundle: () => void;
+  delivery: CheckResult;
   onPrint: () => void;
   fs: "sm" | "md" | "lg";
   onFs: (v: "sm" | "md" | "lg") => void;
@@ -2483,6 +2509,20 @@ function ResultView({
           <IconCopy className="h-3.5 w-3.5" />
           复制 HTML
         </button>
+        <span
+          className={`rounded px-1.5 py-0.5 text-[10.5px] ${
+            delivery.verdict === "可交付"
+              ? "bg-jade-400/15 text-jade-300"
+              : delivery.verdict === "谨慎交付"
+                ? "bg-amber-400/15 text-amber-300"
+                : "bg-rose-400/15 text-rose-300"
+          }`}
+          title={`交付自检：阻断 ${delivery.blocks} 项 · 提醒 ${delivery.warns} 项\n${delivery.items
+            .map((x) => `${x.level === "block" ? "✗" : x.level === "warn" ? "!" : "✓"} ${x.text}`)
+            .join("\n")}`}
+        >
+          交付自检：{delivery.verdict}
+        </span>
         <button type="button" className="action-btn" onClick={onPrint}>
           <IconPrint className="h-3.5 w-3.5" />
           打印 / PDF

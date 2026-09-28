@@ -54,6 +54,11 @@ const VERIFY_SCRIPTS: Array<{ name: string; cmd: string; scope: string }> = [
     cmd: "pnpm verify:revexp",
     scope: "人工复核记录导出（计数与后端同口径 / 转义 / 状态提示）",
   },
+  {
+    name: "verify:dcheck",
+    cmd: "pnpm verify:dcheck",
+    scope: "交付自检分级规则（阻断 / 提醒 / 可交付）与真实任务走查",
+  },
 ];
 
 function runVerify(cmd: string): { pass: boolean; output: string } {

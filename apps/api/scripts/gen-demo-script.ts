@@ -85,7 +85,8 @@ const scenes: Array<{
     task: pick((t) => t.agentId === "rd-audit" && t.tools.has("calculate_rd_adjustment") && t.tools.has("check_rd_expenses")),
     tab: "result",
     talk: "Agent 调用核查与测算工具；强调金额全部由 TypeScript 工具以整数分计算，模型零口算。",
-    expect: "居中对话列与分段页签、执行时间线工具折叠行（含耗时）、引用来源胶囊与复制/重新生成操作行、审查结论 Markdown 表格与 mermaid 图。",
+    expect:
+      "居中对话列与分段页签、执行时间线工具折叠行（含耗时）、引用来源胶囊与复制/重新生成操作行、结果页操作行的「交付自检」结论徽章（阻断/提醒分级，悬停展开清单）、审查结论 Markdown 表格与 mermaid 图。",
     seconds: 50,
   },
   {
