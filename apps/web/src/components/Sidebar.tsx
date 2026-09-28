@@ -134,7 +134,18 @@ export function Sidebar({
 }: Props) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("taxai-sidebar-groups") ?? "{}") as Record<string, boolean>;
+    } catch {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem("taxai-sidebar-groups", JSON.stringify(collapsed));
+  }, [collapsed]);
+
   const searchRef = useRef<HTMLInputElement>(null);
 
   // Ctrl/Cmd+K 聚焦任务搜索

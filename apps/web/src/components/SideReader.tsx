@@ -64,14 +64,16 @@ interface Props {
   activeIndex: number;
   onSelect: (index: number) => void;
   onCloseTab: (index: number) => void;
+  onReorder: (from: number, to: number) => void;
   onClose: () => void;
 }
 
 /** 侧边可折叠阅读器：支持多文档标签页，网页阅读模式、任务资料与生成产物统一预览。 */
-export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onClose }: Props) {
+export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder, onClose }: Props) {
   const [states, setStates] = useState<Record<string, ReaderState>>({});
   const { theme } = usePaperTheme();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
   const active = tabs[activeIndex] ?? null;
   const activeKey = active ? readerKey(active) : "";
   const state = states[activeKey] ?? INITIAL;
@@ -238,6 +240,15 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onClose }:
             return (
               <div
                 key={key}
+                draggable
+                onDragStart={() => setDragIdx(i)}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (dragIdx !== null && dragIdx !== i) onReorder(dragIdx, i);
+                  setDragIdx(null);
+                }}
+                onDragEnd={() => setDragIdx(null)}
                 className={`group flex shrink-0 items-center gap-1.5 border-r border-line px-3 py-2 ${
                   isActive ? "bg-night-800 text-mist-100" : "text-mist-600 hover:bg-night-900 hover:text-mist-300"
                 }`}

@@ -120,6 +120,24 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
     lastFocusRef.current?.focus?.();
   };
 
+  // 拖拽排序阅读器标签页，active 索引随之平移
+  const reorderTabs = (from: number, to: number) => {
+    setReaderTabs((prev) => {
+      if (from === to || from < 0 || to < 0 || from >= prev.length || to >= prev.length) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      if (!moved) return prev;
+      next.splice(to, 0, moved);
+      return next;
+    });
+    setReaderActive((a) => {
+      if (a === from) return to;
+      if (from < to && a > from && a <= to) return a - 1;
+      if (from > to && a < from && a >= to) return a + 1;
+      return a;
+    });
+  };
+
   useEffect(() => {
     let cancelled = false;
     const load = () => {
@@ -672,6 +690,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
             activeIndex={readerActive}
             onSelect={setReaderActive}
             onCloseTab={closeTab}
+            onReorder={reorderTabs}
             onClose={closeReader}
           />
         )}
