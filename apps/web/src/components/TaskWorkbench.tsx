@@ -67,6 +67,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
   const [resumeFiles, setResumeFiles] = useState<File[]>([]);
   const [resumeBusy, setResumeBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const pinnedRef = useRef(true);
+  const [showJump, setShowJump] = useState(false);
 
   const liveStatus = status === "created" ? task.status : status;
   const meta = STATUS_META[liveStatus] ?? STATUS_META.created!;
@@ -225,9 +227,21 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
     }));
   }, [timeline, toolCalls, liveStatus, running]);
 
+  // 切换页签时回到底部并恢复钉底跟随
+  useEffect(() => {
+    if (tab === "timeline") {
+      pinnedRef.current = true;
+      const el = scrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    }
+    setShowJump(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
+  // 仅钉底时自动跟随流式输出，用户上滚阅读历史不被打断
   useEffect(() => {
     const el = scrollRef.current;
-    if (el && tab === "timeline") el.scrollTop = el.scrollHeight;
+    if (el && tab === "timeline" && pinnedRef.current) el.scrollTop = el.scrollHeight;
   }, [timeline, tab]);
 
   // Esc 依次收起续跑面板与侧边阅读器
@@ -406,7 +420,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
       </div>
 
       <div className="flex min-h-0 flex-1 gap-0">
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="relative flex min-w-0 flex-1 flex-col">
           <div className="no-print flex justify-center border-b border-line bg-night-950 py-2">
             <div className="seg-tabs">
             {(
@@ -445,7 +459,17 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
             </div>
           </div>
 
-          <div ref={scrollRef} className="print-scroll min-h-0 flex-1 overflow-y-auto px-6 py-5">
+          <div
+            ref={scrollRef}
+            onScroll={() => {
+              const el = scrollRef.current;
+              if (!el) return;
+              const pinned = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+              pinnedRef.current = pinned;
+              setShowJump(!pinned && tab === "timeline");
+            }}
+            className="print-scroll min-h-0 flex-1 overflow-y-auto px-6 py-5"
+          >
             <div className="chat-col mx-auto">
             {tab === "timeline" && (
               <TimelineView
@@ -489,6 +513,21 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
             )}
             </div>
           </div>
+          {showJump && (
+            <button
+              type="button"
+              onClick={() => {
+                const el = scrollRef.current;
+                if (!el) return;
+                el.scrollTop = el.scrollHeight;
+                pinnedRef.current = true;
+                setShowJump(false);
+              }}
+              className="no-print absolute bottom-4 right-6 z-10 rounded-full border border-glow-500/50 bg-night-800/95 px-3 py-1.5 text-[11.5px] text-glow-300 shadow-lg transition-colors hover:bg-night-700"
+            >
+              回到最新 ↓
+            </button>
+          )}
         </div>
 
         <aside
