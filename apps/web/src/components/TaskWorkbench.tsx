@@ -1325,6 +1325,48 @@ function TimelineView({
     [toolStats, statsSort],
   );
 
+  // 事件列表序列化为 Markdown 行（工具入参/返回截断 2000 字）
+  const buildMd = (list: TItem[]): string[] => {
+    const lines: string[] = [];
+    const counters: Record<string, number> = {};
+    for (const it of list) {
+      if (it.kind === "tool_start") {
+        const name = String((it.payload as { toolName?: string } | undefined)?.toolName ?? "");
+        const idx = counters[name] ?? 0;
+        counters[name] = idx + 1;
+        const call = toolCalls.filter((c) => c.toolName === name)[idx];
+        lines.push(
+          `## ${it.at} 工具 ${name}（${!call || call.ok === null ? "执行中" : call.ok ? "成功" : "失败"}）`,
+          "",
+          "```json",
+          JSON.stringify(call?.args ?? null, null, 2).slice(0, 2000),
+          "```",
+          "",
+        );
+        if (call && call.ok !== null) {
+          lines.push("返回：", "", "```json", JSON.stringify(call.result, null, 2).slice(0, 2000), "```", "");
+        }
+      } else if (it.kind === "agent_text") {
+        lines.push(`## ${it.at} 结论输出`, "", it.detail ?? "", "");
+      } else {
+        lines.push(`- ${it.at} ${it.title}${it.detail ? `：${it.detail}` : ""}`);
+      }
+    }
+    return lines;
+  };
+
+  const downloadRun = (runIdx: number) => {
+    const list = items.filter((_, i2) => runInfo.of[i2] === runIdx);
+    const lines = [`# 第 ${runIdx} 次运行时间线`, "", `- 事件数 ${list.length}`, "", ...buildMd(list)];
+    const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `运行${runIdx}-时间线-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "")}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   type TItem = (typeof items)[number];
   const isVisible = (it: TItem) => {
     if (view === "tools" && it.kind !== "tool_start" && it.kind !== "run_started") return false;
@@ -1475,33 +1517,7 @@ function TimelineView({
               `- 事件数 ${items.filter(isVisible).length}/${items.length}`,
               "",
             ];
-            const counters: Record<string, number> = {};
-            for (const it of items) {
-              if (it.kind === "tool_start") {
-                const name = String((it.payload as { toolName?: string } | undefined)?.toolName ?? "");
-                const idx = counters[name] ?? 0;
-                counters[name] = idx + 1;
-                if (!isVisible(it)) continue;
-                const call = toolCalls.filter((c) => c.toolName === name)[idx];
-                lines.push(
-                  `## ${it.at} 工具 ${name}（${!call || call.ok === null ? "执行中" : call.ok ? "成功" : "失败"}）`,
-                  "",
-                  "```json",
-                  JSON.stringify(call?.args ?? null, null, 2).slice(0, 2000),
-                  "```",
-                  "",
-                );
-                if (call && call.ok !== null) {
-                  lines.push("返回：", "", "```json", JSON.stringify(call.result, null, 2).slice(0, 2000), "```", "");
-                }
-              } else if (it.kind === "agent_text") {
-                if (!isVisible(it)) continue;
-                lines.push(`## ${it.at} 结论输出`, "", it.detail ?? "", "");
-              } else {
-                if (!isVisible(it)) continue;
-                lines.push(`- ${it.at} ${it.title}${it.detail ? `：${it.detail}` : ""}`);
-              }
-            }
+            lines.push(...buildMd(items.filter(isVisible)));
             const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
@@ -1645,15 +1661,24 @@ function TimelineView({
         if (collapseOld && runIdx > 0 && runIdx < runInfo.max && !expandedRuns.has(runIdx)) {
           if (item.kind === "run_started") {
             return (
-              <button
-                key={item.id}
-                type="button"
-                className="action-btn w-full justify-between"
-                onClick={() => setExpandedRuns((prev) => new Set(prev).add(runIdx))}
-              >
-                第 {runIdx} 次运行 · {runInfo.counts[runIdx] ?? 0} 事件（已折叠）
-                <span className="ml-2">点击展开 ▸</span>
-              </button>
+              <div key={item.id} className="flex items-center gap-1">
+                <button
+                  type="button"
+                  className="action-btn flex-1 justify-between"
+                  onClick={() => setExpandedRuns((prev) => new Set(prev).add(runIdx))}
+                >
+                  第 {runIdx} 次运行 · {runInfo.counts[runIdx] ?? 0} 事件（已折叠）
+                  <span className="ml-2">点击展开 ▸</span>
+                </button>
+                <button
+                  type="button"
+                  className="action-btn"
+                  title="导出本次运行时间线 MD"
+                  onClick={() => downloadRun(runIdx)}
+                >
+                  <IconDownload className="h-3 w-3" />
+                </button>
+              </div>
             );
           }
           return null;
