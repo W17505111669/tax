@@ -520,6 +520,7 @@ export function Sidebar({
           const list = sortByOrder(filtered.filter((t) => t.status === g.id && !starred.has(t.id)));
           if (list.length === 0) return null;
           const closed = collapsed[g.id] ?? false;
+          const toolSum = list.reduce((a, t) => a + (t.toolCount ?? 0), 0);
           return (
             <div key={g.id} className="mb-1">
               <button
@@ -537,7 +538,10 @@ export function Sidebar({
                 <span className={`chev text-[9px] ${closed ? "" : "rotate-90"}`}>▶</span>
                 <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[g.id] ?? "bg-mist-600"}`} />
                 {g.label}
-                <span className="ml-auto font-mono text-[10px]">{list.length}</span>
+                <span className="ml-auto font-mono text-[10px]" title={`组内任务 ${list.length} 件 · 工具调用合计 ${toolSum}`}>
+                  {list.length}
+                  <span className="ml-1 opacity-70">Σ{toolSum}</span>
+                </span>
               </button>
               {!closed && list.map((task) => renderTaskRow(task))}
             </div>

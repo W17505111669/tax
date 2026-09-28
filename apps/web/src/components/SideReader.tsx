@@ -582,6 +582,10 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
           >
             复制全文
           </button>
+          <span className="shrink-0 text-[10.5px] text-mist-600">
+            {(state.kind === "text" ? state.text : state.markdown).split("\n").length} 行 ·{" "}
+            {(state.kind === "text" ? state.text : state.markdown).length} 字
+          </span>
           {(state.kind === "text" || state.kind === "markdown") && (
             <>
               <input
