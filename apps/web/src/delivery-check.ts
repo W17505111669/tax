@@ -15,6 +15,10 @@ export type CheckInput = {
   toolRunning: number;
   pendingReview: number;
   citations: number;
+  /** 结论中识别出的金额处数（金额溯源） */
+  amountTotal: number;
+  /** 其中在工具结果与客户指令里都找不到出处的处数 */
+  amountUntraced: number;
 };
 
 export type CheckLevel = "block" | "warn" | "ok";
@@ -59,6 +63,15 @@ export function deliveryCheck(i: CheckInput): CheckResult {
   }
   if (i.artifacts > 0 && i.unattributedArtifacts === 0) {
     items.push({ level: "ok", text: `产物 ${i.artifacts} 份，均可溯源到生成它的工具调用` });
+  }
+
+  if (i.amountUntraced > 0) {
+    items.push({
+      level: "warn",
+      text: `${i.amountUntraced} 处结论金额未在工具结果与客户指令中找到出处，需人工确认是否为推算值`,
+    });
+  } else if (i.amountTotal > 0) {
+    items.push({ level: "ok", text: `结论金额 ${i.amountTotal} 处均可溯源到工具结果或客户指令` });
   }
 
   if (i.citations > 0) items.push({ level: "ok", text: `联网引用 ${i.citations} 条` });

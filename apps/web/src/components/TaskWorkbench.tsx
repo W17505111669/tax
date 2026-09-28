@@ -9,7 +9,8 @@ import { loadTags, saveTags } from "../tags.ts";
 import { matchToolCalls } from "../timeline-calls.ts";
 import { artifactsOfRun, artifactTable, fmtBytes, runWindows, unattributedArtifacts } from "../run-artifacts.ts";
 import { artifactSources } from "../artifact-sources.ts";
-import { callStats, callsByRun, durationMs, fmtDuration, summarizeArgs } from "../run-tools.ts";
+import { callStats, callsByRun, durationMs, fmtDuration, mdCell, summarizeArgs } from "../run-tools.ts";
+import { traceAmounts } from "../amount-trace.ts";
 import { reviewSection } from "../review-export.ts";
 import { deliveryCheck, deliverySection, type CheckInput, type CheckResult } from "../delivery-check.ts";
 import { CompareView } from "./CompareView.tsx";
@@ -643,6 +644,17 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   const doneCount = steps.filter((s) => s.state === "done").length;
 
   // 整页 MD 包行（下载与复制共用）
+  // 结论金额溯源：结论里的每处金额是否能在工具结果或客户指令里找到出处
+  const amountTrace = useMemo(
+    () =>
+      traceAmounts(
+        finalResult,
+        toolCalls.filter((c) => c.ok !== false).map((c) => c.result),
+        task.instruction ?? "",
+      ),
+    [finalResult, toolCalls, task.instruction],
+  );
+
   // 交付自检输入：结论字数、产物与溯源、工具调用结果、待复核与联网引用
   const deliveryInput = (): CheckInput => ({
     status: reopened ? "waiting_review" : task.status,
@@ -654,6 +666,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     toolRunning: toolCalls.filter((c) => c.ok === null).length,
     pendingReview: pendingReviews,
     citations: citations.length,
+    amountTotal: amountTrace.total,
+    amountUntraced: amountTrace.untraced.length,
   });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const delivery = useMemo(
@@ -740,6 +754,22 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     "## 人工复核记录",
     "",
     ...reviewSection(issues, reviews, reopened ? "waiting_review" : task.status),
+    "",
+    "## 结论金额溯源",
+    "",
+    `- 结论中识别出金额 ${amountTrace.total} 处：工具结果可溯源 ${amountTrace.traced} 处 · 来自客户指令 ${amountTrace.fromInput} 处 · 待人工确认 ${amountTrace.untraced.length} 处`,
+    ...(amountTrace.untraced.length > 0
+      ? [
+          "",
+          "| # | 金额 | 结论中的上下文 |",
+          "| --- | --- | --- |",
+          ...amountTrace.untraced.slice(0, 20).map((u, i) => `| ${i + 1} | ${u.raw} | ${mdCell(u.context)} |`),
+          "",
+          ...(amountTrace.untraced.length > 20
+            ? [`（另有 ${amountTrace.untraced.length - 20} 处未列出）`, ""]
+            : []),
+        ]
+      : ["", "（全部金额都能在工具调用结果或客户指令中找到出处）"]),
     "",
   ];
 
@@ -1308,6 +1338,26 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                           {summary.heads} 节 · {summary.tables} 表 · {summary.mermaids} 图 · {finalResult.length} 字 · 约{" "}
                           {Math.max(1, Math.round(finalResult.length / 400))} 分钟
                         </span>
+                        {amountTrace.total > 0 && (
+                          <span
+                            className={`rounded px-1.5 py-0.5 text-[10.5px] ${
+                              amountTrace.untraced.length === 0
+                                ? "bg-jade-400/15 text-jade-300"
+                                : "bg-amber-400/15 text-amber-300"
+                            }`}
+                            title={`结论金额溯源：${amountTrace.traced}/${amountTrace.total} 处可在工具结果中找到出处，${amountTrace.fromInput} 处来自客户指令，${amountTrace.untraced.length} 处两边都没有需人工确认${
+                              amountTrace.untraced.length > 0
+                                ? `\n${amountTrace.untraced
+                                    .slice(0, 5)
+                                    .map((u) => `· ${u.raw}：…${u.context}…`)
+                                    .join("\n")}`
+                                : ""
+                            }`}
+                          >
+                            金额溯源 {amountTrace.traced}/{amountTrace.total}
+                            {amountTrace.untraced.length > 0 ? ` · 待确认 ${amountTrace.untraced.length}` : ""}
+                          </span>
+                        )}
                         <button
                           type="button"
                           className="action-btn"

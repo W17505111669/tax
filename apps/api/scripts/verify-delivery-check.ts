@@ -27,6 +27,8 @@ const base: CheckInput = {
   toolRunning: 0,
   pendingReview: 0,
   citations: 3,
+  amountTotal: 12,
+  amountUntraced: 0,
 };
 
 expect("全部达标 → 可交付", deliveryCheck(base).verdict, "可交付");
@@ -45,6 +47,19 @@ expect("有失败调用 → 提醒", deliveryCheck({ ...base, toolFailed: 1 }).v
 expect("有未结束调用 → 提醒", deliveryCheck({ ...base, toolRunning: 1 }).verdict, "谨慎交付");
 expect("产物无法溯源 → 提醒", deliveryCheck({ ...base, unattributedArtifacts: 1 }).verdict, "谨慎交付");
 expect("无联网引用 → 提醒", deliveryCheck({ ...base, citations: 0 }).verdict, "谨慎交付");
+expect("金额全部可溯源 → 不降级", deliveryCheck(base).verdict, "可交付");
+expect("存在未溯源金额 → 提醒", deliveryCheck({ ...base, amountUntraced: 3 }).verdict, "谨慎交付");
+expect(
+  "未溯源金额提示含处数",
+  deliveryCheck({ ...base, amountUntraced: 3 }).items.some((x) => x.level === "warn" && x.text.includes("3 处结论金额")),
+  true,
+);
+expect(
+  "金额可溯源时给出正向结论",
+  deliveryCheck(base).items.some((x) => x.level === "ok" && x.text.includes("结论金额 12 处")),
+  true,
+);
+expect("结论无金额时不产生金额条目", deliveryCheck({ ...base, amountTotal: 0 }).items.some((x) => x.text.includes("结论金额")), false);
 expect("多项阻断同时存在", deliveryCheck({ ...base, status: "processing", resultChars: 0 }).blocks, 2);
 expect("失败叠加空结论", deliveryCheck({ ...base, status: "failed", resultChars: 0 }).blocks, 2);
 

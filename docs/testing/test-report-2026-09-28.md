@@ -31,6 +31,7 @@
 | `pnpm verify:rtools` | 工具调用清单（按运行分组 / 入参摘要 / 耗时 / 汇总） | PASS |
 | `pnpm verify:revexp` | 人工复核记录导出（计数与后端同口径 / 转义 / 状态提示） | PASS |
 | `pnpm verify:dcheck` | 交付自检分级规则（阻断 / 提醒 / 可交付）与真实任务走查 | PASS |
+| `pnpm verify:amounts` | 结论金额溯源（提取规则 / 双量纲收集 / 工具-指令-待确认三级口径） | PASS |
 
 ## 三、真实任务台账
 

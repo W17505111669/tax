@@ -59,6 +59,11 @@ const VERIFY_SCRIPTS: Array<{ name: string; cmd: string; scope: string }> = [
     cmd: "pnpm verify:dcheck",
     scope: "交付自检分级规则（阻断 / 提醒 / 可交付）与真实任务走查",
   },
+  {
+    name: "verify:amounts",
+    cmd: "pnpm verify:amounts",
+    scope: "结论金额溯源（提取规则 / 双量纲收集 / 工具-指令-待确认三级口径）",
+  },
 ];
 
 function runVerify(cmd: string): { pass: boolean; output: string } {
