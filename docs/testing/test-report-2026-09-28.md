@@ -18,6 +18,9 @@
 | `pnpm verify:template` | 模板检查与保留式填列（地址/映射双模式） | PASS |
 | `pnpm verify:policy` | 政策快照与加计扣除比例规则 | PASS |
 | `pnpm verify:compare` | 底稿逐格/记录级比对统计口径 | PASS |
+| `pnpm verify:ocr` | OCR 适配器中文+数字识别 | PASS |
+| `pnpm verify:extract` | 合同/发票票面字段确定性抽取 | PASS |
+| `pnpm verify:diagram` | 关联关系图 mermaid 确定性生成 | PASS |
 | `pnpm verify:agents` | 双 Agent 独立性与内置工具禁用 | PASS |
 
 ## 三、真实任务台账
@@ -46,6 +49,8 @@
 | 回归案例：研发费用归集核查与底稿 | rd-audit | case-rd-basic | waiting_review | parse_uploaded_files → check_rd_expenses → generate_workpaper | — | 1 个（上传 1） |
 | 回归案例：研发费用归集核查与底稿 | rd-audit | case-rd-basic | waiting_review | parse_uploaded_files → check_rd_expenses → generate_workpaper | — | 1 个（上传 1） |
 | 回归案例：土增模板映射填列 | land-vat | case-lv-template | waiting_review | parse_uploaded_files → inspect_workpaper_template → match_contract_invoice → fill_land_vat_workpaper → check_amount_consistency → generate_workpaper | — | 2 个（上传 1） |
+| 票面字段抽取闭环 | land-vat | LV-2026-003 | waiting_review | parse_uploaded_files → parse_contract → parse_invoice → match_contract_invoice → web_search → check_amount_consistency → generate_workpaper | — | 1 个（上传 2） |
+| 关系图工具嵌入验证 | land-vat | LV-2026-004 | waiting_review | parse_uploaded_files → match_contract_invoice → match_contract_invoice → render_matching_diagram → web_search → search_public_cases → check_amount_consistency → generate_workpaper | — | 1 个 |
 
 ## 四、准确率统计（记录级比对口径）
 

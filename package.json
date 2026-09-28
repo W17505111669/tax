@@ -22,6 +22,7 @@
     "demo:script": "pnpm --filter @tax/api exec tsx scripts/gen-demo-script.ts",
     "gen:ppt": "pnpm --filter @tax/api exec tsx scripts/gen-ppt-outline.ts",
     "pack:evidence": "pnpm --filter @tax/api exec tsx scripts/pack-evidence.ts",
+    "qa:all": "pnpm verify:pi && pnpm verify:docs && pnpm verify:template && pnpm verify:policy && pnpm verify:compare && pnpm verify:ocr && pnpm verify:extract && pnpm verify:diagram && pnpm verify:agents && pnpm report:test && pnpm gen:materials && pnpm demo:script && pnpm gen:ppt && pnpm pack:evidence",
     "verify:agents": "pnpm --filter @tax/api verify:agents",
     "typecheck": "pnpm -r typecheck"
   },

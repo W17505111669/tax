@@ -18,6 +18,9 @@ const VERIFY_SCRIPTS: Array<{ name: string; cmd: string; scope: string }> = [
   { name: "verify:template", cmd: "pnpm verify:template", scope: "模板检查与保留式填列（地址/映射双模式）" },
   { name: "verify:policy", cmd: "pnpm verify:policy", scope: "政策快照与加计扣除比例规则" },
   { name: "verify:compare", cmd: "pnpm verify:compare", scope: "底稿逐格/记录级比对统计口径" },
+  { name: "verify:ocr", cmd: "pnpm verify:ocr", scope: "OCR 适配器中文+数字识别" },
+  { name: "verify:extract", cmd: "pnpm verify:extract", scope: "合同/发票票面字段确定性抽取" },
+  { name: "verify:diagram", cmd: "pnpm verify:diagram", scope: "关联关系图 mermaid 确定性生成" },
   { name: "verify:agents", cmd: "pnpm verify:agents", scope: "双 Agent 独立性与内置工具禁用" },
 ];
 
