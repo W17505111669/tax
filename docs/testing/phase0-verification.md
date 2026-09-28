@@ -94,6 +94,18 @@ unmatched: FP-005(发票未注明合同编号)
 
 `pnpm -r typecheck`：6 个包全部 Done，无错误。
 
+## 执行进度推导口径（2026-09-28 增补）
+
+列表接口附带的 `progress`（0-5）由 `apps/api/src/services/task-store.ts` 的 `computeProgress` 依据 events 与 tool_calls 推导：
+
+1. 提问：存在 `run_started` 事件 → 1；
+2. 工具核验：存在非联网工具调用且 `ok` 已落定 → 2；
+3. 联网检索：存在联网类工具调用且 `ok` 已落定 → 3；
+4. 结论生成：存在 `agent_text` 事件 → 4；
+5. 交付：任务状态 `completed` → 5。
+
+非执行且非完成的任务恒为 0；执行中任务取值 [0,4]。断言脚本 `pnpm verify:progress`（qa 矩阵第 10 条）覆盖上述规则与 completed 必含 `run_completed` 事件的不变量。
+
 ## 已知限制（待开发）
 
 - 文件解析（PDF / Excel / OCR）尚未接入，上传文件目前仅归档。
