@@ -28,6 +28,7 @@ pnpm verify:compare  # 底稿比对：记录级/地址级逐格差异与准确�
 pnpm verify:ocr      # OCR 适配器：中文+数字识别验证
 pnpm report:test     # 生成测试报告（实时跑验证矩阵 + 汇总真实任务台账与准确率）
 pnpm gen:materials   # 生成两个作品的比赛说明文档（docs/competition/，含真实运行统计）
+pnpm demo:script     # 生成录屏分镜表（docs/competition/录屏分镜表.md，含每幕深链与建议时长）
 pnpm verify:agents   # Phase 1：两个 Agent 的系统提示词与工具集相互独立
 pnpm -r typecheck    # 全仓类型检查
 ```
