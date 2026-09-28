@@ -4,7 +4,7 @@ import type { SheetPreview } from "../types.ts";
 import { MarkdownView } from "./MarkdownView.tsx";
 import { ThemeSwitch } from "./ThemeSwitch.tsx";
 import { usePaperTheme } from "../hooks/usePaperTheme.ts";
-import { IconAlert, IconExternal, IconFile, IconSpinner, IconX } from "./Icons.tsx";
+import { IconAlert, IconExternal, IconFile, IconX } from "./Icons.tsx";
 
 export type ReaderTarget =
   | { kind: "url"; url: string }
@@ -74,6 +74,18 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onClose }:
   const active = tabs[activeIndex] ?? null;
   const activeKey = active ? readerKey(active) : "";
   const state = states[activeKey] ?? INITIAL;
+  const [group, setGroup] = useState<"refs" | "gens">("refs");
+  const indexed = tabs.map((t, i) => ({ t, i }));
+  const refs = indexed.filter((x) => x.t.kind !== "artifact");
+  const gens = indexed.filter((x) => x.t.kind === "artifact");
+  const visible = group === "refs" ? refs : gens;
+
+  // 活动标签切换时自动归入对应分组
+  useEffect(() => {
+    if (!active) return;
+    setGroup(active.kind === "artifact" ? "gens" : "refs");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeKey]);
 
   useEffect(() => {
     if (!active) return;
@@ -184,9 +196,27 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onClose }:
 
   return (
     <aside className="no-print flex w-[440px] shrink-0 flex-col border-l border-line bg-night-950">
-      <header className="flex items-stretch gap-0 border-b border-line">
-        <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto">
-          {tabs.map((tab, i) => {
+      <header className="border-b border-line">
+        <div className="flex items-center gap-2 px-3 pt-2">
+          <div className="seg-tabs">
+            <button type="button" className="seg-tab" data-on={group === "refs"} onClick={() => setGroup("refs")}>
+              引用文件{refs.length > 0 ? ` ${refs.length}` : ""}
+            </button>
+            <button type="button" className="seg-tab" data-on={group === "gens"} onClick={() => setGroup("gens")}>
+              文件生成{gens.length > 0 ? ` ${gens.length}` : ""}
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            title="收起阅读器"
+            className="ml-auto rounded p-1 text-mist-600 hover:bg-night-900 hover:text-mist-100"
+          >
+            <IconX className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        <div className="mt-1.5 flex min-w-0 items-stretch overflow-x-auto">
+          {visible.map(({ t: tab, i }) => {
             const key = readerKey(tab);
             const tabState = states[key];
             const label = tabState?.title || fallbackTitle(tab);
@@ -204,7 +234,13 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onClose }:
                   className="flex min-w-0 items-center gap-1.5 text-[12px]"
                   title={label}
                 >
-                  <IconFile className="h-3.5 w-3.5 shrink-0 text-glow-400" />
+                  {tab.kind === "url" ? (
+                    <IconExternal className="h-3.5 w-3.5 shrink-0 text-glow-400" />
+                  ) : tab.kind === "artifact" ? (
+                    <IconFile className="h-3.5 w-3.5 shrink-0 text-jade-400" />
+                  ) : (
+                    <IconFile className="h-3.5 w-3.5 shrink-0 text-glow-400" />
+                  )}
                   <span className="max-w-[140px] truncate">{label}</span>
                 </button>
                 <button
@@ -218,15 +254,12 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onClose }:
               </div>
             );
           })}
+          {visible.length === 0 && (
+            <span className="px-3 py-2 text-[11.5px] text-mist-600">
+              {group === "refs" ? "暂无引用网页或任务资料" : "暂无生成产物"}
+            </span>
+          )}
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          title="收起阅读器"
-          className="shrink-0 px-3 text-mist-600 hover:bg-night-900 hover:text-mist-100"
-        >
-          <IconX className="h-3.5 w-3.5" />
-        </button>
       </header>
 
       {(state.kind === "markdown" || state.kind === "text") && !state.loading && (
@@ -253,9 +286,16 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onClose }:
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         {state.loading && (
-          <div className="flex items-center gap-2 py-8 text-[12.5px] text-mist-600">
-            <IconSpinner className="h-4 w-4" />
-            正在读取内容…
+          <div className="flex flex-col items-center gap-4 py-14">
+            <div className="dot-grid" aria-hidden>
+              {Array.from({ length: 25 }, (_, i) => (
+                <span
+                  key={i}
+                  style={{ animationDelay: `${(i % 5) * 0.12 + Math.floor(i / 5) * 0.12}s` }}
+                />
+              ))}
+            </div>
+            <span className="text-[12px] text-mist-600">正在读取内容…</span>
           </div>
         )}
         {state.error && (

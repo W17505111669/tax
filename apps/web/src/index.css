@@ -234,6 +234,31 @@ details.tool-row .chev {
   box-shadow: inset 0 0 0 1px rgba(34, 211, 238, 0.35);
 }
 
+.dot-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 7px);
+  gap: 7px;
+  justify-content: center;
+}
+.dot-grid span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(103, 232, 249, 0.75);
+  animation: dot-pulse 1.15s infinite ease-in-out;
+}
+@keyframes dot-pulse {
+  0%,
+  100% {
+    opacity: 0.14;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 0.95;
+    transform: scale(1);
+  }
+}
+
 .row-hl,
 .row-hl > td {
   background: #fef3c7 !important;
