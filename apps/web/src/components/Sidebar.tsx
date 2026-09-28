@@ -274,6 +274,14 @@ export function Sidebar({
         <div className="kicker">Tax AI Native</div>
         <div className="mt-1 text-[15px] font-semibold tracking-tight text-mist-100">税务智能审查平台</div>
         <div className="mt-0.5 text-[11px] text-mist-600">AI 赋能涉税专业服务 · 双智能体</div>
+        <div className="mt-2 flex gap-1.5">
+          <span className="rounded-full border border-line bg-night-850 px-2 py-0.5 text-[10px] text-mist-500">
+            全部 {tasks.length}
+          </span>
+          <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[10px] text-amber-300">
+            ★ {starred.size}
+          </span>
+        </div>
       </div>
 
       <nav className="px-3 py-3">

@@ -79,6 +79,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [reload, setReload] = useState(0);
   const [zoom, setZoom] = useState(1);
+  const [rot, setRot] = useState(0);
   const [showLines, setShowLines] = useState(false);
   const [aliases, setAliases] = useState<Record<string, string>>(() => {
     try {
@@ -222,6 +223,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
     setShowLines(false);
     setFindQuery("");
     setFindIdx(0);
+    setRot(0);
   }, [activeKey]);
 
   useEffect(() => {
@@ -558,6 +560,11 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
           <button type="button" className="action-btn" onClick={() => setZoom(1)} title="重置缩放">
             重置
           </button>
+          {state.kind === "image" && (
+            <button type="button" className="action-btn" onClick={() => setRot((r) => (r + 90) % 360)} title="顺时针旋转 90°">
+              ⟳ {rot}°
+            </button>
+          )}
           {state.kind === "pdf" && (
             <a className="action-btn ml-auto" href={state.src} target="_blank" rel="noreferrer" title="在新标签页打开 PDF">
               <IconExternal className="h-3.5 w-3.5" />
@@ -654,8 +661,8 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
           <img
             src={state.src}
             alt={state.title}
-            style={{ width: `${zoom * 100}%` }}
-            className="mx-auto max-w-none rounded-md border border-line"
+            style={{ width: `${zoom * 100}%`, transform: rot ? `rotate(${rot}deg)` : undefined }}
+            className="mx-auto max-w-none rounded-md border border-line transition-transform"
           />
         )}
         {!state.loading && !state.error && state.kind === "pdf" && (
