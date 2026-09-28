@@ -1,7 +1,7 @@
 import path from "node:path";
 import { createTaxAgentSession, loadRuntimeConfig, TaskEventBus } from "@tax/agent-core";
 import type { NormalizedAgentEvent } from "@tax/agent-core";
-import { createTaskDocumentTools } from "@tax/document-tools";
+import { createTaskDocumentTools, createTemplateTools } from "@tax/document-tools";
 import type { AgentId } from "@tax/shared-schemas";
 import { dirs } from "../config.ts";
 import { resolveCommunityExtensions } from "../extensions.ts";
@@ -42,11 +42,12 @@ export async function runTask(taskId: string, instruction: string): Promise<void
   const cfg = loadRuntimeConfig();
   cfg.extensionPaths = [...cfg.extensionPaths, ...resolveCommunityExtensions()];
   const taskCwd = path.join(dirs.uploads, taskId);
-  const taskTools = createTaskDocumentTools({
-    taskId,
-    files: listFiles(taskId),
-    outputsDir: path.join(dirs.outputs, taskId),
-  });
+  const docCtx = { taskId, files: listFiles(taskId), outputsDir: path.join(dirs.outputs, taskId) };
+  const kits = agent.taskToolKits ?? ["documents"];
+  const taskTools = [
+    ...(kits.includes("documents") ? createTaskDocumentTools(docCtx) : []),
+    ...(kits.includes("template") ? createTemplateTools(docCtx) : []),
+  ];
 
   const pendingToolCalls = new Map<string, string>();
   let session: Awaited<ReturnType<typeof createTaxAgentSession>> | undefined;

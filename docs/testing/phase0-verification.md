@@ -166,6 +166,26 @@ web_search:True → check_rd_expenses:True → web_search:True → fetch_content
 端到端实测（任务「上传资料解析与底稿生成闭环」）：上传合成样例辅助账 xlsx 后，Agent 依次调用
 `parse_uploaded_files:True → check_rd_expenses:True → calculate_rd_adjustment:True → web_search:True → generate_workpaper:True`，
 产物 `底稿-研发费用加计扣除专项审查-*.xlsx`（14.2KB）归档成功，阅读器中以白纸表格预览「归集比对」工作表，行列与金额与工具输出一致。
+
+## Phase 3：土增原始模板保留式填列（2026-09-28）
+
+新增任务级工具（仅土增智填启用，`taskToolKits: ["documents","template"]`）：
+
+- `inspect_workpaper_template`：读取模板工作表、行列范围、合并区域（`ws.model.merges`）、公式单元格分布与非空单元格地址清单；
+- `fill_land_vat_workpaper`：在模板副本上按地址写值，保留全部公式/合并/样式，另存到产物目录；拒绝覆盖公式单元格；原始上传模板以 sha256 校验确认未被修改。
+
+`pnpm verify:template` 实际输出：
+
+```
+[verify] inspect merged=A1:E1 formulas=E4,E5,E6,C7
+[verify] inspect=true fill=true values=true formulaKept=true mergeKept=true rejectFormulaWrite=true originalUntouched=true
+
+[PASS] 模板检查与保留式填列可用。
+```
+
+端到端实测（任务「模板保留式填列闭环」，上传合成模板）：Agent 调用链
+`parse_uploaded_files → inspect_workpaper_template → match_contract_invoice → fill_land_vat_workpaper → web_search → check_amount_consistency → generate_workpaper` 全部 True；
+产物 `已填列-土增清算底稿-合成模板.xlsx` 回读校验：HT-001/HT-002/HT-003 三行合同金额与发票汇总（12,000,000/11,900,000、3,500,000/3,500,000、6,800,000/4,800,000）与 match 工具输出一致，差异列与合计公式、合并备注行均保留。
 ## 本机网关自带搜索实测结论（不启用）
 
 对 `http://127.0.0.1:15721/v1`（Responses API）做了三组对照实测：

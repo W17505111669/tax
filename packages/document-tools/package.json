@@ -18,6 +18,7 @@
   },
   "scripts": {
     "verify:docs": "tsx scripts/verify-docs.ts",
+    "verify:template": "tsx scripts/verify-template.ts",
     "typecheck": "tsc -p tsconfig.json"
   }
 }

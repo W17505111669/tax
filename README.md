@@ -22,6 +22,7 @@ pnpm dev                    # 同时启动 API(8787) 与前端(5173)
 ```bash
 pnpm verify:pi       # P0-4：Pi SDK 安装、模型连接、自定义工具调用、事件回传
 pnpm verify:docs     # Phase 2：Excel/CSV 解析与 Excel 底稿生成确定性验证
+pnpm verify:template # Phase 3：模板检查与保留式填列确定性验证
 pnpm verify:agents   # Phase 1：两个 Agent 的系统提示词与工具集相互独立
 pnpm -r typecheck    # 全仓类型检查
 ```
@@ -62,6 +63,7 @@ docs/                    架构、竞赛材料、测试记录
 | 侧边阅读器（网页/文件/产物预览） | 已完成 |
 | Markdown + mermaid 输出渲染 | 已完成 |
 | Excel/CSV 解析与 Excel 底稿导出 | 已完成 |
+| 土增原始模板保留式填列 | 已完成 |
 | PDF 文本提取（无文本层提示 OCR） | 已完成 |
 | OCR 扫描件识别 | 待开发 |
 | 合同发票账簿解析与底稿填列 | 正在开发（Phase 3） |
