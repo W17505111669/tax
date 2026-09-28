@@ -89,6 +89,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   });
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+  const [findQuery, setFindQuery] = useState("");
   const [sort, setSort] = useState<Record<string, { col: string; dir: 1 | -1 }>>(() => {
     try {
       return JSON.parse(localStorage.getItem("taxai-reader-sort") ?? "{}") as Record<string, { col: string; dir: 1 | -1 }>;
@@ -111,6 +112,23 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
       return next;
     });
     setEditingKey(null);
+  };
+
+  // Text preview in-page search highlight
+  const findTrim = findQuery.trim();
+  const findEscaped = findTrim.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const highlight = (text: string) => {
+    if (!findEscaped) return text;
+    const parts = text.split(new RegExp(`(${findEscaped})`, "gi"));
+    return parts.map((p, i) =>
+      p.toLowerCase() === findTrim.toLowerCase() ? (
+        <mark key={i} className="rounded-sm bg-amber-200 px-0.5 text-gray-900">
+          {p}
+        </mark>
+      ) : (
+        <span key={i}>{p}</span>
+      ),
+    );
   };
   const active = tabs[activeIndex] ?? null;
   const activeKey = active ? readerKey(active) : "";
@@ -146,6 +164,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   useEffect(() => {
     setZoom(1);
     setShowLines(false);
+    setFindQuery("");
   }, [activeKey]);
 
   useEffect(() => {
@@ -382,6 +401,19 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
             复制全文
           </button>
           {state.kind === "text" && (
+            <>
+              <input
+                value={findQuery}
+                onChange={(e) => setFindQuery(e.target.value)}
+                placeholder="页内搜索…"
+                className="w-28 rounded border border-line bg-night-850 px-2 py-0.5 text-[11px] text-mist-100 outline-none focus:glow-ring"
+              />
+              <span className="shrink-0 text-[10.5px] text-mist-600">
+                {findTrim ? state.text.toLowerCase().split(findTrim.toLowerCase()).length - 1 : 0} 处
+              </span>
+            </>
+          )}
+          {state.kind === "text" && (
             <button
               type="button"
               className="action-btn"
@@ -512,10 +544,10 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                   ? state.text.split("\n").map((ln, i) => (
                       <div key={i} className="grid grid-cols-[3ch_1fr] gap-2">
                         <span className="select-none text-right text-gray-400">{i + 1}</span>
-                        <span className="whitespace-pre-wrap">{ln}</span>
+                        <span className="whitespace-pre-wrap">{highlight(ln)}</span>
                       </div>
                     ))
-                  : state.text}
+                  : highlight(state.text)}
               </pre>
             )}
           </div>
