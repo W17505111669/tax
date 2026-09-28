@@ -1140,6 +1140,19 @@ function TimelineView({
     for (const it of items) m[it.kind] = (m[it.kind] ?? 0) + 1;
     return m;
   }, [items]);
+
+  type TItem = (typeof items)[number];
+  const isVisible = (it: TItem) => {
+    if (view === "tools" && it.kind !== "tool_start" && it.kind !== "run_started") return false;
+    if (view === "text" && !["agent_text", "run_started", "run_completed", "run_failed"].includes(it.kind)) {
+      return false;
+    }
+    if (view === "fails" && it.kind !== "tool_start" && it.kind !== "run_failed") return false;
+    const qq = tlQuery.trim().toLowerCase();
+    if (qq && it.kind !== "tool_start" && !`${it.title} ${it.detail ?? ""}`.toLowerCase().includes(qq)) return false;
+    if (legendKind && it.kind !== legendKind) return false;
+    return true;
+  };
   const counters = useRef<Record<string, number>>({});
   counters.current = {};
   const lastTextId = [...items].reverse().find((t) => t.kind === "agent_text" && t.detail)?.id;
@@ -1252,22 +1265,7 @@ function TimelineView({
           className="action-btn"
           title="复制当前视图条件与可见事件摘要"
           onClick={() => {
-            const visible = items.filter((it) => {
-              if (view === "tools" && it.kind !== "tool_start" && it.kind !== "run_started") return false;
-              if (
-                view === "text" &&
-                !["agent_text", "run_started", "run_completed", "run_failed"].includes(it.kind)
-              ) {
-                return false;
-              }
-              if (view === "fails" && it.kind !== "tool_start" && it.kind !== "run_failed") return false;
-              const qq = tlQuery.trim().toLowerCase();
-              if (qq && it.kind !== "tool_start" && !`${it.title} ${it.detail ?? ""}`.toLowerCase().includes(qq)) {
-                return false;
-              }
-              if (legendKind && it.kind !== legendKind) return false;
-              return true;
-            });
+            const visible = items.filter(isVisible);
             const lines = [
               `视图：view=${view} 过滤=${tlQuery || "(无)"} 隔离=${legendKind ?? "(无)"} 时间戳=${showTs ? "开" : "关"}`,
               `可见事件 ${visible.length}/${items.length}`,
@@ -1280,6 +1278,57 @@ function TimelineView({
         >
           <IconCopy className="h-3 w-3" />
           复制视图
+        </button>
+        <button
+          type="button"
+          className="action-btn"
+          title="导出当前视图时间线为 Markdown 文件"
+          onClick={() => {
+            const lines = [
+              "# 执行时间线导出",
+              "",
+              `- 视图：view=${view} 过滤=${tlQuery || "(无)"} 隔离=${legendKind ?? "(无)"}`,
+              `- 事件数 ${items.filter(isVisible).length}/${items.length}`,
+              "",
+            ];
+            const counters: Record<string, number> = {};
+            for (const it of items) {
+              if (it.kind === "tool_start") {
+                const name = String((it.payload as { toolName?: string } | undefined)?.toolName ?? "");
+                const idx = counters[name] ?? 0;
+                counters[name] = idx + 1;
+                if (!isVisible(it)) continue;
+                const call = toolCalls.filter((c) => c.toolName === name)[idx];
+                lines.push(
+                  `## ${it.at} 工具 ${name}（${!call || call.ok === null ? "执行中" : call.ok ? "成功" : "失败"}）`,
+                  "",
+                  "```json",
+                  JSON.stringify(call?.args ?? null, null, 2).slice(0, 2000),
+                  "```",
+                  "",
+                );
+                if (call && call.ok !== null) {
+                  lines.push("返回：", "", "```json", JSON.stringify(call.result, null, 2).slice(0, 2000), "```", "");
+                }
+              } else if (it.kind === "agent_text") {
+                if (!isVisible(it)) continue;
+                lines.push(`## ${it.at} 结论输出`, "", it.detail ?? "", "");
+              } else {
+                if (!isVisible(it)) continue;
+                lines.push(`- ${it.at} ${it.title}${it.detail ? `：${it.detail}` : ""}`);
+              }
+            }
+            const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `时间线-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "")}.md`;
+            a.click();
+            URL.revokeObjectURL(url);
+          }}
+        >
+          <IconDownload className="h-3 w-3" />
+          导出 MD
         </button>
         <button
           type="button"
