@@ -237,20 +237,24 @@ export function Sidebar({
             className="w-full rounded-md border border-line bg-night-850 px-2.5 py-1.5 text-[12px] text-mist-100 outline-none placeholder:text-mist-600 focus:glow-ring"
           />
           <div className="mt-1.5 flex flex-wrap gap-1">
-            {STATUS_FILTERS.map((f) => (
-              <button
-                key={f.id}
-                type="button"
-                onClick={() => setStatusFilter(f.id)}
-                className={`rounded border px-1.5 py-0.5 text-[10.5px] transition-colors ${
-                  statusFilter === f.id
-                    ? "border-glow-500 bg-night-700 text-glow-300"
-                    : "border-line bg-night-850 text-mist-600 hover:text-mist-100"
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
+            {STATUS_FILTERS.map((f) => {
+              const count = f.id === "all" ? tasks.length : tasks.filter((t) => t.status === f.id).length;
+              return (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setStatusFilter(f.id)}
+                  className={`rounded border px-1.5 py-0.5 text-[10.5px] transition-colors ${
+                    statusFilter === f.id
+                      ? "border-glow-500 bg-night-700 text-glow-300"
+                      : "border-line bg-night-850 text-mist-600 hover:text-mist-100"
+                  }`}
+                >
+                  {f.label}
+                  <span className="ml-1 font-mono text-[9.5px] opacity-70">{count}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
         {filtered.length === 0 && <div className="px-2 py-3 text-[12px] text-mist-600">无匹配任务</div>}

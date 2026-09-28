@@ -392,7 +392,14 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
           <div className="mt-0.5 flex items-center gap-2 text-[11.5px] text-mist-600">
             <span className="text-glow-300">{agent.shortName}</span>
             <span className="text-line">|</span>
-            <span>案例 {task.caseId}</span>
+            <button
+              type="button"
+              className="rounded border border-line bg-night-850 px-1.5 py-0.5 transition-colors hover:border-glow-500 hover:text-glow-300"
+              title="点击复制案例编号"
+              onClick={() => void navigator.clipboard?.writeText(task.caseId).catch(() => undefined)}
+            >
+              案例 {task.caseId}
+            </button>
             <span className="text-line">|</span>
             <span>工具调用 {toolCalls.length} 次</span>
             {(totalDuration || liveElapsed) && (
@@ -793,6 +800,7 @@ function TimelineView({
   counters.current = {};
   const lastTextId = [...items].reverse().find((t) => t.kind === "agent_text" && t.detail)?.id;
   let runSeq = 0;
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const copyText = (text: string) => {
     void navigator.clipboard?.writeText(text).catch(() => undefined);
@@ -857,11 +865,37 @@ function TimelineView({
         return (
           <div key={item.id} className={`glow-card px-4 py-3 ${cls}`}>
             {isText && (
-              <MarkdownView
-                text={item.detail ?? ""}
-                live={item.streaming}
-                onOpenUrl={(url) => onOpenUrl({ kind: "url", url })}
-              />
+              <div
+                className={
+                  !item.streaming && !expanded.has(item.id) && (item.detail ?? "").length > 1200
+                    ? "relative max-h-64 overflow-hidden"
+                    : undefined
+                }
+              >
+                <MarkdownView
+                  text={item.detail ?? ""}
+                  live={item.streaming}
+                  onOpenUrl={(url) => onOpenUrl({ kind: "url", url })}
+                />
+                {!item.streaming && !expanded.has(item.id) && (item.detail ?? "").length > 1200 && (
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-night-900 to-transparent" />
+                )}
+              </div>
+            )}
+            {isText && !item.streaming && !expanded.has(item.id) && (item.detail ?? "").length > 1200 && (
+              <button
+                type="button"
+                className="action-btn mt-1"
+                onClick={() =>
+                  setExpanded((prev) => {
+                    const next = new Set(prev);
+                    next.add(item.id);
+                    return next;
+                  })
+                }
+              >
+                展开全文（{(item.detail ?? "").length} 字）
+              </button>
             )}
             {isText && item.streaming && (
               <>
