@@ -14,6 +14,8 @@ export interface CreateAgentSessionInput {
   cfg: RuntimeConfig;
   /** 任务工作目录，用于文件类工具的作用域隔离。 */
   cwd: string;
+  /** 持久化会话管理器；缺省为内存会话。续跑场景传入 continueRecent 实例以恢复历史。 */
+  sessionManager?: SessionManager;
   /** 任务级工具（如文档解析、底稿生成），由调用方按任务上下文构造。 */
   taskTools?: ToolDefinition[];
   /** 归一化后的事件回调，由调用方转发到 SSE / 数据库。 */
@@ -62,7 +64,7 @@ export async function createTaxAgentSession(input: CreateAgentSessionInput): Pro
     noTools: "builtin",
     customTools: [...(agent.sharedTools ?? []), ...agent.tools, ...(input.taskTools ?? [])],
     resourceLoader,
-    sessionManager: SessionManager.inMemory(),
+    sessionManager: input.sessionManager ?? SessionManager.inMemory(),
   });
 
   const unsubscribe = session.subscribe((event) => {

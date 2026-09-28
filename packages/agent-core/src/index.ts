@@ -5,4 +5,5 @@ export * from "./types.ts";
 export * from "./agent-factory.ts";
 export * from "./events.ts";
 export { Type } from "typebox";
+export { SessionManager } from "@earendil-works/pi-coding-agent";
 export type { ToolDefinition } from "@earendil-works/pi-coding-agent";

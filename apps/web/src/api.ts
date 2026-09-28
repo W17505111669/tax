@@ -31,6 +31,13 @@ export const api = {
       body: JSON.stringify({ instruction }),
     }),
 
+  resumeTask: (id: string, instruction: string) =>
+    request<{ taskId: string; status: string; resume: boolean }>(`/api/tasks/${id}/resume`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ instruction }),
+    }),
+
   uploadFiles: async (taskId: string, files: File[], businessCategory?: string) => {
     const form = new FormData();
     for (const file of files) form.append("files", file);

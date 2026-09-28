@@ -58,6 +58,10 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
   const [readerTabs, setReaderTabs] = useState<ReaderTarget[]>([]);
   const [readerActive, setReaderActive] = useState(0);
   const [artifacts, setArtifacts] = useState<ArtifactInfo[]>([]);
+  const [resumeOpen, setResumeOpen] = useState(false);
+  const [resumeText, setResumeText] = useState("");
+  const [resumeFiles, setResumeFiles] = useState<File[]>([]);
+  const [resumeBusy, setResumeBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const liveStatus = status === "created" ? task.status : status;
@@ -152,6 +156,20 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
       .catch(() => undefined);
   };
 
+  const handleResume = async () => {
+    if (!resumeText.trim() || resumeBusy) return;
+    setResumeBusy(true);
+    try {
+      if (resumeFiles.length > 0) await api.uploadFiles(task.id, resumeFiles);
+      await api.resumeTask(task.id, resumeText.trim());
+      setResumeOpen(false);
+      setResumeText("");
+      setResumeFiles([]);
+    } finally {
+      setResumeBusy(false);
+    }
+  };
+
   const finalResult = useMemo(() => {
     const last = [...timeline].reverse().find((t) => t.kind === "agent_text" && t.detail);
     return task.result ?? last?.detail ?? "";
@@ -230,6 +248,20 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
         </div>
         <button
           type="button"
+          onClick={() => setResumeOpen((v) => !v)}
+          disabled={running}
+          title="补充资料或补充意见后继续本任务（恢复会话历史）"
+          className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[12.5px] transition-colors disabled:opacity-40 ${
+            resumeOpen
+              ? "border-glow-500 bg-night-700 text-glow-300"
+              : "border-line bg-night-850 text-mist-300 hover:border-glow-500 hover:text-mist-100"
+          }`}
+        >
+          <IconPlay className="h-3 w-3" />
+          续跑任务
+        </button>
+        <button
+          type="button"
           onClick={() => setReaderOpen((v) => !v)}
           title={readerOpen ? "收起侧边阅读器" : "展开侧边阅读器"}
           className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-[12.5px] transition-colors ${
@@ -251,6 +283,51 @@ export function TaskWorkbench({ agent, task, files, onRerun }: Props) {
           重新执行
         </button>
       </header>
+
+      {resumeOpen && (
+        <div className="no-print border-b border-line bg-night-900 px-8 py-3">
+          <div className="glow-card flex flex-col gap-2 px-4 py-3">
+            <textarea
+              rows={3}
+              value={resumeText}
+              onChange={(e) => setResumeText(e.target.value)}
+              placeholder="补充说明或新意见，例如：已补充上传研发人员名单，请结合名单复核人员人工归集…"
+              className="w-full resize-y rounded-md border border-line bg-night-850 px-3 py-2 text-[13px] leading-6 text-mist-100 outline-none placeholder:text-mist-600 focus:glow-ring"
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-line bg-night-800 px-2.5 py-1.5 text-[12px] text-mist-300 hover:border-glow-500">
+                <IconFile className="h-3.5 w-3.5" />
+                补充资料{resumeFiles.length > 0 ? `（${resumeFiles.length}）` : ""}
+                <input
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    setResumeFiles((prev) => [...prev, ...Array.from(e.target.files ?? [])]);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => void handleResume()}
+                disabled={!resumeText.trim() || resumeBusy}
+                className="user-bubble px-3.5 py-1.5 text-[12.5px] font-semibold disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {resumeBusy ? "提交中…" : "提交续跑"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setResumeOpen(false)}
+                className="rounded-md border border-line bg-night-800 px-2.5 py-1.5 text-[12px] text-mist-500 hover:text-mist-100"
+              >
+                取消
+              </button>
+              <span className="text-[11px] text-mist-600">续跑会恢复本任务完整会话历史，Agent 结合此前结论继续处理</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="no-print flex items-center gap-0 border-b border-line bg-night-900 px-8 py-3">
         {steps.map((step, i) => (

@@ -5,7 +5,7 @@ import type { FastifyInstance } from "fastify";
 import { CreateTaskInputSchema } from "@tax/shared-schemas";
 import { allowedExtensions, dirs, maxUploadBytes } from "../config.ts";
 import { getAgent } from "../agents.ts";
-import { eventBus, runTask } from "../services/agent-runner.ts";
+import { eventBus, isRunning, runTask } from "../services/agent-runner.ts";
 import { extractIssues, listReviews, pendingReviewIssues, saveReview } from "../services/issues.ts";
 import {
   appendEvent,
@@ -56,6 +56,19 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     const instruction = body.instruction?.trim() || task.instruction;
     void runTask(id, instruction);
     return reply.code(202).send({ taskId: id, status: "processing" });
+  });
+
+  /** 补充资料/补充意见后续跑同一任务（恢复会话历史）。 */
+  app.post("/api/tasks/:id/resume", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as { instruction?: string };
+    const task = getTask(id);
+    if (!task) return reply.code(404).send({ error: "任务不存在" });
+    if (isRunning(id)) return reply.code(409).send({ error: "任务正在执行中" });
+    const instruction = body.instruction?.trim();
+    if (!instruction) return reply.code(400).send({ error: "续跑需要补充说明 instruction" });
+    void runTask(id, instruction, { resume: true });
+    return reply.code(202).send({ taskId: id, status: "processing", resume: true });
   });
 
   app.post("/api/tasks/:id/files", async (req, reply) => {

@@ -1,9 +1,9 @@
 import path from "node:path";
-import { createTaxAgentSession, loadRuntimeConfig, TaskEventBus } from "@tax/agent-core";
+import { createTaxAgentSession, loadRuntimeConfig, SessionManager, TaskEventBus } from "@tax/agent-core";
 import type { NormalizedAgentEvent } from "@tax/agent-core";
 import { createTaskDocumentTools, createTemplateTools } from "@tax/document-tools";
 import type { AgentId } from "@tax/shared-schemas";
-import { dirs } from "../config.ts";
+import { dataDir, dirs } from "../config.ts";
 import { resolveCommunityExtensions } from "../extensions.ts";
 import { getAgent } from "../agents.ts";
 import {
@@ -30,14 +30,14 @@ function emit(taskId: string, kind: Parameters<typeof appendEvent>[1], message: 
  * 启动一次 Agent 运行。函数不阻塞 HTTP 请求，进度通过 SSE 推送。
  * 任务状态以真实执行事件与持久化状态为准，不依据模型文字判断。
  */
-export async function runTask(taskId: string, instruction: string): Promise<void> {
+export async function runTask(taskId: string, instruction: string, opts: { resume?: boolean } = {}): Promise<void> {
   if (running.has(taskId)) return;
   const task = getTask(taskId);
   if (!task) throw new Error(`任务不存在: ${taskId}`);
 
   running.add(taskId);
   setTaskStatus(taskId, "processing");
-  emit(taskId, "run_started", `开始执行任务：${task.title}`);
+  emit(taskId, "run_started", opts.resume ? `续跑任务：${task.title}` : `开始执行任务：${task.title}`);
 
   const agent = getAgent(task.agentId as AgentId);
   const cfg = loadRuntimeConfig();
@@ -59,6 +59,8 @@ export async function runTask(taskId: string, instruction: string): Promise<void
       cfg,
       cwd: taskCwd,
       taskTools,
+      // 按任务隔离的持久化会话：续跑时恢复完整对话历史
+      sessionManager: SessionManager.continueRecent(taskCwd, path.join(dataDir, "sessions", taskId)),
       onEvent: (event: NormalizedAgentEvent) => {
         switch (event.kind) {
           case "agent_text_delta":
@@ -101,7 +103,9 @@ export async function runTask(taskId: string, instruction: string): Promise<void
       emit(taskId, "agent_status", `本任务已上传 ${files.length} 份资料：${files.map((f) => f.fileName).join("、")}`);
     }
 
-    const prompt = buildPrompt(instruction, files.map((f) => f.fileName));
+    const prompt = opts.resume
+      ? `【续跑补充】${instruction.trim()}\n\n请结合本任务此前的核查结论与已生成产物继续处理；如补充了新的上传资料，先调用 parse_uploaded_files 解析新增文件。`
+      : buildPrompt(instruction, files.map((f) => f.fileName));
     const answer = await session.prompt(prompt);
 
     setTaskStatus(taskId, "completed", { result: answer });

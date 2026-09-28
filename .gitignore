@@ -5,6 +5,7 @@ data/uploads/*
 data/outputs/*
 data/database/*
 data/agent-home/*
+data/sessions/*
 !data/**/.gitkeep
 *.log
 .DS_Store
