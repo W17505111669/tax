@@ -61,6 +61,7 @@ export function listTasks(agentId?: AgentId): TaxTask[] {
     instruction: String(row.instruction ?? ""),
     progress: computeProgress(String(row.id), row.status as string),
     runCount: runCountOf(String(row.id)),
+    toolCount: toolCountOf(String(row.id)),
   }));
 }
 
@@ -191,6 +192,11 @@ function runCountOf(taskId: string): number {
   const row = db
     .prepare(`SELECT COUNT(*) AS n FROM events WHERE task_id = ? AND kind = 'run_started'`)
     .get(taskId) as { n: number };
+  return row.n;
+}
+
+function toolCountOf(taskId: string): number {
+  const row = db.prepare(`SELECT COUNT(*) AS n FROM tool_calls WHERE task_id = ?`).get(taskId) as { n: number };
   return row.n;
 }
 

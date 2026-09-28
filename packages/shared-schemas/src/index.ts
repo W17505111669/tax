@@ -29,6 +29,8 @@ export interface TaxTask {
   progress?: number;
   /** 运行次数（run_started 事件计数，仅列表接口附带）。 */
   runCount?: number;
+  /** 工具调用次数（仅列表接口附带）。 */
+  toolCount?: number;
 }
 
 export interface BusinessFile {

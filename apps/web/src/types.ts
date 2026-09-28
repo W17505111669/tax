@@ -37,6 +37,8 @@ export interface TaskInfo {
   progress?: number;
   /** 运行次数（列表接口附带） */
   runCount?: number;
+  /** 工具调用次数（列表接口附带） */
+  toolCount?: number;
 }
 
 export interface FileInfo {
