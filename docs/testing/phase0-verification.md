@@ -199,6 +199,23 @@ web_search:True → check_rd_expenses:True → web_search:True → fetch_content
 
 端到端实测（任务「映射模式填列验证」）：Agent 自主选择映射模式，`fill_land_vat_workpaper` 返回 header=3、start=4、written=12、skipped=0、保留公式 8 个；产物 `土增清算底稿-已填列.xlsx` 回读三行合同金额与发票汇总与 match 工具输出一致，差异列公式未触碰。
 
+## 底稿比对与准确率（2026-09-28）
+
+新增 `compare_workpapers` 工具（两个 Agent 共用）：默认记录级比对——按表头行与主键列对齐记录，系统底稿与人工底稿版式不同（标题行/行偏移）仍可比；`align=address` 保留同版式逐地址比对。输出一致、数值差异、单方缺失与准确率，差异只报告不修改。
+
+`pnpm verify:compare` 实际输出：
+
+```
+[verify] compared=5 matched=2 mismatched=1 onlyA=0 onlyB=2 accuracy=40%
+[verify] totals=true accuracy=true mismatchCell=true(直接投入/金额（元）) tolerance=true
+[verify] addressMode mismatched=1 mode=address ok=true
+
+[PASS] 底稿逐格比对统计口径正确。
+```
+
+端到端实测（任务「记录级底稿比对闭环」）：Agent 生成底稿后调用 `compare_workpapers` 与上传的人工参考底稿比对，返回
+`mode=record accuracy=66.67% compared=3 matched=2 mismatched=1`，唯一差异 `直接投入/金额（元） A=420000 B=425000` 与预埋差异一致；最终结论报告了准确率并将差异列为待核查事项。
+
 ## Phase 4：研发政策快照库与比例规则（2026-09-28）
 
 新增 `agents/rd-audit/knowledge/rd-policies.json`（10 条版本化政策快照：119 号、97 号、40 号、99 号、2021 年 6/13/28 号、2022 年 16 号、2023 年 7/44 号）与 `search_rd_policy` 工具：

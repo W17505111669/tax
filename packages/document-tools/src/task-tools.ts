@@ -5,6 +5,7 @@ import type { BusinessFile } from "@tax/shared-schemas";
 import { parseCsvText, parseExcelFile, type ParsedDocument } from "./excel-parser.ts";
 import { parsePdfFile } from "./pdf-parser.ts";
 import { generateWorkpaper, type WorkpaperSheet } from "./excel-export.ts";
+import { createCompareTools } from "./compare-tools.ts";
 
 export interface TaskDocumentContext {
   taskId: string;
@@ -139,5 +140,5 @@ export function createTaskDocumentTools(ctx: TaskDocumentContext): ToolDefinitio
     },
   };
 
-  return [parseTool, workpaperTool];
+  return [parseTool, workpaperTool, ...createCompareTools(ctx)];
 }

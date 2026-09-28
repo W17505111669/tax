@@ -24,6 +24,7 @@ pnpm verify:pi       # P0-4：Pi SDK 安装、模型连接、自定义工具调�
 pnpm verify:docs     # Phase 2：Excel/CSV 解析与 Excel 底稿生成确定性验证
 pnpm verify:template # Phase 3：模板检查与保留式填列确定性验证
 pnpm verify:policy   # Phase 4：政策快照与加计比例规则确定性验证
+pnpm verify:compare  # 底稿比对：记录级/地址级逐格差异与准确率
 pnpm verify:agents   # Phase 1：两个 Agent 的系统提示词与工具集相互独立
 pnpm -r typecheck    # 全仓类型检查
 ```
@@ -65,6 +66,7 @@ docs/                    架构、竞赛材料、测试记录
 | Markdown + mermaid 输出渲染 | 已完成 |
 | Excel/CSV 解析与 Excel 底稿导出 | 已完成 |
 | 土增原始模板保留式填列（地址/映射双模式） | 已完成 |
+| 底稿比对与准确率统计 | 已完成 |
 | 研发政策快照库与比例规则 | 已完成 |
 | PDF 文本提取（无文本层提示 OCR） | 已完成 |
 | OCR 扫描件识别 | 待开发 |
