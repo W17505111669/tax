@@ -31,6 +31,14 @@ const STATUS_DOT: Record<string, string> = {
 
 type StatusFilter = "all" | "processing" | "waiting_review" | "completed" | "failed";
 
+const GROUP_ORDER: Array<{ id: string; label: string }> = [
+  { id: "processing", label: "执行中" },
+  { id: "waiting_review", label: "待复核" },
+  { id: "completed", label: "已完成" },
+  { id: "failed", label: "已中断" },
+  { id: "created", label: "待执行" },
+];
+
 const STATUS_FILTERS: Array<{ id: StatusFilter; label: string }> = [
   { id: "all", label: "全部" },
   { id: "processing", label: "执行中" },
@@ -126,6 +134,7 @@ export function Sidebar({
 }: Props) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const searchRef = useRef<HTMLInputElement>(null);
 
   // Ctrl/Cmd+K 聚焦任务搜索
@@ -221,27 +230,48 @@ export function Sidebar({
           </div>
         </div>
         {filtered.length === 0 && <div className="px-2 py-3 text-[12px] text-mist-600">无匹配任务</div>}
-        {filtered.map((task) => {
-          const active = task.id === activeTaskId;
+        {GROUP_ORDER.map((g) => {
+          const list = filtered.filter((t) => t.status === g.id);
+          if (list.length === 0) return null;
+          const closed = collapsed[g.id] ?? false;
           return (
-            <button
-              key={task.id}
-              type="button"
-              onClick={() => onSelectTask(task.id)}
-              title={task.instruction ? `${task.title}\n${task.instruction.slice(0, 140)}` : task.title}
-              className={`mb-1 block w-full rounded-lg px-2.5 py-2 text-left transition-colors ${
-                active ? "bg-night-700 glow-ring" : "hover:bg-night-800"
-              }`}
-            >
-              <span className={`block truncate text-[12.5px] ${active ? "text-mist-100" : "text-mist-300"}`}>
-                {task.title}
-              </span>
-              <span className="mt-1 flex items-center gap-1.5 text-[11px] text-mist-600">
-                <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[task.status] ?? "bg-mist-600"}`} />
-                <span>{STATUS_TEXT[task.status] ?? task.status}</span>
-                <span className="truncate">· {new Date(task.createdAt).toLocaleString("zh-CN", { hour12: false })}</span>
-              </span>
-            </button>
+            <div key={g.id} className="mb-1">
+              <button
+                type="button"
+                onClick={() => setCollapsed((prev) => ({ ...prev, [g.id]: !closed }))}
+                className="flex w-full items-center gap-1.5 px-2 py-1 text-[10.5px] font-medium uppercase tracking-[0.14em] text-mist-600 transition-colors hover:text-mist-300"
+              >
+                <span className={`chev text-[9px] ${closed ? "" : "rotate-90"}`}>▶</span>
+                {g.label}
+                <span className="ml-auto font-mono text-[10px]">{list.length}</span>
+              </button>
+              {!closed &&
+                list.map((task) => {
+                  const active = task.id === activeTaskId;
+                  return (
+                    <button
+                      key={task.id}
+                      type="button"
+                      onClick={() => onSelectTask(task.id)}
+                      title={task.instruction ? `${task.title}\n${task.instruction.slice(0, 140)}` : task.title}
+                      className={`mb-1 block w-full rounded-lg px-2.5 py-2 text-left transition-colors ${
+                        active ? "bg-night-700 glow-ring" : "hover:bg-night-800"
+                      }`}
+                    >
+                      <span className={`block truncate text-[12.5px] ${active ? "text-mist-100" : "text-mist-300"}`}>
+                        {task.title}
+                      </span>
+                      <span className="mt-1 flex items-center gap-1.5 text-[11px] text-mist-600">
+                        <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[task.status] ?? "bg-mist-600"}`} />
+                        <span>{STATUS_TEXT[task.status] ?? task.status}</span>
+                        <span className="truncate">
+                          · {new Date(task.createdAt).toLocaleString("zh-CN", { hour12: false })}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+            </div>
           );
         })}
       </div>

@@ -70,11 +70,22 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
   const [showJump, setShowJump] = useState(false);
+  const [copied, setCopied] = useState(false);
   const lastFocusRef = useRef<HTMLElement | null>(null);
 
   const liveStatus = status === "created" ? task.status : status;
   const meta = STATUS_META[liveStatus] ?? STATUS_META.created!;
   const running = liveStatus === "processing";
+
+  const copyId = async () => {
+    try {
+      await navigator.clipboard.writeText(task.id);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    } catch {
+      /* 剪贴板不可用时忽略 */
+    }
+  };
 
   // 执行中每秒 tick，驱动头部实时计时
   useEffect(() => {
@@ -313,6 +324,9 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
                 meta.label
               )}
             </span>
+            <button type="button" onClick={() => void copyId()} title="复制任务 ID" className="action-btn shrink-0">
+              {copied ? <span className="text-jade-400">已复制</span> : <IconCopy className="h-3.5 w-3.5" />}
+            </button>
           </div>
           <div className="mt-0.5 flex items-center gap-2 text-[11.5px] text-mist-600">
             <span className="text-glow-300">{agent.shortName}</span>
