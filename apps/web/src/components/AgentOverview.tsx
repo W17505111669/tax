@@ -242,6 +242,31 @@ export function AgentOverview({
     );
   };
 
+  const exportOverviewJson = () => {
+    downloadBlob(
+      new Blob(
+        [
+          JSON.stringify(
+            {
+              agent: agent.id,
+              hero: heroValue,
+              week: { now: weekNow, prev: weekPrev, delta: weekDelta },
+              statusBars: bars,
+              days14: days,
+              perAgent: p?.perAgent ?? [],
+              perTool,
+              exportedAt: new Date().toISOString(),
+            },
+            null,
+            2,
+          ),
+        ],
+        { type: "application/json" },
+      ),
+      `概览快照-${new Date().toISOString().slice(0, 10)}.json`,
+    );
+  };
+
   // 核心指标复制为 TSV，便于粘贴进表格软件
   const copyTsv = () => {
     if (!p) return;
@@ -494,6 +519,14 @@ export function AgentOverview({
                 </button>
                 <button type="button" className="action-btn" onClick={exportOverview} title="导出概览全量快照 MD">
                   导出概览
+                </button>
+                <button
+                  type="button"
+                  className="action-btn"
+                  onClick={exportOverviewJson}
+                  title="导出概览快照 JSON（机器可读）"
+                >
+                  概览 JSON
                 </button>
                 <button type="button" className="action-btn" onClick={copyTsv} title="复制核心指标为 TSV">
                   复制表格

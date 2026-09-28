@@ -484,8 +484,10 @@ export function Sidebar({
           <button
             type="button"
             title={armedRerun === task.id ? "再点一次确认重跑" : "重跑本任务"}
+            disabled={task.status === "processing"}
             onClick={(e) => {
               e.stopPropagation();
+              if (task.status === "processing") return;
               if (armedRerun !== task.id) {
                 setArmedRerun(task.id);
                 window.setTimeout(() => setArmedRerun((v) => (v === task.id ? null : v)), 2000);
@@ -494,7 +496,9 @@ export function Sidebar({
               setArmedRerun(null);
               onRerunTask(task.id);
             }}
-            className={`rounded p-1 hover:text-amber-300 ${armedRerun === task.id ? "text-amber-300" : "text-mist-600"}`}
+            className={`rounded p-1 hover:text-amber-300 disabled:cursor-not-allowed disabled:opacity-30 ${
+              armedRerun === task.id ? "text-amber-300" : "text-mist-600"
+            }`}
           >
             <IconRefresh className="h-3 w-3" />
           </button>
