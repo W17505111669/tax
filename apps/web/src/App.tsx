@@ -312,6 +312,9 @@ export default function App() {
                 setActiveTaskId(null);
               }}
               onOpenTask={(id) => setActiveTaskId(id)}
+              perAgentCreatedAts={Object.fromEntries(
+                agents.map((a) => [a.id, tasks.filter((t) => t.agentId === a.id).map((t) => t.createdAt)]),
+              )}
               onShowAll={() => {
                 setSidebarOpen(true);
                 setRevealNonce((n) => n + 1);

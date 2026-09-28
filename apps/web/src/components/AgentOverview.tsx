@@ -69,6 +69,7 @@ interface Props {
     agentId: string;
   }>;
   lastAt: Record<string, string>;
+  perAgentCreatedAts: Record<string, string[]>;
   onSelect: (id: string) => void;
   onOpenTask: (id: string) => void;
   onShowAll: () => void;
@@ -85,6 +86,7 @@ export function AgentOverview({
   onOpenTask,
   onShowAll,
   lastAt,
+  perAgentCreatedAts,
 }: Props) {
   const agent = agents.find((a) => a.id === activeAgentId);
   if (!agent) return null;
@@ -521,6 +523,24 @@ export function AgentOverview({
                       >
                         {rate}%
                       </span>
+                      {(() => {
+                        const b = buckets14(perAgentCreatedAts[pa.agentId] ?? []);
+                        const mx = Math.max(1, ...b);
+                        const pts = b
+                          .map((v, i) => `${((i / 13) * 100).toFixed(2)},${(28 - (v / mx) * 24).toFixed(2)}`)
+                          .join(" ");
+                        return (
+                          <svg viewBox="0 0 100 30" preserveAspectRatio="none" className="h-5 w-14 shrink-0" aria-hidden>
+                            <polyline
+                              points={pts}
+                              fill="none"
+                              stroke="#22d3ee"
+                              strokeWidth="2"
+                              vectorEffect="non-scaling-stroke"
+                            />
+                          </svg>
+                        );
+                      })()}
                     </div>
                   );
                 })}
@@ -677,6 +697,19 @@ function relTime(iso: string): string {
   const h = Math.floor(m / 60);
   if (h < 24) return `${h} 小时前`;
   return `${Math.floor(h / 24)} 天前`;
+}
+
+/** 近 14 天日桶计数（按智能体子集复用）。 */
+function buckets14(dates: string[]): number[] {
+  const buckets = Array.from({ length: 14 }, () => 0);
+  const now = new Date();
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  for (const c of dates) {
+    const d = new Date(c);
+    const diff = Math.floor((today - Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())) / 86400000);
+    if (diff >= 0 && diff < 14) buckets[13 - diff] = (buckets[13 - diff] ?? 0) + 1;
+  }
+  return buckets;
 }
 
 /** 能力清单按关键词分类配图标 */
