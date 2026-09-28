@@ -322,6 +322,20 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
     return { total: totalMs / 1000, avg: totalMs / 1000 / ended.length };
   }, [toolCalls]);
 
+  // 总耗时三分段：工具调用 / 结论生成 / 等待其他
+  const timeSplit = useMemo(() => {
+    const ended = toolCalls.filter((c) => c.endedAt);
+    const start = timeline.find((t) => t.kind === "run_started")?.at;
+    const end = [...timeline].reverse().find((t) => t.kind === "run_completed" || t.kind === "run_failed")?.at;
+    if (!start || !end) return null;
+    const totalMs = Math.max(1, Date.parse(end) - Date.parse(start));
+    const toolMs = ended.reduce((acc, c) => acc + Math.max(0, Date.parse(c.endedAt ?? c.at) - Date.parse(c.at)), 0);
+    const lastEnds = ended.map((c) => Date.parse(c.endedAt ?? c.at));
+    const genMs = lastEnds.length > 0 ? Math.max(0, Date.parse(end) - Math.max(...lastEnds)) : 0;
+    const otherMs = Math.max(0, totalMs - toolMs - genMs);
+    return { toolMs, genMs, otherMs, totalMs };
+  }, [toolCalls, timeline]);
+
   const lastRunAt = useMemo(() => {
     const last = [...timeline].reverse().find((t) => t.kind === "run_started");
     return last ? new Date(last.at).toLocaleString("zh-CN", { hour12: false }) : "";
@@ -642,6 +656,30 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
           </div>
         ))}
       </div>
+
+      {timeSplit && (
+        <div className="no-print flex items-center gap-2 border-b border-line bg-night-900 px-8 pb-2">
+          <span className="shrink-0 text-[10.5px] text-mist-600">耗时分布</span>
+          <span className="flex h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-night-700">
+            <span
+              className="h-full bg-glow-500"
+              style={{ width: `${(timeSplit.toolMs / timeSplit.totalMs) * 100}%` }}
+              title={`工具调用 ${(timeSplit.toolMs / 1000).toFixed(1)}s`}
+            />
+            <span
+              className="h-full bg-jade-400"
+              style={{ width: `${(timeSplit.genMs / timeSplit.totalMs) * 100}%` }}
+              title={`结论生成 ${(timeSplit.genMs / 1000).toFixed(1)}s`}
+            />
+            <span
+              className="h-full bg-mist-600/60"
+              style={{ width: `${(timeSplit.otherMs / timeSplit.totalMs) * 100}%` }}
+              title={`等待/其他 ${(timeSplit.otherMs / 1000).toFixed(1)}s`}
+            />
+          </span>
+          <span className="shrink-0 font-mono text-[10px] text-mist-600">{(timeSplit.totalMs / 1000).toFixed(0)}s</span>
+        </div>
+      )}
 
       <div className="flex min-h-0 flex-1 gap-0">
         <div className="relative flex min-w-0 flex-1 flex-col">

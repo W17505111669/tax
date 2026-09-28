@@ -343,6 +343,20 @@ export function Sidebar({
                 </button>
                 <button
                   type="button"
+                  title="导出收藏清单（复制 Markdown）"
+                  onClick={() => {
+                    const lines = starList.map(
+                      (t) =>
+                        `- ${t.title}（${STATUS_TEXT[t.status] ?? t.status} · ${new Date(t.createdAt).toLocaleString("zh-CN", { hour12: false })}）`,
+                    );
+                    void navigator.clipboard?.writeText(`# 收藏清单\n${lines.join("\n")}`).catch(() => undefined);
+                  }}
+                  className="rounded px-1.5 py-0.5 text-[10px] text-mist-600 opacity-0 transition-opacity hover:text-glow-300 group-hover:opacity-100"
+                >
+                  导出
+                </button>
+                <button
+                  type="button"
                   title="清空收藏"
                   onClick={() => {
                     localStorage.setItem("taxai-starred", "[]");
