@@ -82,6 +82,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   const [rot, setRot] = useState(0);
   const [showRowNum, setShowRowNum] = useState(false);
   const [pinned, setPinned] = useState<Set<string>>(new Set());
+  const [armedKey, setArmedKey] = useState<string | null>(null);
   const [showLines, setShowLines] = useState(false);
   const [aliases, setAliases] = useState<Record<string, string>>(() => {
     try {
@@ -496,9 +497,20 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                 {!pinned.has(key) && (
                 <button
                   type="button"
-                  onClick={() => onCloseTab(i)}
-                  title="关闭标签"
-                  className="rounded p-0.5 text-mist-600 opacity-0 transition-opacity hover:text-rose-300 group-hover:opacity-100"
+                  onClick={() => {
+                    const needsGuard = tab.kind === "artifact" && !pinned.has(key);
+                    if (needsGuard && armedKey !== key) {
+                      setArmedKey(key);
+                      window.setTimeout(() => setArmedKey((v) => (v === key ? null : v)), 2000);
+                      return;
+                    }
+                    setArmedKey(null);
+                    onCloseTab(i);
+                  }}
+                  title={armedKey === key ? "再点一次确认关闭（产物标签）" : "关闭标签"}
+                  className={`rounded p-0.5 transition-opacity hover:text-rose-300 ${
+                    armedKey === key ? "text-rose-300 opacity-100" : "text-mist-600 opacity-0 group-hover:opacity-100"
+                  }`}
                 >
                   <IconX className="h-3 w-3" />
                 </button>

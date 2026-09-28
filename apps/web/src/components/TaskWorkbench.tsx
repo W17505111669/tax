@@ -1058,7 +1058,7 @@ function TimelineView({
   const lastTextId = [...items].reverse().find((t) => t.kind === "agent_text" && t.detail)?.id;
   let runSeq = 0;
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [view, setView] = useState<"all" | "tools" | "text">("all");
+  const [view, setView] = useState<"all" | "tools" | "text" | "fails">("all");
   const listRef = useRef<HTMLDivElement>(null);
   const [showTs, setShowTs] = useState(false);
   const fmtTs = (iso: string) => new Date(iso).toLocaleTimeString("zh-CN", { hour12: false });
@@ -1079,6 +1079,7 @@ function TimelineView({
             ["all", "全部"],
             ["tools", "仅工具"],
             ["text", "仅结论"],
+            ["fails", "仅看失败"],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -1188,11 +1189,13 @@ function TimelineView({
         ) {
           return null;
         }
+        if (view === "fails" && item.kind !== "tool_start" && item.kind !== "run_failed") return null;
         if (item.kind === "tool_start") {
           const name = String((item.payload as { toolName?: string } | undefined)?.toolName ?? "");
           const idx = counters.current[name] ?? 0;
           counters.current[name] = idx + 1;
           const call = toolCalls.filter((c) => c.toolName === name)[idx];
+          if (view === "fails" && call?.ok !== false) return null;
           return (
             <div key={item.id} data-tlid={item.id} className={cls}>
               <ToolRow
