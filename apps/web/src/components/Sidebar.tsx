@@ -164,6 +164,7 @@ export function Sidebar({
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [starOnly, setStarOnly] = useState(false);
+  const [weekOnly, setWeekOnly] = useState(false);
   const [sortTools, setSortTools] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
     try {
@@ -361,6 +362,7 @@ export function Sidebar({
     (t) =>
       (statusFilter === "all" || t.status === statusFilter) &&
       (!starOnly || starred.has(t.id)) &&
+      (!weekOnly || Date.now() - Date.parse(t.createdAt) < 7 * 86400000) &&
       (q === "" ||
         t.title.toLowerCase().includes(q) ||
         (t.instruction ?? "").toLowerCase().includes(q) ||
@@ -542,6 +544,18 @@ export function Sidebar({
               }`}
             >
               ★ 收藏
+            </button>
+            <button
+              type="button"
+              onClick={() => setWeekOnly((v) => !v)}
+              title="仅显示近 7 天创建的任务"
+              className={`rounded border px-1.5 py-0.5 text-[10.5px] transition-colors ${
+                weekOnly
+                  ? "border-glow-500 bg-night-700 text-glow-300"
+                  : "border-line bg-night-850 text-mist-600 hover:text-mist-100"
+              }`}
+            >
+              本周
             </button>
           </div>
         </div>

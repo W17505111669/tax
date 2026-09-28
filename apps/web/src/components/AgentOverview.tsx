@@ -419,6 +419,15 @@ export function AgentOverview({
                     <button
                       type="button"
                       onClick={() => onOpenTask(r.id)}
+                      onAuxClick={(e) => {
+                        if (e.button === 1) {
+                          e.preventDefault();
+                          window.open(
+                            `${window.location.pathname}#/agent/${activeAgentId}/task/${r.id}/tab/result`,
+                            "_blank",
+                          );
+                        }
+                      }}
                       title={r.title}
                       className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left transition-colors hover:bg-night-800"
                     >
