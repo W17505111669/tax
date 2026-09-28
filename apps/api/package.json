@@ -8,6 +8,7 @@
     "start": "tsx src/server.ts",
     "typecheck": "tsc -p tsconfig.json",
     "verify:agents": "tsx scripts/verify-agents.ts",
+    "verify:progress": "tsx scripts/verify-progress.ts",
     "case:run": "tsx scripts/run-case.ts"
   },
   "dependencies": {

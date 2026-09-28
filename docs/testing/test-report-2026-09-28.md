@@ -22,6 +22,7 @@
 | `pnpm verify:extract` | 合同/发票票面字段确定性抽取 | PASS |
 | `pnpm verify:diagram` | 关联关系图 mermaid 确定性生成 | PASS |
 | `pnpm verify:agents` | 双 Agent 独立性与内置工具禁用 | PASS |
+| `pnpm verify:progress` | 列表执行进度 0-5 步推导规则 | PASS |
 
 ## 三、真实任务台账
 

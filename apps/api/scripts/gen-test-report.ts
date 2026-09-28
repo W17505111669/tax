@@ -22,6 +22,7 @@ const VERIFY_SCRIPTS: Array<{ name: string; cmd: string; scope: string }> = [
   { name: "verify:extract", cmd: "pnpm verify:extract", scope: "合同/发票票面字段确定性抽取" },
   { name: "verify:diagram", cmd: "pnpm verify:diagram", scope: "关联关系图 mermaid 确定性生成" },
   { name: "verify:agents", cmd: "pnpm verify:agents", scope: "双 Agent 独立性与内置工具禁用" },
+  { name: "verify:progress", cmd: "pnpm verify:progress", scope: "列表执行进度 0-5 步推导规则" },
 ];
 
 function runVerify(cmd: string): { pass: boolean; output: string } {
