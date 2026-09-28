@@ -5,7 +5,13 @@ import { dirs } from "../config.ts";
 import { pendingReviewCount } from "./issues.ts";
 import { filterSearchResults, minRelevanceScore, type WebSearchResult } from "@tax/business-tools";
 // 证据口径必须与界面完全一致，因此直接复用前端那套纯函数，不在服务端另写一份
-import { extractCitations, searchEvidence, searchFiltering } from "../../../web/src/search-evidence.ts";
+import {
+  extractCitations,
+  extractTextCitations,
+  mergeCitations,
+  searchEvidence,
+  searchFiltering,
+} from "../../../web/src/search-evidence.ts";
 import { gradeCitation, summarizeGrades } from "../../../web/src/citation-grade.ts";
 import { traceDocRefs } from "../../../web/src/policy-trace.ts";
 import { pendingAfterRecheck, summarizeRefChecks, type RefCheckVerdict } from "../../../web/src/ref-check.ts";
@@ -41,6 +47,9 @@ export interface EvidenceStats {
   citations: number;
   officialCitations: number;
   weakCitations: number;
+  /** 引用来源拆分：工具留存 / 结论正文（两者之和等于 citations） */
+  citationsFromTools: number;
+  citationsFromConclusion: number;
   /** 弱证据引用中已经检索到官方替代来源、只等人工写回结论的条数 */
   weakWithReplacement: number;
   /** 政策文号：总数 / 工具结果可溯源 / 复查后仍无出处 / 已复查到公开出处 */
@@ -112,6 +121,8 @@ export function computePlatformStats(): PlatformStats {
     citations: 0,
     officialCitations: 0,
     weakCitations: 0,
+    citationsFromTools: 0,
+    citationsFromConclusion: 0,
     weakWithReplacement: 0,
     docRefs: 0,
     docRefTraced: 0,
@@ -181,7 +192,8 @@ export function computePlatformStats(): PlatformStats {
       }
       return { toolName: c.tool_name, result };
     });
-    const cites = extractCitations(parsedCalls);
+    // 引用清单与任务结果页同口径：工具留存 + 结论正文里直接引用的地址
+    const cites = mergeCitations(extractCitations(parsedCalls), extractTextCitations(String(task.result ?? "")));
     const grades = summarizeGrades(cites);
     const se = searchEvidence(parsedCalls);
     const sf = searchFiltering(parsedCalls);
@@ -224,6 +236,8 @@ export function computePlatformStats(): PlatformStats {
     evidence.citations += grades.total;
     evidence.officialCitations += grades.official;
     evidence.weakCitations += grades.weak;
+    evidence.citationsFromTools += cites.filter((c) => c.via !== "conclusion").length;
+    evidence.citationsFromConclusion += cites.filter((c) => c.via === "conclusion").length;
     evidence.weakWithReplacement += cites.filter(
       (c) => gradeCitation(c.url, c.title).grade === "weak" && replaced.has(refKey("citation", c.url)),
     ).length;

@@ -13,7 +13,12 @@ import { parseDetail, parsedByFileName } from "../../web/src/file-parse.ts";
 import { reviewCounts } from "../../web/src/review-export.ts";
 import { normalizeRef, traceDocRefs } from "../../web/src/policy-trace.ts";
 import { gradeCitation, summarizeGrades } from "../../web/src/citation-grade.ts";
-import { extractCitations, searchEvidence } from "../../web/src/search-evidence.ts";
+import {
+  extractCitations,
+  extractTextCitations,
+  mergeCitations,
+  searchEvidence,
+} from "../../web/src/search-evidence.ts";
 import { pendingAfterRecheck, summarizeRefChecks } from "../../web/src/ref-check.ts";
 import { db } from "../src/db.ts";
 import { dirs } from "../src/config.ts";
@@ -34,9 +39,9 @@ function expect(name: string, actual: unknown, want: unknown): void {
 
 type ManifestCitation = ManifestInput["citations"][number];
 
-/** 与前端同一口径：引用提取走 search-evidence.ts，验证脚本不另写一套 */
-function citationsOf(calls: Array<{ toolName: string; result: unknown }>): ManifestCitation[] {
-  return extractCitations(calls).map((c) => {
+/** 与前端同一口径：引用提取走 search-evidence.ts（工具留存 + 结论正文），验证脚本不另写一套 */
+function citationsOf(calls: Array<{ toolName: string; result: unknown }>, result: string): ManifestCitation[] {
+  return mergeCitations(extractCitations(calls), extractTextCitations(result)).map((c) => {
     const g = gradeCitation(c.url, c.title);
     return {
       title: c.title,
@@ -346,7 +351,7 @@ for (const t of listTasks()) {
   );
   const toolOk = calls.filter((c) => c.ok === true).length;
   const toolFailed = calls.filter((c) => c.ok === false).length;
-  const cites = citationsOf(calls);
+  const cites = citationsOf(calls, detail?.result ?? "");
   const grades = summarizeGrades(cites);
   const searches = searchEvidence(calls);
   const refRecs = listRefChecks(t.id);
@@ -377,8 +382,9 @@ for (const t of listTasks()) {
   if (searches.calls !== searches.withUrls + searches.metadataOnly) {
     failures.push(`${t.id.slice(0, 8)} 检索留痕两类之和 ${searches.withUrls + searches.metadataOnly} ≠ 调用数 ${searches.calls}`);
   }
-  if (searches.withUrls === 0 && cites.length > 0) {
-    failures.push(`${t.id.slice(0, 8)} 有 ${cites.length} 条引用却没有留下来源的检索调用`);
+  // 结论正文里的地址也算引用，因此只有工具留存的引用才要求存在留下来源的检索调用
+  if (searches.withUrls === 0 && cites.some((c) => c.via !== "conclusion")) {
+    failures.push(`${t.id.slice(0, 8)} 有工具留存的引用却没有留下来源的检索调用`);
   }
   gradeTotals.total += grades.total;
   gradeTotals.official += grades.official;

@@ -182,7 +182,13 @@ export function deliveryCheck(i: CheckInput): CheckResult {
   // 「没有引用清单」有两种情况：检索过但扩展只留元数据（如实说明），或根本没检索（提醒）
   if (i.citations > 0) {
     items.push({ level: "ok", text: `联网引用 ${i.citations} 条` });
-    if (i.searches && i.searches.metadataOnly > 0) {
+    if (i.searches === null || i.searches.calls === 0) {
+      // 没有任何联网检索调用时，引用只可能来自结论正文（政策快照或模型给出的地址）
+      items.push({
+        level: "info",
+        text: `本任务没有联网检索类工具调用，${i.citations} 条引用取自结论正文，请用「核验链接」确认可达性并核对依据来源`,
+      });
+    } else if (i.searches.metadataOnly > 0) {
       items.push({
         level: "info",
         text: `另有 ${i.searches.metadataOnly} 次联网检索只留存查询元数据（未留存标题与 URL），未计入引用清单`,

@@ -230,6 +230,9 @@ export interface PlatformStats {
     weakCitations: number;
     /** 弱证据引用中已检索到官方替代来源、只等人工写回结论的条数 */
     weakWithReplacement: number;
+    /** 引用来源拆分：工具留存 / 结论正文（两者之和等于 citations） */
+    citationsFromTools: number;
+    citationsFromConclusion: number;
     docRefs: number;
     docRefTraced: number;
     docRefPending: number;

@@ -106,6 +106,18 @@ expect(
   }).warns,
   0,
 );
+expect(
+  "有引用但没有检索调用时说明引用取自结论正文",
+  deliveryCheck({ ...base, searches: null }).items.some(
+    (x) => x.level === "info" && x.text.includes("取自结论正文"),
+  ),
+  true,
+);
+expect(
+  "有检索调用时不误报引用来自正文",
+  deliveryCheck(base).items.some((x) => x.text.includes("取自结论正文")),
+  false,
+);
 expect("金额全部可溯源 → 不降级", deliveryCheck(base).verdict, "可交付");
 expect("存在未溯源金额 → 提醒", deliveryCheck({ ...base, amountUntraced: 3 }).verdict, "谨慎交付");
 expect(

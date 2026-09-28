@@ -60,6 +60,8 @@ import {
 } from "../ref-check.ts";
 import {
   extractCitations,
+  extractTextCitations,
+  mergeCitations,
   SEARCH_TOOL_NAMES as SEARCH_TOOLS,
   searchEvidence,
   searchEvidenceNote,
@@ -615,14 +617,15 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     return task.result ?? last?.detail ?? "";
   }, [timeline, task.result]);
 
-  // 联网引用：提取口径与交付包 manifest 走查共用 search-evidence.ts（含 fetch_content 留下的政策原文页）
+  // 联网引用：工具留存的来源 + 结论正文里直接引用的地址（政策快照链接、修订后写入的替代来源）
+  // 提取口径与交付包 manifest 走查、平台看板共用 search-evidence.ts
   const citations = useMemo<Citation[]>(
     () =>
-      extractCitations(toolCalls).map((c) => {
+      mergeCitations(extractCitations(toolCalls), extractTextCitations(finalResult)).map((c) => {
         const g = gradeCitation(c.url, c.title);
         return { title: c.title, url: c.url, via: c.via, grade: g.grade, gradeReason: g.reason };
       }),
-    [toolCalls],
+    [toolCalls, finalResult],
   );
 
   // 检索留痕：区分「留下了来源」与「只留下查询元数据」，避免把后者误报成没有联网核验
@@ -3719,7 +3722,7 @@ function ResultView({
                   key={c.url}
                   type="button"
                   onClick={() => onOpenUrl({ kind: "url", url: c.url })}
-                  title={`${c.url}\n证据力：${GRADE_TEXT[c.grade]} · ${c.gradeReason}${
+                  title={`${c.url}\n来源：${c.via === "conclusion" ? "结论正文引用" : `工具留存（${c.via}）`}\n证据力：${GRADE_TEXT[c.grade]} · ${c.gradeReason}${
                     weak ? `\n${GRADE_HINT.weak}` : ""
                   }${
                     chk && verdict

@@ -5,6 +5,10 @@
 import {
   CITATION_LIMIT,
   extractCitations,
+  extractTextCitations,
+  labelFromUrl,
+  MERGED_CITATION_LIMIT,
+  mergeCitations,
   queriesOfCall,
   SEARCH_TOOL_NAMES,
   searchEvidence,
@@ -12,7 +16,7 @@ import {
   urlsOfCall,
 } from "../../web/src/search-evidence.ts";
 import { db } from "../src/db.ts";
-import { listTasks } from "../src/services/task-store.ts";
+import { getTask, listTasks } from "../src/services/task-store.ts";
 
 const failures: string[] = [];
 let checks = 0;
@@ -138,11 +142,72 @@ ok("说明含工具名", (note ?? "").includes("web_search"), note ?? "");
 ok("说明含检索词", (note ?? "").includes("土增清算 口径"), note ?? "");
 ok("说明给出处置建议", (note ?? "").includes("请在结论中附检索词"), note ?? "");
 
-// 6) 真实任务走查：工具结果里留存过的每个 URL 都必须能进入引用清单（除非超过上限）
+// 5b) 结论正文里的引用提取与两来源合并
+expect("markdown 链接取链接文字", extractTextCitations("见[政策执行指引](https://a.gov.cn/x.pdf)。")[0], {
+  title: "政策执行指引",
+  url: "https://a.gov.cn/x.pdf",
+  via: "conclusion",
+});
+expect(
+  "裸链接末段无意义时用域名兜底",
+  extractTextCitations("依据 https://fgk.chinatax.gov.cn/zcfgk/c1/content.html 执行")[0]?.title,
+  "fgk.chinatax.gov.cn",
+);
+expect(
+  "裸链接末段有意义时用文件名",
+  extractTextCitations("https://a.cn/p/研发费用指引.html")[0]?.title,
+  "研发费用指引.html",
+);
+expect("去掉结尾句读", extractTextCitations("见 https://a.cn/x.html。")[0]?.url, "https://a.cn/x.html");
+expect("去掉结尾全角括号", extractTextCitations("（https://a.cn/x.html）")[0]?.url, "https://a.cn/x.html");
+expect("同一地址只留一条", extractTextCitations("https://a.cn/x 与 https://a.cn/x").length, 1);
+expect("markdown 链接优先于裸链接", extractTextCitations("[标题](https://a.cn/x) https://a.cn/x")[0]?.title, "标题");
+expect("表格里的链接也能取到", extractTextCitations("| 依据 | [文号](https://a.gov.cn/y) |").length, 1);
+expect("空文本返回空", extractTextCitations("").length, 0);
+expect(
+  "正文提取上限生效",
+  extractTextCitations(Array.from({ length: 25 }, (_, i) => `https://a.cn/${i}`).join(" "), 20).length,
+  20,
+);
+expect("非 http 地址不取", extractTextCitations("ftp://a.cn/x 与 file:///tmp/a").length, 0);
+expect(
+  "labelFromUrl 坏地址原样返回",
+  labelFromUrl("不是网址"),
+  "不是网址",
+);
+const fromTools = [{ title: "工具标题", url: "https://a.cn/1", via: "search_public_cases" }];
+const fromText = [
+  { title: "正文标题", url: "https://a.cn/1", via: "conclusion" },
+  { title: "正文独有", url: "https://b.cn/2", via: "conclusion" },
+];
+expect(
+  "合并去重且工具标题优先",
+  mergeCitations(fromTools, fromText).map((c) => c.title),
+  ["工具标题", "正文独有"],
+);
+expect(
+  "合并保留来源标记",
+  mergeCitations(fromTools, fromText).map((c) => c.via),
+  ["search_public_cases", "conclusion"],
+);
+expect(
+  "合并上限生效",
+  mergeCitations(
+    fromTools,
+    Array.from({ length: 30 }, (_, i) => ({ title: `t${i}`, url: `https://c.cn/${i}`, via: "conclusion" })),
+    24,
+  ).length,
+  24,
+);
+expect("合并上限默认值大于单来源上限", MERGED_CITATION_LIMIT > CITATION_LIMIT, true);
+
+// 6) 真实任务走查：工具留存与结论正文里的每个 URL 都必须进入合并后的引用清单（除非超过上限）
 let taskTotal = 0;
 let withSearch = 0;
 let metaOnlyCalls = 0;
 let citeTotal = 0;
+let toolCiteTotal = 0;
+let textCiteTotal = 0;
 let officialTotal = 0;
 for (const t of listTasks()) {
   const rows = db.prepare(`SELECT tool_name, result FROM tool_calls WHERE task_id = ?`).all(t.id) as Array<{
@@ -159,17 +224,22 @@ for (const t of listTasks()) {
     return { toolName: r.tool_name, result };
   });
   const cites = extractCitations(parsed);
+  const text = getTask(t.id)?.result ?? "";
+  const textCites = extractTextCitations(text);
+  const merged = mergeCitations(cites, textCites);
   const evidence = searchEvidence(parsed);
   taskTotal += 1;
-  citeTotal += cites.length;
-  officialTotal += cites.filter((c) => isGov(c.url)).length;
+  citeTotal += merged.length;
+  toolCiteTotal += cites.length;
+  textCiteTotal += textCites.length;
+  officialTotal += merged.filter((c) => isGov(c.url)).length;
   if (evidence.calls > 0) withSearch += 1;
   metaOnlyCalls += evidence.metadataOnly;
   checks += 1;
   if (evidence.calls !== evidence.withUrls + evidence.metadataOnly) {
     failures.push(`${t.id.slice(0, 8)} 检索留痕两类之和不等于调用数`);
   }
-  if (cites.length > CITATION_LIMIT) failures.push(`${t.id.slice(0, 8)} 引用清单超过上限`);
+  if (merged.length > MERGED_CITATION_LIMIT) failures.push(`${t.id.slice(0, 8)} 合并后的引用清单超过上限`);
   // 每个留存过 URL 的检索调用都必须被计入 withUrls，且其地址出现在清单里（超上限的除外）
   for (const c of parsed) {
     if (!SEARCH_TOOL_NAMES.has(c.toolName)) continue;
@@ -182,9 +252,19 @@ for (const t of listTasks()) {
       }
     }
   }
+  // 结论正文里出现的每条 URL 都必须进入合并后的清单（超上限的除外）：否则引用核验与证据力分级都覆盖不到它
+  if (merged.length < MERGED_CITATION_LIMIT) {
+    for (const m of text.matchAll(/https?:\/\/[^\s)\]>"'|，。；、]+/g)) {
+      const u = (m[0] ?? "").replace(/[)\]>"'）】\],.;:!?，。；：！？、]+$/, "");
+      checks += 1;
+      if (!merged.some((x) => x.url === u)) {
+        failures.push(`${t.id.slice(0, 8)} 结论正文的 URL 未进入引用清单：${u.slice(0, 80)}`);
+      }
+    }
+  }
 }
 console.log(
-  `[verify] 真实任务走查：${taskTotal} 个任务 · ${withSearch} 个用过联网检索 · 引用 ${citeTotal} 条（政府/税务机关站点 ${officialTotal} 条）· 只留元数据的检索 ${metaOnlyCalls} 次`,
+  `[verify] 真实任务走查：${taskTotal} 个任务 · ${withSearch} 个用过联网检索 · 引用 ${citeTotal} 条（工具留存 ${toolCiteTotal} + 结论正文 ${textCiteTotal}，去重后 ${citeTotal}；政府/税务机关站点 ${officialTotal} 条）· 只留元数据的检索 ${metaOnlyCalls} 次`,
 );
 
 console.log(`[verify] 检索留痕检查项=${checks} 失败=${failures.length}`);

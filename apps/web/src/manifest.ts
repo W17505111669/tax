@@ -149,10 +149,13 @@ export function manifestIssues(m: BundleManifest): string[] {
   if (se) {
     if (se.calls !== se.withUrls + se.metadataOnly) out.push("联网检索留痕两类之和不等于调用数");
     if (se.calls > 0 && se.tools.length === 0) out.push("有联网检索却没有工具名");
-    if (se.withUrls === 0 && m.citations.length > 0) out.push("有引用清单却没有任何留下来源的检索调用");
+    // 结论正文里的地址也算引用，因此只有「工具留存的引用」才要求存在留下来源的检索调用
+    if (se.withUrls === 0 && m.citations.some((c) => c.via !== "conclusion")) {
+      out.push("有工具留存的引用却没有任何留下来源的检索调用");
+    }
     if (se.reportedResults < 0) out.push("检索自报命中数为负");
-  } else if (m.citations.length > 0) {
-    out.push("有联网引用却缺少检索留痕汇总");
+  } else if (m.citations.some((c) => c.via !== "conclusion")) {
+    out.push("有工具留存的引用却缺少检索留痕汇总");
   }
 
   const rc = m.refChecks;

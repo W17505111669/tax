@@ -101,6 +101,71 @@ export function queriesOfCall(result: unknown): { queries: string[]; providers: 
 /** 引用清单上限：界面胶囊与整页 MD 都按这个数量截断 */
 export const CITATION_LIMIT = 20;
 
+/** 合并后的引用清单上限（工具留存 + 结论正文） */
+export const MERGED_CITATION_LIMIT = 24;
+
+/** 结论正文里被引用的地址来源标记 */
+export const CONCLUSION_VIA = "conclusion";
+
+const OPAQUE_SEGMENT = /^(index|content|main|default|home|t?\d+|details\d*)(\.[a-z]{2,5})?$/i;
+
+/** 没有链接文字时给个可读标签：末段是有意义的文件名就用它，否则用域名 */
+export function labelFromUrl(raw: string): string {
+  try {
+    const u = new URL(raw);
+    const seg = decodeURIComponent(u.pathname.split("/").filter(Boolean).pop() ?? "");
+    if (seg !== "" && seg.length >= 4 && !OPAQUE_SEGMENT.test(seg)) return seg.slice(0, 40);
+    return u.hostname;
+  } catch {
+    return raw;
+  }
+}
+
+/**
+ * 从结论正文里提取被引用的 URL。
+ * 只从工具结果取引用会漏掉一大半：实测 24 个任务的结论正文里有 50 条 URL，
+ * 只有 18 条来自工具留存，漏掉的 32 条里包含政策法规库等最该被核验的官方原文
+ * （政策快照工具给出的文号链接，以及修订后由 Agent 直接写进正文的替代来源）。
+ * markdown 链接优先取链接文字作标题，裸链接用 labelFromUrl 兜底。
+ */
+export function extractTextCitations(text: string, limit: number = CITATION_LIMIT): ExtractedCitation[] {
+  const out: ExtractedCitation[] = [];
+  if (!text) return out;
+  const seen = new Set<string>();
+  const push = (url: string, title: string): void => {
+    if (out.length >= limit) return;
+    // 去掉结尾的中英文标点与括号，避免把句读当成地址的一部分
+    const clean = url.replace(/[)\]>"'）】\],.;:!?，。；：！？、]+$/, "");
+    if (!/^https?:\/\//i.test(clean) || seen.has(clean)) return;
+    seen.add(clean);
+    out.push({
+      title: title.trim() === "" ? labelFromUrl(clean) : title.trim().slice(0, 120),
+      url: clean,
+      via: CONCLUSION_VIA,
+    });
+  };
+  for (const m of text.matchAll(/\[([^\]]{0,120})\]\((https?:\/\/[^)\s]+)\)/g)) push(m[2] ?? "", m[1] ?? "");
+  for (const m of text.matchAll(/https?:\/\/[^\s)\]>"'|，。；、]+/g)) push(m[0], "");
+  return out.slice(0, limit);
+}
+
+/** 合并两个来源：同一地址只留一条，标题优先用工具留存的（更完整），来源标记保留在 via */
+export function mergeCitations(
+  fromTools: ExtractedCitation[],
+  fromText: ExtractedCitation[],
+  limit: number = MERGED_CITATION_LIMIT,
+): ExtractedCitation[] {
+  const out: ExtractedCitation[] = [];
+  const seen = new Set<string>();
+  for (const c of [...fromTools, ...fromText]) {
+    if (out.length >= limit) break;
+    if (seen.has(c.url)) continue;
+    seen.add(c.url);
+    out.push(c);
+  }
+  return out;
+}
+
 /** 单次检索被过滤掉的条数：自建工具把 details.dropped 落库，用于统计「拦下多少无关结果」 */
 export function droppedOfCall(result: unknown): number {
   return numOf(asRecord(result)?.dropped);
