@@ -286,6 +286,16 @@ export default function App() {
                 setSidebarOpen(true);
                 setRevealNonce((n) => n + 1);
               }}
+              lastAt={Object.fromEntries(
+                agents.map((a) => [
+                  a.id,
+                  tasks
+                    .filter((t) => t.agentId === a.id)
+                    .map((t) => t.createdAt)
+                    .sort()
+                    .pop() ?? "",
+                ]),
+              )}
             />
             <NewTaskPanel agent={activeAgent} busy={creating} error={error} onSubmit={handleCreate} />
           </div>

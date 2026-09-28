@@ -66,6 +66,7 @@ interface Props {
     runCount?: number;
     agentId: string;
   }>;
+  lastAt: Record<string, string>;
   onSelect: (id: string) => void;
   onOpenTask: (id: string) => void;
   onShowAll: () => void;
@@ -81,6 +82,7 @@ export function AgentOverview({
   onSelect,
   onOpenTask,
   onShowAll,
+  lastAt,
 }: Props) {
   const agent = agents.find((a) => a.id === activeAgentId);
   if (!agent) return null;
@@ -568,9 +570,10 @@ export function AgentOverview({
                   ? "border-glow-500 bg-night-700 text-glow-300"
                   : "border-line bg-night-850 text-mist-500 hover:border-glow-500 hover:text-mist-100"
               }`}
-            >
-              {a.shortName}
-            </button>
+              >
+                {a.shortName}
+                {lastAt[a.id] && <span className="ml-1 text-[10px] opacity-70">{relTime(lastAt[a.id]!)}</span>}
+              </button>
           ))}
         </div>
       )}

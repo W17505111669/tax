@@ -906,6 +906,26 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
               回到最新 ↓ {Math.round(scrollPct * 100)}%
             </button>
           )}
+          {tab === "result" && toc.length > 3 && (
+            <div className="no-print absolute bottom-4 right-6 z-10 w-44 rounded-lg border border-line bg-night-900/95 p-2 shadow-xl">
+              <div className="kicker mb-1">目录</div>
+              <ul className="max-h-40 space-y-0.5 overflow-y-auto">
+                {toc.map((h, i) => (
+                  <li key={h}>
+                    <button
+                      type="button"
+                      className="block w-full truncate rounded px-1.5 py-0.5 text-left text-[11px] text-mist-500 transition-colors hover:bg-night-800 hover:text-mist-100"
+                      onClick={() =>
+                        document.getElementById(`sec-${i}`)?.scrollIntoView({ block: "start", behavior: "smooth" })
+                      }
+                    >
+                      {h}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
 
         <aside
