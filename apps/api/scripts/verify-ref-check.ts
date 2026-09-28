@@ -6,6 +6,7 @@
 import type { DetailedSearch, SearchAttempt, WebSearchResult } from "@tax/business-tools";
 import {
   buildRefQuery,
+  buildRevisionInstruction,
   citationTargets,
   contextKeywords,
   gradeRefCheck,
@@ -15,8 +16,10 @@ import {
   REF_VERDICT_HINT,
   REF_VERDICT_TEXT,
   refQueryVariants,
+  revisionCounts,
   stripSiteSuffix,
   summarizeRefChecks,
+  toRevisionItems,
   trimEdgeWords,
   refPrefix,
   type RefCheckTarget,
@@ -237,6 +240,78 @@ expect("汇总取最近复查时间", sum.checkedAt, "2026-09-29T02:00:00.000Z")
 expect("空汇总时间为 null", summarizeRefChecks([]).checkedAt, null);
 expect("复查后待处理数扣掉已找到出处的", pendingAfterRecheck(5, sum), 4);
 expect("待处理数不会为负", pendingAfterRecheck(1, { ...sum, matched: 3 }), 0);
+
+// 3b) 修订指令：把复查结果整理成可提交给 Agent 的续跑指令（人工核对后才提交）
+const revItems = toRevisionItems([
+  {
+    kind: "docref",
+    verdict: "matched",
+    text: "财税〔2015〕119号",
+    evidence: { title: "政策执行指引", url: "https://a.gov.cn/x.pdf" },
+    checkedAt: "2026-09-29T02:00:00.000Z",
+  },
+  {
+    kind: "citation",
+    verdict: "matched",
+    text: "研发_百度百科",
+    subjectUrl: WEAK_URL,
+    evidence: { title: "政策执行指引", url: "https://a.gov.cn/x.pdf" },
+    checkedAt: "2026-09-29T02:00:00.000Z",
+  },
+  {
+    kind: "docref",
+    verdict: "empty",
+    text: "国税发〔2006〕187号",
+    evidence: null,
+    checkedAt: "2026-09-29T02:00:00.000Z",
+  },
+  {
+    kind: "docref",
+    verdict: "error",
+    text: "财税〔2016〕1号",
+    evidence: null,
+    checkedAt: "2026-09-29T02:00:00.000Z",
+  },
+]);
+expect("检索失败不进修订素材", revItems.length, 3);
+expect(
+  "文号类排在引用类之前",
+  revItems.map((i) => i.kind),
+  ["docref", "docref", "citation"],
+);
+expect("修订素材计数", revisionCounts(revItems), { total: 3, replace: 2, unresolved: 1 });
+expect("空素材返回空指令", buildRevisionInstruction([]), "");
+const instr = buildRevisionInstruction(revItems);
+ok("指令限定只改依据与引用", instr.includes("不要改动金额、测算过程、差异认定与结论意见"), instr.slice(0, 80));
+ok("指令含补文号出处段", instr.includes("【补文号出处】") && instr.includes("财税〔2015〕119号 → 《政策执行指引》 https://a.gov.cn/x.pdf"));
+ok("指令含替换弱证据段与原地址", instr.includes("【替换弱证据引用】") && instr.includes(WEAK_URL));
+ok("指令含未取得原文段", instr.includes("【标注未取得原文】") && instr.includes("国税发〔2006〕187号"));
+ok("指令附检索时间", instr.includes("2026-09-29 02:00"));
+ok("指令要求重新输出完整结论", instr.includes("重新输出完整结论"));
+ok("指令禁止新增未核验口径", instr.includes("不得新增未经工具计算或联网核验"));
+expect(
+  "只有未解决项时不出现替换段",
+  buildRevisionInstruction(revItems.filter((i) => i.verdict === "empty")).includes("【替换弱证据引用】"),
+  false,
+);
+expect(
+  "只有替换项时不出现未取得原文段",
+  buildRevisionInstruction(revItems.filter((i) => i.verdict === "matched")).includes("【标注未取得原文】"),
+  false,
+);
+expect(
+  "候选页写进未取得原文段并标注需人工确认",
+  buildRevisionInstruction([
+    {
+      kind: "docref",
+      verdict: "candidate",
+      text: "国税发〔2006〕187号",
+      evidence: { title: "候选页", url: "https://b.cn/y" },
+      checkedAt: "2026-09-29T02:00:00.000Z",
+    },
+  ]).includes("需人工确认"),
+  true,
+);
 
 // 4) 服务端：请求体规范化
 expect("缺 text 的条目被丢弃", toTargets([{ kind: "docref" }, { text: "  " }]).length, 0);

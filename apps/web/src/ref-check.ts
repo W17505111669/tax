@@ -300,3 +300,106 @@ export function refCheckTargets(trace: RefTraceResult): RefCheckTarget[] {
 export function pendingAfterRecheck(pending: number, summary: RefCheckSummary): number {
   return Math.max(0, pending - summary.matched);
 }
+
+/** 修订指令的一条素材：一次已经出结果的复查记录 */
+export type RevisionItem = {
+  kind: RefCheckKind;
+  verdict: RefCheckVerdict;
+  /** 文号原文或引用标题 */
+  text: string;
+  /** 引用类复查的原地址（要被替换掉的那一条） */
+  subjectUrl?: string;
+  evidence: { title: string; url: string } | null;
+  checkedAt: string;
+};
+
+/** 把复查记录整理成修订素材：检索失败的不进指令（重试即可，不该让模型据此改结论） */
+export function toRevisionItems(
+  checks: Array<{
+    kind: RefCheckKind;
+    verdict: RefCheckVerdict;
+    text: string;
+    subjectUrl?: string;
+    evidence: { title: string; url: string } | null;
+    checkedAt: string;
+  }>,
+): RevisionItem[] {
+  return checks
+    .filter((c) => c.verdict !== "error")
+    .map((c) => ({
+      kind: c.kind,
+      verdict: c.verdict,
+      text: c.text,
+      subjectUrl: c.subjectUrl,
+      evidence: c.evidence,
+      checkedAt: c.checkedAt,
+    }))
+    .sort((a, b) => (a.kind === b.kind ? a.text.localeCompare(b.text) : a.kind === "docref" ? -1 : 1));
+}
+
+const stamp = (iso: string): string => (iso ? iso.replace("T", " ").slice(0, 16) : "");
+
+/**
+ * 把复查结果写成一条「续跑」修订指令：人工核对后提交给 Agent 重写依据与引用。
+ * 平台不自动改写结论——指令只是填进续跑输入框，改不改、怎么改由税务师决定。
+ * 没有可用素材时返回空串，调用方据此禁用按钮。
+ */
+export function buildRevisionInstruction(items: RevisionItem[]): string {
+  if (items.length === 0) return "";
+  const docMatched = items.filter((i) => i.kind === "docref" && i.verdict === "matched");
+  const citMatched = items.filter((i) => i.kind === "citation" && i.verdict === "matched");
+  const unresolved = items.filter((i) => i.verdict === "candidate" || i.verdict === "empty");
+  const lines: string[] = [
+    "请依据下列联网核对结果修订上一轮结论中的政策依据与联网引用；只改依据与引用部分，不要改动金额、测算过程、差异认定与结论意见。",
+    "",
+  ];
+  if (docMatched.length > 0) {
+    lines.push("【补文号出处】以下政策文号已检索到公开原文，请在结论的政策依据处补上标题、URL 与检索时间：");
+    for (const i of docMatched) {
+      lines.push(`- ${i.text} → 《${i.evidence?.title ?? ""}》 ${i.evidence?.url ?? ""}（检索时间 ${stamp(i.checkedAt)}）`);
+    }
+    lines.push("");
+  }
+  if (citMatched.length > 0) {
+    lines.push(
+      "【替换弱证据引用】以下引用原先指向门户首页、百科词条或检索结果页，现已找到官方原文，请在结论正文与联网引用清单中替换：",
+    );
+    for (const i of citMatched) {
+      lines.push(
+        `- 「${i.text}」${i.subjectUrl ?? ""} → 《${i.evidence?.title ?? ""}》 ${i.evidence?.url ?? ""}（检索时间 ${stamp(
+          i.checkedAt,
+        )}）`,
+      );
+    }
+    lines.push("");
+  }
+  if (unresolved.length > 0) {
+    lines.push(
+      "【标注未取得原文】以下项目联网复查后仍未取得政策原文，请在结论中明确写「未取得公开原文，仅作背景参考，不作为政策依据」，不得据此认定企业处理错误：",
+    );
+    for (const i of unresolved) {
+      lines.push(
+        `- ${i.text}${i.subjectUrl ? ` ${i.subjectUrl}` : ""}（复查判定：${REF_VERDICT_TEXT[i.verdict]}${
+          i.evidence ? `，候选页《${i.evidence.title}》 ${i.evidence.url}，需人工确认` : ""
+        }）`,
+      );
+    }
+    lines.push("");
+  }
+  lines.push(
+    "要求：",
+    "1. 修订后重新输出完整结论（保留原有表格与 mermaid 图），不要只给差异；",
+    "2. 每条联网引用都给出标题、URL 与检索时间；",
+    "3. 不得新增未经工具计算或联网核验的政策口径、文号与金额。",
+  );
+  return lines.join("\n");
+}
+
+/** 修订素材计数：按钮文案与提示用 */
+export function revisionCounts(items: RevisionItem[]): { total: number; replace: number; unresolved: number } {
+  return {
+    total: items.length,
+    replace: items.filter((i) => i.verdict === "matched").length,
+    unresolved: items.filter((i) => i.verdict === "candidate" || i.verdict === "empty").length,
+  };
+}

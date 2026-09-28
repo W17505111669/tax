@@ -47,12 +47,15 @@ import { traceDocRefs } from "../policy-trace.ts";
 import { gradeCitation, GRADE_HINT, GRADE_TEXT, summarizeGrades } from "../citation-grade.ts";
 import { topDomainWords, topicHint } from "../domain-keywords.ts";
 import {
+  buildRevisionInstruction,
   citationTargets,
   pendingAfterRecheck,
   refCheckTargets,
   REF_VERDICT_HINT,
   REF_VERDICT_TEXT,
+  revisionCounts,
   summarizeRefChecks,
+  toRevisionItems,
   type RefCheckSummary,
 } from "../ref-check.ts";
 import {
@@ -167,6 +170,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   const [refChecks, setRefChecks] = useState<Record<string, RefCheckRecord>>({});
   const [refBusy, setRefBusy] = useState(false);
   const [refPanelOpen, setRefPanelOpen] = useState(false);
+  // 修订指令生成提示（指令本身填进「续跑任务」输入框，由人工核对后提交）
+  const [revisionMsg, setRevisionMsg] = useState("");
   const [pendingReviews, setPendingReviews] = useState(0);
   const [readerOpen, setReaderOpen] = useState(false);
   const [readerTabs, setReaderTabs] = useState<ReaderTarget[]>([]);
@@ -1010,6 +1015,27 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     () => citationTargets(weakCitations, topicHint(finalResult, 2), 10),
     [weakCitations, finalResult],
   );
+
+  // 修订素材：只取与当前结论对得上的复查记录，避免上一版结论留下的记录写进指令
+  const revisionItems = useMemo(() => {
+    const docKeys = new Set(refTargets.map((t) => t.key));
+    const citeKeys = new Set(weakTargets.map((t) => t.key));
+    return toRevisionItems(
+      Object.values(refChecks).filter((c) => (c.kind === "docref" ? docKeys.has(c.key) : citeKeys.has(c.key))),
+    );
+  }, [refChecks, refTargets, weakTargets]);
+  const revisionCount = useMemo(() => revisionCounts(revisionItems), [revisionItems]);
+
+  /** 生成修订指令并填入续跑输入框：平台不自动改写结论，改不改由税务师决定 */
+  const fillRevisionInstruction = () => {
+    const text = buildRevisionInstruction(revisionItems);
+    if (text === "") return;
+    setResumeText(text);
+    setResumeOpen(true);
+    setRevisionMsg(
+      `修订指令已填入「续跑任务」（${revisionCount.total} 项：可替换或补出处 ${revisionCount.replace} · 需标注未取得原文 ${revisionCount.unresolved}），请核对后提交`,
+    );
+  };
 
   /** 为弱证据引用检索官方原文：结果落库，需人工确认后写回结论，平台不改写 Agent 的结论 */
   const runCitationRecheck = () => {
@@ -2131,10 +2157,21 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                       >
                         {refBusy ? "复查中…" : `联网复查${refTargets.length > 0 ? `（${Math.min(refTargets.length, 10)} 处）` : ""}`}
                       </button>
+                      {revisionItems.length > 0 && (
+                        <button
+                          type="button"
+                          className="action-btn"
+                          onClick={fillRevisionInstruction}
+                          title="把已找到出处的文号、已找到替代来源的弱证据引用、以及仍未取得原文的项目整理成一条修订指令，填进「续跑任务」输入框；平台不自动改写结论，需人工核对后提交"
+                        >
+                          生成修订指令（{revisionCount.total}）
+                        </button>
+                      )}
                       <button type="button" className="action-btn" onClick={() => setRefPanelOpen(false)}>
                         收起
                       </button>
                     </div>
+                    {revisionMsg && <p className="mt-1.5 text-[11px] leading-5 text-jade-300">{revisionMsg}</p>}
                     {refTargets.length === 0 ? (
                       <p className="mt-1.5 text-[11px] leading-5 text-mist-600">
                         {refSummary.total > 0
@@ -2232,6 +2269,9 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                   summary: citationSummary,
                   busy: refBusy,
                   onRun: runCitationRecheck,
+                  composable: revisionCount.total,
+                  onCompose: fillRevisionInstruction,
+                  notice: revisionMsg,
                 }}
                 onOpenUrl={openReader}
                 linkChecks={linkChecks}
@@ -3413,6 +3453,11 @@ function ResultView({
     summary: RefCheckSummary;
     busy: boolean;
     onRun: () => void;
+    /** 可写进修订指令的复查结果条数（含文号与引用两类） */
+    composable: number;
+    /** 生成修订指令并填入「续跑任务」输入框 */
+    onCompose: () => void;
+    notice: string;
   };
   onOpenUrl: (target: ReaderTarget) => void;
   onDownloadReport: () => void;
@@ -3751,7 +3796,20 @@ function ResultView({
                       ? "重新检索替代来源"
                       : "查找官方原文"}
                 </button>
+                {citationRecheck.composable > 0 && (
+                  <button
+                    type="button"
+                    className="action-btn"
+                    title="把已找到替代来源的引用、已找到出处的文号与仍未取得原文的项目整理成一条修订指令，填进「续跑任务」输入框；平台不自动改写结论，需人工核对后提交"
+                    onClick={citationRecheck.onCompose}
+                  >
+                    生成修订指令（{citationRecheck.composable}）
+                  </button>
+                )}
               </div>
+              {citationRecheck.notice && (
+                <div className="mt-1 text-[11px] leading-5 text-jade-300">{citationRecheck.notice}</div>
+              )}
               {citationRecheck.checks.length > 0 && (
                 <ul className="mt-1.5 space-y-1">
                   {citationRecheck.checks.map((c) => (
