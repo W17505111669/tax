@@ -373,7 +373,13 @@ export default function App() {
                 ]),
               )}
             />
-            <NewTaskPanel agent={activeAgent} busy={creating} error={error} onSubmit={handleCreate} />
+            <NewTaskPanel
+              agent={activeAgent}
+              busy={creating}
+              error={error}
+              onSubmit={handleCreate}
+              uploadPolicy={uploadPolicy}
+            />
           </div>
         ) : (
           <div className="flex flex-1 items-center justify-center text-[13px] text-mist-600">正在加载智能体配置…</div>

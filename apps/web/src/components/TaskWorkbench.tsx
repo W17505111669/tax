@@ -30,7 +30,14 @@ import {
   type ParsedDoc,
   type ParseSummary,
 } from "../file-parse.ts";
-import { partitionFiles, policyMessage, type UploadPolicy } from "../upload-policy.ts";
+import {
+  partitionFiles,
+  policyHint,
+  policyMessage,
+  verdictItems,
+  type UploadItem,
+  type UploadPolicy,
+} from "../upload-policy.ts";
 import { CompareView } from "./CompareView.tsx";
 import { ThemeSwitch } from "./ThemeSwitch.tsx";
 import { ReviewView } from "./ReviewView.tsx";
@@ -461,7 +468,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     try {
       if (resumeFiles.length > 0) {
         const split = splitByPolicy(resumeFiles);
-        if (split.note) flashUpload(split.note);
+        if (split.note) flashUpload(split.note, verdictItems(resumeFiles, split.rejected));
         if (split.accepted.length > 0) await api.uploadFiles(task.id, split.accepted);
       }
       await api.resumeTask(task.id, resumeText.trim());
@@ -856,7 +863,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   // 拖拽上传：把文件拖到工作台任意位置即上传到本任务，资料列表由 App 的 3 秒轮询刷新
   const [dropActive, setDropActive] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [uploadMsg, setUploadMsg] = useState("");
+  const [uploadReport, setUploadReport] = useState<{ title: string; items: UploadItem[] } | null>(null);
   const [uploadPolicy, setUploadPolicy] = useState<UploadPolicy | null>(null);
   useEffect(() => {
     void api
@@ -865,9 +872,9 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       .catch(() => undefined);
   }, []);
 
-  const flashUpload = (msg: string) => {
-    setUploadMsg(msg);
-    window.setTimeout(() => setUploadMsg((cur) => (cur === msg ? "" : cur)), 10000);
+  const flashUpload = (title: string, items: UploadItem[] = []) => {
+    setUploadReport({ title, items });
+    window.setTimeout(() => setUploadReport((cur) => (cur && cur.title === title ? null : cur)), 12000);
   };
 
   /** 按服务端策略预检；策略尚未加载时不拦，交给服务端校验，避免误拒 */
@@ -896,24 +903,22 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     const dropped = Array.from(e.dataTransfer.files);
     if (dropped.length === 0 || uploading) return;
     const split = splitByPolicy(dropped);
+    const items = verdictItems(dropped, split.rejected);
     if (split.accepted.length === 0) {
-      flashUpload(split.note || "没有可上传的文件");
+      flashUpload(split.note || "没有可上传的文件", items);
       return;
     }
     setUploading(true);
-    flashUpload(
-      split.note
-        ? `正在上传 ${split.accepted.length} 份资料…（${split.note}）`
-        : `正在上传 ${split.accepted.length} 份资料…`,
-    );
+    flashUpload(`正在上传 ${split.accepted.length} 份资料…${split.note ? `（${split.note}）` : ""}`, items);
     void api
       .uploadFiles(task.id, split.accepted)
       .then((res) =>
         flashUpload(
           `已上传 ${res.files.length} 份资料${split.note ? `；${split.note}` : ""}。点资料行「重新解析」或在续跑里说明即可让 Agent 使用`,
+          items,
         ),
       )
-      .catch((err: unknown) => flashUpload(`上传失败：${err instanceof Error ? err.message : String(err)}`))
+      .catch((err: unknown) => flashUpload(`上传失败：${err instanceof Error ? err.message : String(err)}`, items))
       .finally(() => setUploading(false));
   };
 
@@ -1144,12 +1149,40 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
         <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center border-2 border-dashed border-glow-400/70 bg-night-950/80">
           <div className="rounded-md border border-glow-500/50 bg-night-900 px-4 py-3 text-[13px] text-glow-200">
             松开即可上传到「{task.title}」
+            {uploadPolicy && (
+              <span className="mt-1 block text-[11px] text-mist-500">{policyHint(uploadPolicy)}</span>
+            )}
           </div>
         </div>
       )}
-      {uploadMsg && (
-        <div className="no-print absolute left-1/2 top-3 z-40 -translate-x-1/2 rounded-md border border-line bg-night-850 px-3 py-1.5 text-[11.5px] text-mist-200 shadow-lg">
-          {uploadMsg}
+      {uploadReport && (
+        <div className="no-print absolute left-1/2 top-3 z-40 w-[380px] max-w-[92%] -translate-x-1/2 rounded-md border border-line bg-night-850 px-3 py-2 shadow-lg">
+          <div className="flex items-start gap-2 text-[11.5px] text-mist-200">
+            <span className="min-w-0 flex-1">{uploadReport.title}</span>
+            <button
+              type="button"
+              className="action-btn shrink-0 !px-1"
+              title="关闭"
+              onClick={() => setUploadReport(null)}
+            >
+              ✕
+            </button>
+          </div>
+          {uploadReport.items.length > 0 && (
+            <ul className="mt-1 max-h-[180px] space-y-0.5 overflow-y-auto">
+              {uploadReport.items.map((it, i) => (
+                <li key={`${it.name}-${i}`} className="flex items-center gap-1.5 text-[11px]">
+                  <span className={it.ok ? "shrink-0 text-jade-400" : "shrink-0 text-rose-300"}>
+                    {it.ok ? "✓" : "✗"}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-mist-400" title={it.name}>
+                    {it.name}
+                  </span>
+                  {!it.ok && <span className="shrink-0 text-rose-300/90">{it.reason}</span>}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
       <header className="no-print flex flex-wrap items-center gap-3 border-b border-line bg-night-950 px-8 py-3.5">

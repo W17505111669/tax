@@ -63,3 +63,26 @@ export function policyMessage(accepted: number, rejected: Array<{ name: string; 
     ? `已跳过 ${rejected.length} 份不符合要求的文件：${detail}${more}`
     : `未上传，${rejected.length} 份文件不符合要求：${detail}${more}`;
 }
+
+/** 拖拽落区提示：允许的类型（超过 6 类折叠计数）与单文件上限 */
+export function policyHint(policy: UploadPolicy | null): string {
+  if (!policy) return "";
+  const exts = normalizeAllowed(policy.allowedExtensions);
+  const shown = exts.slice(0, 6).map((e) => `.${e}`).join(" ");
+  const more = exts.length > 6 ? ` 等 ${exts.length} 类` : "";
+  return `支持 ${shown}${more} · 单文件 ≤ ${fmtBytes(policy.maxUploadBytes)}`;
+}
+
+export type UploadItem = { name: string; ok: boolean; reason: string };
+
+/** 逐份文件的预检结果（浮层清单用）：被拒的带原因，其余标为可上传，顺序与入参一致 */
+export function verdictItems<T extends FileLike>(
+  files: T[],
+  rejected: Array<{ name: string; reason: string }>,
+): UploadItem[] {
+  const byName = new Map(rejected.map((r) => [r.name, r.reason]));
+  return files.map((f) => {
+    const reason = byName.get(f.name);
+    return reason === undefined ? { name: f.name, ok: true, reason: "" } : { name: f.name, ok: false, reason };
+  });
+}

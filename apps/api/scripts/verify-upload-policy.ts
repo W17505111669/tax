@@ -2,7 +2,14 @@
  * 验证脚本：上传预检规则，并核对前端拿到的策略与服务端配置一致。
  * 运行：pnpm verify:upload
  */
-import { checkFile, extensionOf, partitionFiles, policyMessage } from "../../web/src/upload-policy.ts";
+import {
+  checkFile,
+  extensionOf,
+  partitionFiles,
+  policyHint,
+  policyMessage,
+  verdictItems,
+} from "../../web/src/upload-policy.ts";
 import { allowedExtensions, maxUploadBytes } from "../src/config.ts";
 
 const failures: string[] = [];
@@ -59,6 +66,44 @@ expect(
 // 服务端配置自洽：白名单非空、上限为正、常见业务类型都在白名单里
 expect("白名单非空", allowedExtensions.length > 0, true);
 expect("上限为正", maxUploadBytes > 0, true);
+
+// 落区提示与逐份结果清单
+expect("无策略时不给提示", policyHint(null), "");
+expect(
+  "类型过多时折叠计数",
+  policyHint({ allowedExtensions: [".pdf", ".xlsx", ".xls", ".csv", ".docx", ".doc", ".txt"], maxUploadBytes: 1024 }),
+  "支持 .pdf .xlsx .xls .csv .docx .doc 等 7 类 · 单文件 ≤ 1.0 KB",
+);
+expect(
+  "类型不多时全部列出",
+  policyHint({ allowedExtensions: ["xlsx", "pdf"], maxUploadBytes: 2048 }),
+  "支持 .xlsx .pdf · 单文件 ≤ 2.0 KB",
+);
+expect(
+  "服务端真实配置的提示含类数与上限",
+  [
+    policyHint({ allowedExtensions, maxUploadBytes }).includes(`等 ${allowedExtensions.length} 类`),
+    policyHint({ allowedExtensions, maxUploadBytes }).includes("25.00 MB"),
+  ],
+  [true, true],
+);
+expect(
+  "逐份结果保持入参顺序并标注原因",
+  verdictItems(
+    [
+      { name: "a.xlsx", size: 1 },
+      { name: "b.exe", size: 1 },
+      { name: "c.pdf", size: 1 },
+    ],
+    [{ name: "b.exe", reason: "不支持的类型 .exe" }],
+  ),
+  [
+    { name: "a.xlsx", ok: true, reason: "" },
+    { name: "b.exe", ok: false, reason: "不支持的类型 .exe" },
+    { name: "c.pdf", ok: true, reason: "" },
+  ],
+);
+expect("空列表", verdictItems([], []), []);
 expect(
   "常见业务类型按服务端真实配置可上传",
   ["底稿.xlsx", "政策.pdf", "扫描.png", "台账.csv"].every(

@@ -2,11 +2,15 @@ import { useEffect, useState } from "react";
 import type { AgentInfo } from "../types.ts";
 import { IconFile, IconPlay, IconUpload } from "./Icons.tsx";
 
+import { partitionFiles, policyHint, type UploadPolicy } from "../upload-policy.ts";
+
 interface Props {
   agent: AgentInfo;
   busy: boolean;
   error: string | null;
   onSubmit: (input: { instruction: string; caseId: string; title: string; files: File[] }) => void;
+  /** 服务端上传策略：用于落区提示与选择文件时的本地预检 */
+  uploadPolicy?: UploadPolicy | null;
 }
 
 const QUICK_EXTRAS = [
@@ -16,7 +20,7 @@ const QUICK_EXTRAS = [
   { label: "待复核清单", snippet: "请在结尾列出全部待复核与待人工确认事项。" },
 ];
 
-export function NewTaskPanel({ agent, busy, error, onSubmit }: Props) {
+export function NewTaskPanel({ agent, busy, error, onSubmit, uploadPolicy }: Props) {
   // 草稿保护：切换任务/智能体后回来仍保留未提交指令
   const [instruction, setInstruction] = useState(() => sessionStorage.getItem("taxai-draft-instruction") ?? "");
   const [caseId, setCaseId] = useState(() => sessionStorage.getItem("taxai-draft-case") ?? "DEMO-001");
@@ -34,10 +38,18 @@ export function NewTaskPanel({ agent, busy, error, onSubmit }: Props) {
   const [files, setFiles] = useState<File[]>([]);
   const [extras, setExtras] = useState<number[]>([]);
   const [dragging, setDragging] = useState(false);
+  const [rejected, setRejected] = useState<Array<{ name: string; reason: string }>>([]);
 
   const addFiles = (list: FileList | null) => {
     if (!list) return;
-    setFiles((prev) => [...prev, ...Array.from(list)]);
+    const incoming = Array.from(list);
+    if (!uploadPolicy) {
+      setFiles((prev) => [...prev, ...incoming]);
+      return;
+    }
+    const split = partitionFiles(incoming, uploadPolicy);
+    setRejected(split.rejected);
+    if (split.accepted.length > 0) setFiles((prev) => [...prev, ...split.accepted]);
   };
 
   const submit = () => {
@@ -133,6 +145,17 @@ export function NewTaskPanel({ agent, busy, error, onSubmit }: Props) {
         }}
         className={`composer sticky bottom-2 z-20 mt-5 px-3.5 pb-2.5 pt-3 ${dragging ? "border-glow-400" : ""}`}
       >
+        {uploadPolicy && <div className="mb-1.5 text-[10.5px] text-mist-600">{policyHint(uploadPolicy)}</div>}
+        {rejected.length > 0 && (
+          <div className="mb-1.5 rounded border border-amber-400/40 bg-amber-400/10 px-2 py-1 text-[11px] text-amber-200">
+            已跳过 {rejected.length} 份不符合要求的文件：
+            {rejected
+              .slice(0, 3)
+              .map((r) => `${r.name}（${r.reason}）`)
+              .join("、")}
+            {rejected.length > 3 ? ` 等 ${rejected.length} 份` : ""}
+          </div>
+        )}
         {files.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-1.5">
             {files.map((f, i) => (
