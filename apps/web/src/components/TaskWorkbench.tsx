@@ -52,6 +52,21 @@ interface Citation {
   url: string;
 }
 
+/** 去除 Markdown 语法，供纯文本复制使用 */
+function toPlainText(md: string): string {
+  return md
+    .replace(/```[\s\S]*?```/g, (block) => block.replace(/```[\w-]*\n?/g, "").replace(/```/g, ""))
+    .replace(/^#{1,6} /gm, "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/^\s*\| ?---.*$/gm, "")
+    .replace(/\|/g, "  ")
+    .replace(/^> /gm, "")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .trim();
+}
+
 export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }: Props) {
   const { timeline, toolCalls, status, connected, reconnect } = useTaskEvents(task.id);
   const [compares, setCompares] = useState<CompareRecord[]>([]);
@@ -1146,7 +1161,15 @@ function ResultView({
           onClick={() => void navigator.clipboard?.writeText(result).catch(() => undefined)}
         >
           <IconCopy className="h-3.5 w-3.5" />
-          复制全文
+          复制 Markdown
+        </button>
+        <button
+          type="button"
+          className="action-btn"
+          onClick={() => void navigator.clipboard?.writeText(toPlainText(result)).catch(() => undefined)}
+        >
+          <IconCopy className="h-3.5 w-3.5" />
+          复制纯文本
         </button>
         <button type="button" className="action-btn" onClick={onPrint}>
           <IconPrint className="h-3.5 w-3.5" />

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { AgentInfo, PlatformStats } from "../types.ts";
-import { IconBuilding, IconCheck, IconFlask, IconTool } from "./Icons.tsx";
+import { IconBuilding, IconCheck, IconExternal, IconFile, IconFlask, IconTool } from "./Icons.tsx";
 
 /** 大数字进入页面时从 0 缓动递增，对齐参考片数据页的计数质感。 */
 const DESC_KEYWORDS = ["整数分", "行级", "记录级", "OCR", "mermaid", "联网"];
@@ -293,7 +293,10 @@ export function AgentOverview({ agents, activeAgentId, stats, breakdown, created
             <ul className="mt-2.5 grid gap-x-6 gap-y-1.5 sm:grid-cols-2">
               {agent.capabilities.map((c) => (
                 <li key={c} className="flex items-start gap-2 text-[13px] text-mist-300">
-                  <IconCheck className="mt-1 h-3.5 w-3.5 shrink-0 text-jade-400" />
+                  {(() => {
+                    const I = capIcon(c);
+                    return <I className={`mt-1 h-3.5 w-3.5 shrink-0 ${I === IconCheck ? "text-jade-400" : "text-glow-400"}`} />;
+                  })()}
                   {c}
                 </li>
               ))}
@@ -360,4 +363,11 @@ export function AgentOverview({ agents, activeAgentId, stats, breakdown, created
       )}
     </section>
   );
+}
+/** 能力清单按关键词分类配图标 */
+function capIcon(c: string) {
+  if (/测算|计算|整数|限额|填列/.test(c)) return IconTool;
+  if (/检索|联网|核验|政策/.test(c)) return IconExternal;
+  if (/底稿|导出|文档|报告|版式/.test(c)) return IconFile;
+  return IconCheck;
 }
