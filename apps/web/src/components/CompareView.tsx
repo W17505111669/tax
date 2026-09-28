@@ -414,6 +414,14 @@ export function CompareView({ compares, onOpenTarget }: Props) {
                 {rec.at ? new Date(rec.at).toLocaleString("zh-CN", { hour12: false }) : ""} ·{" "}
                 {rec.result.sheets[0]?.mode === "address" ? "地址模式" : "记录级模式"}
               </span>
+              <button
+                type="button"
+                className="action-btn"
+                title="复制比对记录 ID"
+                onClick={() => void navigator.clipboard?.writeText(rec.id).catch(() => undefined)}
+              >
+                <span className="font-mono text-[10px]">#{rec.id.slice(0, 8)}</span>
+              </button>
               <span className="ml-auto flex gap-1.5">
                 <button
                   type="button"

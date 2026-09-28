@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type Ref } from "react";
 import { api } from "../api.ts";
 import type { SheetPreview } from "../types.ts";
 import { MarkdownView } from "./MarkdownView.tsx";
@@ -73,9 +73,17 @@ interface Props {
 
 /** 侧边可折叠阅读器：支持多文档标签页，网页阅读模式、任务资料与生成产物统一预览。 */
 /** 双栏对照的简化副栏：支持 markdown/text/image/pdf，表格与二进制引导回主栏。 */
-function MiniPane({ st, title }: { st: ReaderState; title: string }) {
+function MiniPane({
+  st,
+  title,
+  innerRef,
+}: {
+  st: ReaderState;
+  title: string;
+  innerRef?: Ref<HTMLDivElement>;
+}) {
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto border-l border-line px-3 py-3">
+    <div ref={innerRef} className="min-h-0 flex-1 overflow-y-auto border-l border-line px-3 py-3">
       <div className="mb-2 truncate text-[11px] text-mist-500" title={title}>
         对照：{title}
       </div>
@@ -126,6 +134,8 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   const [armedKey, setArmedKey] = useState<string | null>(null);
   const [splitView, setSplitView] = useState(false);
   const [secondIdx, setSecondIdx] = useState(0);
+  const [syncScroll, setSyncScroll] = useState(false);
+  const miniRef = useRef<HTMLDivElement>(null);
   const [showLines, setShowLines] = useState(false);
   const [aliases, setAliases] = useState<Record<string, string>>(() => {
     try {
@@ -458,6 +468,17 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
                 ))}
               </select>
             )}
+            {splitView && tabs.length > 1 && (
+              <button
+                type="button"
+                className="action-btn"
+                data-on={syncScroll}
+                onClick={() => setSyncScroll((v) => !v)}
+                title="主栏滚动时按比例同步副栏"
+              >
+                同步滚动
+              </button>
+            )}
             {tabs.length > 1 && (
               <button
                 type="button"
@@ -758,7 +779,19 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
       )}
 
       <div className={`min-h-0 flex-1 ${splitView && tabs.length > 1 ? "flex" : ""}`}>
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <div
+        ref={scrollRef}
+        onScroll={() => {
+          if (!splitView || !syncScroll) return;
+          const el = scrollRef.current;
+          const other = miniRef.current;
+          if (!el || !other) return;
+          const r1 = el.scrollHeight - el.clientHeight;
+          const r2 = other.scrollHeight - other.clientHeight;
+          if (r1 > 0 && r2 > 0) other.scrollTop = (el.scrollTop / r1) * r2;
+        }}
+        className="min-h-0 flex-1 overflow-y-auto px-4 py-4"
+      >
         {state.loading && !/\.xlsx?$/i.test(activeName) && (
           <div className="flex flex-col items-center gap-4 py-14">
             <div className="dot-grid" aria-hidden>
@@ -1026,7 +1059,9 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
           </p>
         )}
       </div>
-      {splitView && tabs.length > 1 && <MiniPane st={states[secondKey] ?? INITIAL} title={secondLabel} />}
+      {splitView && tabs.length > 1 && (
+        <MiniPane st={states[secondKey] ?? INITIAL} title={secondLabel} innerRef={miniRef} />
+      )}
       </div>
     </aside>
   );
