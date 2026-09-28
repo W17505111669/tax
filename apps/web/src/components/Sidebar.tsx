@@ -128,6 +128,7 @@ export function IconRail({
                 { keys: "↑ / ↓", desc: "选择比对差异行" },
                 { keys: "Enter", desc: "阅读器双底稿定位" },
                 { keys: "Alt+1~4", desc: "切换工作台页签" },
+                { keys: "搜索框 ↑/↓+Enter", desc: "选择并打开任务" },
                 { keys: "?", desc: "开关本帮助" },
               ].map((s) => (
                 <li key={s.keys} className="flex items-center justify-between gap-2">
@@ -288,7 +289,7 @@ export function Sidebar({
         title="拖拽可手动排序/置顶"
         className={`group relative mb-1 rounded-lg transition-colors ${
           active ? "bg-night-700 glow-ring" : "hover:bg-night-800"
-        }`}
+        } ${task.id === cursorId ? "ring-1 ring-glow-500/60" : ""}`}
       >
         <button
           type="button"
@@ -367,6 +368,17 @@ export function Sidebar({
         t.caseId.toLowerCase().includes(q) ||
         kwStatus === t.status),
   );
+
+  const [cursor, setCursor] = useState<number | null>(null);
+  // 与渲染顺序一致的扁平可见列表（收藏组优先）
+  const flatVisible = useMemo(() => {
+    const star = sortByOrder(filtered.filter((t) => starred.has(t.id)));
+    const groups = GROUP_ORDER.flatMap((g) =>
+      sortByOrder(filtered.filter((t) => t.status === g.id && !starred.has(t.id))),
+    );
+    return [...star, ...groups];
+  }, [filtered, starred, order, sortTools]);
+  const cursorId = cursor !== null ? (flatVisible[cursor]?.id ?? null) : null;
   if (!open) return null;
   return (
     <aside className="no-print relative flex w-[268px] shrink-0 flex-col border-r border-line bg-night-950 text-mist-300">
@@ -471,6 +483,22 @@ export function Sidebar({
             ref={searchRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                e.preventDefault();
+                setCursor((c) => {
+                  const base = c ?? -1;
+                  const next = e.key === "ArrowDown" ? base + 1 : base - 1;
+                  return Math.max(0, Math.min(flatVisible.length - 1, next));
+                });
+              } else if (e.key === "Enter") {
+                const t = cursor !== null ? flatVisible[cursor] : undefined;
+                if (t) onSelectTask(t.id);
+              } else if (e.key === "Escape") {
+                setCursor(null);
+                (e.target as HTMLInputElement).blur();
+              }
+            }}
             placeholder="搜索任务…（Ctrl+K）"
             className="w-full rounded-md border border-line bg-night-850 px-2.5 py-1.5 pr-7 text-[12px] text-mist-100 outline-none placeholder:text-mist-600 focus:glow-ring"
           />
