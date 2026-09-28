@@ -359,6 +359,24 @@ export function AgentOverview({
                   />
                 )}
               </svg>
+              <div className="mt-3 grid grid-cols-[52px_1fr_40px] items-center gap-x-3 gap-y-1.5">
+                <span className="text-[11px] text-mist-500">本周</span>
+                <span className="bar-track">
+                  <span
+                    className="bar-fill block"
+                    style={{ width: `${(weekNow / Math.max(1, weekNow, weekPrev)) * 100}%` }}
+                  />
+                </span>
+                <span className="text-right font-mono text-[11px] text-mist-300">{weekNow}</span>
+                <span className="text-[11px] text-mist-500">上周</span>
+                <span className="bar-track">
+                  <span
+                    className="bar-fill block opacity-60"
+                    style={{ width: `${(weekPrev / Math.max(1, weekNow, weekPrev)) * 100}%` }}
+                  />
+                </span>
+                <span className="text-right font-mono text-[11px] text-mist-300">{weekPrev}</span>
+              </div>
             </div>
             <div className="mt-5">
               <div className="flex items-center justify-between">

@@ -228,6 +228,19 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
     setRot(0);
   }, [activeKey]);
 
+  // Ctrl+Tab 切换标签（Shift 反向）
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.key !== "Tab") return;
+      if (tabs.length < 2) return;
+      e.preventDefault();
+      const dir = e.shiftKey ? -1 : 1;
+      onSelect((((activeIndex + dir) % tabs.length) + tabs.length) % tabs.length);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [tabs.length, activeIndex, onSelect]);
+
   useEffect(() => {
     if (!active) return;
     const key = readerKey(active);
