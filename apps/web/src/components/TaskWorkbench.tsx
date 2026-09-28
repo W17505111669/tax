@@ -1085,7 +1085,19 @@ function TimelineView({
   const counters = useRef<Record<string, number>>({});
   counters.current = {};
   const lastTextId = [...items].reverse().find((t) => t.kind === "agent_text" && t.detail)?.id;
-  let runSeq = 0;
+  const [collapseOld, setCollapseOld] = useState(false);
+  const [expandedRuns, setExpandedRuns] = useState<Set<number>>(new Set());
+  const runInfo = useMemo(() => {
+    let cur = 0;
+    const counts: number[] = [];
+    const of: number[] = [];
+    for (const it of items) {
+      if (it.kind === "run_started") cur += 1;
+      of.push(cur);
+      counts[cur] = (counts[cur] ?? 0) + 1;
+    }
+    return { of, counts, max: cur };
+  }, [items]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [view, setView] = useState<"all" | "tools" | "text" | "fails">("all");
   const [tlQuery, setTlQuery] = useState("");
@@ -1188,6 +1200,20 @@ function TimelineView({
         >
           自动跟随
         </button>
+        {runInfo.max > 1 && (
+          <button
+            type="button"
+            onClick={() => setCollapseOld((v) => !v)}
+            title="将非最新一次运行折叠为单行摘要"
+            className={`rounded-full border px-2.5 py-0.5 text-[11px] transition-colors ${
+              collapseOld
+                ? "border-glow-500 bg-glow-500/15 text-glow-300"
+                : "border-line bg-night-850 text-mist-500 hover:text-mist-100"
+            }`}
+          >
+            折叠历史运行
+          </button>
+        )}
         <button
           type="button"
           className="action-btn ml-auto"
@@ -1225,8 +1251,25 @@ function TimelineView({
         </div>
       </div>
 
-      {items.map((item) => {
-        const cls = runSeq > 1 ? "ml-3 border-l-2 border-line/70 pl-3" : "";
+      {items.map((item, ii) => {
+        const runIdx = runInfo.of[ii] ?? 0;
+        const cls = runIdx > 1 ? "ml-3 border-l-2 border-line/70 pl-3" : "";
+        if (collapseOld && runIdx > 0 && runIdx < runInfo.max && !expandedRuns.has(runIdx)) {
+          if (item.kind === "run_started") {
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className="action-btn w-full justify-between"
+                onClick={() => setExpandedRuns((prev) => new Set(prev).add(runIdx))}
+              >
+                第 {runIdx} 次运行 · {runInfo.counts[runIdx] ?? 0} 事件（已折叠）
+                <span className="ml-2">点击展开 ▸</span>
+              </button>
+            );
+          }
+          return null;
+        }
         if (view === "tools" && item.kind !== "tool_start" && item.kind !== "run_started") return null;
         if (
           view === "text" &&
@@ -1273,12 +1316,11 @@ function TimelineView({
 
         if (item.kind === "agent_status" || item.kind === "run_started") {
           if (item.kind === "run_started") {
-            runSeq += 1;
-            if (runSeq > 1) {
+            if (runIdx > 1) {
               return (
                 <div key={item.id} className="flex items-center gap-3 pt-3">
                   <span className="h-px flex-1 bg-line" />
-                  <span className="text-[11px] text-mist-600">第 {runSeq} 次运行（续跑）</span>
+                  <span className="text-[11px] text-mist-600">第 {runIdx} 次运行（续跑）</span>
                   <span className="h-px flex-1 bg-line" />
                 </div>
               );
