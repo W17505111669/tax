@@ -23,6 +23,7 @@ interface Props {
   onSelectAgent: (id: string) => void;
   onSelectTask: (id: string) => void;
   onNewTask: () => void;
+  onRerunTask: (id: string) => void;
 }
 
 const STATUS_TEXT: Record<string, string> = {
@@ -174,6 +175,7 @@ export function Sidebar({
   onSelectAgent,
   onSelectTask,
   onNewTask,
+  onRerunTask,
 }: Props) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -182,6 +184,7 @@ export function Sidebar({
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [dragTag, setDragTag] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [armedRerun, setArmedRerun] = useState<string | null>(null);
   const [managing, setManaging] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameVal, setRenameVal] = useState("");
@@ -477,6 +480,23 @@ export function Sidebar({
             className={`rounded p-1 hover:text-amber-300 ${starred.has(task.id) ? "text-amber-300" : "text-mist-600"}`}
           >
             {starred.has(task.id) ? "★" : "☆"}
+          </button>
+          <button
+            type="button"
+            title={armedRerun === task.id ? "再点一次确认重跑" : "重跑本任务"}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (armedRerun !== task.id) {
+                setArmedRerun(task.id);
+                window.setTimeout(() => setArmedRerun((v) => (v === task.id ? null : v)), 2000);
+                return;
+              }
+              setArmedRerun(null);
+              onRerunTask(task.id);
+            }}
+            className={`rounded p-1 hover:text-amber-300 ${armedRerun === task.id ? "text-amber-300" : "text-mist-600"}`}
+          >
+            <IconRefresh className="h-3 w-3" />
           </button>
         </span>
       </div>

@@ -110,11 +110,20 @@ function MiniPane({
   find?: string;
 }) {
   const [z, setZ] = useState(1);
+  const [mfind, setMfind] = useState("");
   return (
     <div ref={innerRef} className="min-h-0 flex-1 overflow-y-auto border-l border-line px-3 py-3">
       <div className="mb-2 truncate text-[11px] text-mist-500" title={title}>
         对照：{title}
       </div>
+      {st.kind === "text" && !st.loading && !st.error && (
+        <input
+          value={mfind}
+          onChange={(e) => setMfind(e.target.value)}
+          placeholder="副栏搜索…"
+          className="mb-2 w-full rounded border border-line bg-night-850 px-2 py-0.5 text-[10.5px] text-mist-100 outline-none focus:glow-ring"
+        />
+      )}
       {(st.kind === "image" || st.kind === "pdf") && !st.loading && !st.error && (
         <div className="mb-2 flex items-center gap-1">
           <button type="button" className="action-btn" onClick={() => setZ((v) => Math.max(0.5, v - 0.25))} title="缩小">
@@ -136,7 +145,7 @@ function MiniPane({
             <MarkdownView text={st.markdown} />
           ) : (
             <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-4 text-gray-700">
-              {highlightNodes(st.text, find ?? "")}
+              {highlightNodes(st.text, mfind || (find ?? ""))}
             </pre>
           )}
         </div>

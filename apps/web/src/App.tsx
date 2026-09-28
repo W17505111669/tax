@@ -258,6 +258,14 @@ export default function App() {
         }}
         onSelectTask={(id) => setActiveTaskId(id)}
         onNewTask={() => setActiveTaskId(null)}
+        onRerunTask={(id) => {
+          const t = tasks.find((x) => x.id === id);
+          if (!t) return;
+          void api
+            .runTask(id, t.instruction ?? "")
+            .then(() => refreshTasks())
+            .catch(() => setError("重新执行失败"));
+        }}
       />
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-night-900">
