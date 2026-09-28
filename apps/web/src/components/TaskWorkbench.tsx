@@ -302,6 +302,11 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
 
   const runCount = useMemo(() => timeline.filter((t) => t.kind === "run_started").length, [timeline]);
 
+  const lastRunAt = useMemo(() => {
+    const last = [...timeline].reverse().find((t) => t.kind === "run_started");
+    return last ? new Date(last.at).toLocaleString("zh-CN", { hour12: false }) : "";
+  }, [timeline]);
+
   const toc = useMemo(
     () =>
       (finalResult.match(/^#{2,3} .+$/gm) ?? [])
@@ -567,7 +572,10 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun }:
               >
                 取消
               </button>
-              <span className="text-[11px] text-mist-600">续跑会恢复本任务完整会话历史，Agent 结合此前结论继续处理</span>
+              <span className="text-[11px] text-mist-600">
+                续跑会恢复本任务完整会话历史，Agent 结合此前结论继续处理
+                {runCount > 1 && lastRunAt && ` · 已含 ${runCount - 1} 次续跑，上次运行启动于 ${lastRunAt}`}
+              </span>
             </div>
           </div>
         </div>

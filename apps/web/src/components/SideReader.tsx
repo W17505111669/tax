@@ -113,6 +113,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   const active = tabs[activeIndex] ?? null;
   const activeKey = active ? readerKey(active) : "";
   const state = states[activeKey] ?? INITIAL;
+  const activeName = active && "name" in active ? active.name : "";
   const [group, setGroup] = useState<"refs" | "gens">(() =>
     localStorage.getItem("taxai-reader-group") === "gens" ? "gens" : "refs",
   );
@@ -412,7 +413,7 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
       )}
 
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        {state.loading && (
+        {state.loading && !/\.xlsx?$/i.test(activeName) && (
           <div className="flex flex-col items-center gap-4 py-14">
             <div className="dot-grid" aria-hidden>
               {Array.from({ length: 25 }, (_, i) => (
@@ -423,6 +424,22 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
               ))}
             </div>
             <span className="text-[12px] text-mist-600">正在读取内容…</span>
+          </div>
+        )}
+        {state.loading && /\.xlsx?$/i.test(activeName) && (
+          <div className="space-y-2 py-2" aria-hidden>
+            {Array.from({ length: 6 }, (_, r) => (
+              <div key={r} className="flex gap-2">
+                {Array.from({ length: 4 }, (_, c) => (
+                  <span
+                    key={c}
+                    className="h-5 flex-1 animate-pulse rounded bg-night-800"
+                    style={{ animationDelay: `${(r * 4 + c) * 0.06}s` }}
+                  />
+                ))}
+              </div>
+            ))}
+            <div className="pt-2 text-center text-[11.5px] text-mist-600">正在解析工作表结构…</div>
           </div>
         )}
         {state.error && (
