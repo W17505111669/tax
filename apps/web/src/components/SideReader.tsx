@@ -97,7 +97,7 @@ function highlightNodes(text: string, q: string): ReactNode {
   );
 }
 
-/** 双栏对照的简化副栏：支持 markdown/text/image/pdf，表格与二进制引导回主栏。 */
+/** 双栏对照的简化副栏：支持 markdown/text/image/pdf/表格简化视图，二进制引导回主栏。 */
 function MiniPane({
   st,
   title,
@@ -111,6 +111,7 @@ function MiniPane({
 }) {
   const [z, setZ] = useState(1);
   const [mfind, setMfind] = useState("");
+  const [msheet, setMsheet] = useState(0);
   return (
     <div ref={innerRef} className="min-h-0 flex-1 overflow-y-auto border-l border-line px-3 py-3">
       <div className="mb-2 truncate text-[11px] text-mist-500" title={title}>
@@ -166,7 +167,79 @@ function MiniPane({
           className="w-full rounded border border-line bg-white"
         />
       )}
-      {!st.loading && !st.error && (st.kind === "sheets" || st.kind === "binary") && (
+      {!st.loading && !st.error && st.kind === "sheets" &&
+        (() => {
+          const list = st.sheets ?? [];
+          const idx = Math.min(msheet, Math.max(0, list.length - 1));
+          const s = list[idx];
+          if (!s) return null;
+          const rows = s.rows.slice(0, 60);
+          return (
+            <div className="paper-sheet theme-minimal px-2 py-2">
+              {list.length > 1 && (
+                <div className="mb-1.5 flex flex-wrap gap-1">
+                  {list.map((sh, i) => (
+                    <button
+                      key={sh.name}
+                      type="button"
+                      className={`action-btn !text-[10px] ${i === idx ? "!text-gray-900" : "!text-gray-500"}`}
+                      data-on={i === idx}
+                      onClick={() => setMsheet(i)}
+                      title={`${sh.name}（${sh.rowCount} 行）`}
+                    >
+                      {sh.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="mb-1 flex items-baseline gap-2">
+                <span className="text-[11.5px] font-semibold text-gray-900">{s.name}</span>
+                <span className="text-[10px] text-gray-500">{s.rowCount} 行</span>
+              </div>
+              <div className="max-h-[60vh] overflow-auto rounded border border-gray-200">
+                <table
+                  className="table-fixed border-collapse text-[10.5px] leading-4"
+                  style={{ width: s.headers.length > 5 ? `${s.headers.length * 92}px` : "100%" }}
+                >
+                  <thead className="sticky top-0 z-10 bg-gray-100">
+                    <tr>
+                      {s.headers.map((h) => (
+                        <th
+                          key={h}
+                          className="truncate border-b border-gray-200 px-1.5 py-1 text-left font-medium text-gray-700"
+                          title={h}
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row, i) => (
+                      <tr key={i} className={i % 2 ? "bg-gray-50" : ""}>
+                        {s.headers.map((h) => {
+                          const v = row[h];
+                          const txt = v === null || v === undefined ? "" : String(v);
+                          return (
+                            <td key={h} className="truncate border-b border-gray-100 px-1.5 py-0.5 text-gray-700" title={txt}>
+                              {txt}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {s.rowCount > rows.length && (
+                <p className="mt-1 text-[10px] text-gray-500">
+                  副栏仅显示前 {rows.length} 行，排序 / 冻结 / 复制 TSV 请在主栏操作。
+                </p>
+              )}
+            </div>
+          );
+        })()}
+      {!st.loading && !st.error && st.kind === "binary" && (
         <div className="rounded border border-line bg-night-850 px-2 py-3 text-center text-[11px] text-mist-600">
           该类型请在主栏查看
         </div>
