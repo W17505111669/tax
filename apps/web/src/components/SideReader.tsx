@@ -82,7 +82,11 @@ export function SideReader({ tabs, activeIndex, onSelect, onCloseTab, onReorder,
   const [zoom, setZoom] = useState(1);
   const [rot, setRot] = useState(0);
   const [showRowNum, setShowRowNum] = useState(false);
-  const [freezeFirst, setFreezeFirst] = useState(false);
+  const [freezeFirst, setFreezeFirst] = useState(() => localStorage.getItem("taxai-reader-freeze") === "1");
+
+  useEffect(() => {
+    localStorage.setItem("taxai-reader-freeze", freezeFirst ? "1" : "0");
+  }, [freezeFirst]);
   const [pinned, setPinned] = useState<Set<string>>(new Set());
   const [armedKey, setArmedKey] = useState<string | null>(null);
   const [showLines, setShowLines] = useState(false);

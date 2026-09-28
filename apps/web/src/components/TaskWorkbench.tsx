@@ -1284,12 +1284,32 @@ function TimelineView({
             }
           }
           return (
-            <div key={item.id} data-tlid={item.id} className={`flex items-center gap-2 text-[11.5px] text-mist-600 ${cls}`}>
+            <div
+              key={item.id}
+              data-tlid={item.id}
+              className={`group flex items-center gap-2 text-[11.5px] text-mist-600 ${cls}`}
+            >
               {showTs && (
                 <span className="font-mono text-[9.5px] text-mist-600">{`#${item.seq} ${fmtTs(item.at)}`}</span>
               )}
               <span className="h-1 w-1 rounded-full bg-glow-500" />
               {item.detail ?? item.title}
+              <button
+                type="button"
+                className="action-btn ml-auto opacity-0 transition-opacity hover:opacity-100 focus:opacity-100 group-hover:opacity-100"
+                title="复制本事件 JSON"
+                onClick={() =>
+                  copyText(
+                    JSON.stringify(
+                      { seq: item.seq, kind: item.kind, at: item.at, detail: item.detail ?? null, payload: item.payload ?? null },
+                      null,
+                      2,
+                    ),
+                  )
+                }
+              >
+                <IconCopy className="h-3 w-3" />
+              </button>
             </div>
           );
         }
