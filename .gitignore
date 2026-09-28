@@ -12,3 +12,6 @@ data/evidence-*/*
 !data/**/.gitkeep
 *.log
 .DS_Store
+
+# 定位问题用的临时探针脚本，不入库
+tmp-*.ts
