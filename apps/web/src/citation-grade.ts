@@ -118,6 +118,37 @@ export function isOfficialUrl(raw: string): boolean {
   return host === null ? false : host.endsWith("gov.cn") || host.endsWith("gov.hk") || host.endsWith("chinatax.org");
 }
 
+/**
+ * 政策法规库文档树里的原文页（fgk.chinatax.gov.cn/zcfgk/<栏目>/<稿件>/content.html）。
+ * 只有这一类才是文件原文本身。口径与 @tax/business-tools 的 isLibraryDocUrl 一致，
+ * 由 verify:citegrade 逐条比对防止两份实现漂移。
+ */
+export function isPolicySourcePage(raw: string): boolean {
+  if (hostOf(raw) !== "fgk.chinatax.gov.cn") return false;
+  try {
+    const p = new URL(raw).pathname;
+    return p.startsWith("/zcfgk/") && p.endsWith("/content.html");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 税务系统主站的频道内容页（政策解读、新闻、答疑）。
+ * 官方发布、证据力不低，但不是文件原文：实测有过一条《关于〈…归集范围有关问题的公告〉的解读》
+ * 被当成「国家税务总局公告2017年第40号」的原文收进复用索引，页面里确实出现了该字号，
+ * 但那只是链接到原文。分级仍算官方，理由必须说清它是解读页，别让人当原文引用。
+ */
+export function isOfficialChannelPage(raw: string): boolean {
+  const host = hostOf(raw);
+  if (host === null || !host.endsWith("chinatax.gov.cn")) return false;
+  try {
+    return /^\/chinatax\/n\d+\/.*\/c\d+\/content\.html$/i.test(new URL(raw).pathname);
+  } catch {
+    return false;
+  }
+}
+
 export type GradedCitation = { grade: CitationGrade; reason: string; weak?: WeakReason };
 
 /** 单条引用分级：先判「弱」（入口页/百科/检索页），再判官方与专业来源 */
@@ -135,6 +166,16 @@ export function gradeCitation(url: string, title = ""): GradedCitation {
     return { grade: "weak", reason: WEAK_TEXT.encyclopedia, weak: "encyclopedia" };
   }
   if (isOfficialUrl(url)) {
+    // 同为官方站点，「文件原文」与「解读/新闻页」对交付的意义不同，理由里要分开说清
+    if (isPolicySourcePage(url)) {
+      return { grade: "official", reason: "政策法规库文件原文页，可直接作为政策依据引用" };
+    }
+    if (isOfficialChannelPage(url)) {
+      return {
+        grade: "official",
+        reason: "税务机关站点上的政策解读或新闻页，官方发布但不是文件原文，作为依据前请核对原文",
+      };
+    }
     return { grade: "official", reason: "政府/税务机关站点的具体文件页" };
   }
   return { grade: "professional", reason: "专业机构或社区的具体文章页" };

@@ -2,14 +2,21 @@
  * 验证脚本：联网引用证据力分级（分级口径 / 与检索过滤口径交叉核对 / 真实任务引用走查）。
  * 运行：pnpm verify:citegrade
  */
-import { isAuthoritativeUrl, isEncyclopediaUrl as isEncyclopediaNode, isEntryPage } from "@tax/business-tools";
+import {
+  isAuthoritativeUrl,
+  isEncyclopediaUrl as isEncyclopediaNode,
+  isEntryPage,
+  isLibraryDocUrl,
+} from "@tax/business-tools";
 import {
   gradeCitation,
   GRADE_HINT,
   GRADE_TEXT,
   isEncyclopediaUrl,
   isEntryUrl,
+  isOfficialChannelPage,
   isOfficialUrl,
+  isPolicySourcePage,
   isSearchResultUrl,
   summarizeGrades,
   WEAK_TEXT,
@@ -123,12 +130,61 @@ const crossUrls = [
   "https://www.zhihu.com/question/590527746",
   "https://cn-hxc.com.cn/",
   "https://yewu.ghzrzyw.beijing.gov.cn/gwxxfb/tdsc/tdzpgxm.html",
+  "http://fgk.chinatax.gov.cn/zcfgk/c100012/c5194895/content.html",
+  "http://fgk.chinatax.gov.cn/zcfgk/c100012/listflfg.html",
+  "https://www.chinatax.gov.cn/chinatax/n810341/n810760/c2922282/content.html",
 ];
 for (const u of crossUrls) {
   expect(`入口页口径一致 ${u.slice(0, 50)}`, isEntryUrl(u), isEntryPage(u));
   expect(`百科口径一致 ${u.slice(0, 50)}`, isEncyclopediaUrl(u), isEncyclopediaNode(u));
   expect(`官方口径一致 ${u.slice(0, 50)}`, isOfficialUrl(u), isAuthoritativeUrl(u));
+  expect(`原文页口径一致 ${u.slice(0, 50)}`, isPolicySourcePage(u), isLibraryDocUrl(u));
 }
+
+// 3b) 官方站点内部再分「文件原文页」与「解读/新闻频道页」：分级同为 official，理由必须说清
+expect(
+  "政策法规库文档树是原文页",
+  isPolicySourcePage("http://fgk.chinatax.gov.cn/zcfgk/c100012/c5194895/content.html"),
+  true,
+);
+expect(
+  "政策法规库栏目列表页不是原文页",
+  isPolicySourcePage("http://fgk.chinatax.gov.cn/zcfgk/c100012/listflfg.html"),
+  false,
+);
+expect(
+  "税务主站解读频道页不是原文页",
+  isPolicySourcePage("https://www.chinatax.gov.cn/chinatax/n810341/n810760/c2922282/content.html"),
+  false,
+);
+expect(
+  "税务主站解读频道页要被识别出来",
+  isOfficialChannelPage("https://www.chinatax.gov.cn/chinatax/n810341/n810760/c2922282/content.html"),
+  true,
+);
+expect("其他政府站点的文件页不算税务频道页", isOfficialChannelPage("https://www.most.gov.cn/xxgk/a.pdf"), false);
+expect(
+  "原文页的理由写明是政策法规库原文",
+  gradeCitation("http://fgk.chinatax.gov.cn/zcfgk/c100012/c5194895/content.html", "").reason.includes("政策法规库文件原文页"),
+  true,
+);
+expect(
+  "解读页仍算官方，但理由写明不是文件原文",
+  gradeCitation("https://www.chinatax.gov.cn/chinatax/n810341/n810760/c2922282/content.html", "").reason.includes(
+    "不是文件原文",
+  ),
+  true,
+);
+expect(
+  "解读页分级仍是官方（官方发布的解读，证据力高于商业站点）",
+  gradeCitation("https://www.chinatax.gov.cn/chinatax/n810341/n810760/c2922282/content.html", "").grade,
+  "official",
+);
+expect(
+  "其他政府站点文件页的理由不变",
+  gradeCitation("https://www.most.gov.cn/xxgk/a.pdf", "").reason,
+  "政府/税务机关站点的具体文件页",
+);
 
 // 4) 真实任务走查：库里所有检索结果地址都要能分级，且「官方」不得是入口页
 const rows = db.prepare(`SELECT result FROM tool_calls WHERE result IS NOT NULL`).all() as Array<{ result: string }>;
