@@ -50,3 +50,34 @@ export function needsUnitSpace(unit: string): boolean {
   if (u === "") return false;
   return !/^[%％]/.test(u);
 }
+
+/* ===== 时长 =====
+ * 三种场合三种写法，但每种只允许有一份实现：
+ * 页面正文与状态条用中文（12.3 秒 / 3 分钟），时间线角标用紧凑写法（12s / 3m），
+ * 导出文档与工具耗时用 SI 写法（320 ms / 3.5 s，单位前留一个空格，与 fmtBytes 一致）。
+ */
+
+/** 秒 → 中文时长：满 90 秒进位到整数分钟，否则按 digits 位小数；实时计时传 digits=0 */
+export function fmtDurationZh(seconds: number, digits = 1): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "—";
+  return seconds >= 90 ? `${Math.round(seconds / 60)} 分钟` : `${seconds.toFixed(digits)} 秒`;
+}
+
+/** 秒 → 紧凑角标：满 90 秒用 m，否则整数 s（角标位置太窄，单位紧贴数字） */
+export function fmtDurationShort(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "—";
+  return seconds >= 90 ? `${Math.round(seconds / 60)}m` : `${Math.round(seconds)}s`;
+}
+
+/** 秒 → 紧凑写法但保留小数位（tooltip 与统计行用），单位紧贴数字 */
+export function fmtSecondsShort(seconds: number, digits = 1): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "—";
+  return `${seconds.toFixed(digits)}s`;
+}
+
+/** 毫秒 → 文档口径：不足 1 秒用 ms，否则一位小数 s；null 与非有限数如实给「—」 */
+export function fmtMs(ms: number | null): string {
+  if (ms === null || !Number.isFinite(ms) || ms < 0) return "—";
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  return `${(ms / 1000).toFixed(1)} s`;
+}

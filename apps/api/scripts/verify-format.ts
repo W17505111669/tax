@@ -6,8 +6,20 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { needsUnitSpace, percentFrom, percentOf, percentText, percentValue, trimZeros } from "../../web/src/format.ts";
+import {
+  fmtDurationShort,
+  fmtDurationZh,
+  fmtMs,
+  fmtSecondsShort,
+  needsUnitSpace,
+  percentFrom,
+  percentOf,
+  percentText,
+  percentValue,
+  trimZeros,
+} from "../../web/src/format.ts";
 import { fmtBytes } from "../../web/src/run-artifacts.ts";
+import { fmtDuration } from "../../web/src/run-tools.ts";
 import { policyHint } from "../../web/src/upload-policy.ts";
 
 const failures: string[] = [];
@@ -109,6 +121,42 @@ ok("不再拼出「—%」", !overview.includes('?? "—"}%'));
 ok("OCR 单位带分隔空格", overview.includes("% · ${stats.platform.ocrRuns} 次"));
 const runArt = fs.readFileSync(path.join(webSrc, "run-artifacts.ts"), "utf8");
 ok("字节数走 trimZeros", runArt.includes("trimZeros("));
+
+// 7) 时长：三种场合三种写法，但每种只有一份实现
+expect("中文时长一位小数", fmtDurationZh(12.34), "12.3 秒");
+expect("中文时长取整", fmtDurationZh(12.34, 0), "12 秒");
+expect("满 90 秒进位到分钟", fmtDurationZh(90), "2 分钟");
+expect("150 秒写成 3 分钟", fmtDurationZh(150), "3 分钟");
+expect("0 秒如实写 0.0 秒", fmtDurationZh(0), "0.0 秒");
+expect("负时长给破折号", fmtDurationZh(-1), "—");
+expect("NaN 时长给破折号", fmtDurationZh(Number.NaN), "—");
+expect("紧凑角标整数秒", fmtDurationShort(12.4), "12s");
+expect("紧凑角标 89.6 秒四舍五入到 90s", fmtDurationShort(89.6), "90s");
+expect("紧凑角标满 90 秒用 m", fmtDurationShort(90), "2m");
+expect("紧凑角标 150 秒", fmtDurationShort(150), "3m");
+expect("紧凑角标负数给破折号", fmtDurationShort(-1), "—");
+expect("紧凑小数写法", fmtSecondsShort(1.234), "1.2s");
+expect("紧凑小数写法可取整", fmtSecondsShort(120, 0), "120s");
+expect("毫秒不足一秒用 ms", fmtMs(320), "320 ms");
+expect("毫秒换算成秒保留一位", fmtMs(3500), "3.5 s");
+expect("整秒也保留一位（时长口径不去零）", fmtMs(1000), "1.0 s");
+expect("毫秒为 null 给破折号", fmtMs(null), "—");
+expect("毫秒为负给破折号", fmtMs(-5), "—");
+expect("毫秒为 NaN 给破折号", fmtMs(Number.NaN), "—");
+expect("run-tools 的耗时与统一口径一致", [fmtDuration(null), fmtDuration(320), fmtDuration(3500)], [
+  fmtMs(null),
+  fmtMs(320),
+  fmtMs(3500),
+]);
+expect("文档口径单位前留空格", fmtMs(3500).includes(" s"), true);
+expect("角标口径单位紧贴", fmtSecondsShort(1.5).includes(" s"), false);
+expect("中文口径数字与单位之间留空格", fmtDurationZh(1.5).includes(" 秒"), true);
+const workbench = fs.readFileSync(path.join(webSrc, "components", "TaskWorkbench.tsx"), "utf8");
+ok("工作台改用统一时长函数", workbench.includes("fmtDurationZh(") && workbench.includes("fmtDurationShort("));
+ok("工作台不再自己拼分钟", !workbench.includes("Math.round(s / 60)} 分钟"));
+ok("工作台不再自己拼紧凑秒", !workbench.includes("toFixed(0)}s") && !workbench.includes("toFixed(1)}s"));
+const runTools = fs.readFileSync(path.join(webSrc, "run-tools.ts"), "utf8");
+ok("run-tools 的耗时委托给 format.ts", runTools.includes("return fmtMs(ms);"));
 
 console.log(`[verify] 数字与单位排版检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {

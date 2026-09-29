@@ -3,6 +3,7 @@ import { marked } from "marked";
 import { api } from "../api.ts";
 import { downloadBlob, downloadText } from "../download.ts";
 import { isStarred, KEYS, readEnum, toggleStarred, writeRaw } from "../local-store.ts";
+import { fmtDurationShort, fmtDurationZh, fmtSecondsShort } from "../format.ts";
 import type {
   AgentInfo,
   ArtifactInfo,
@@ -640,7 +641,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     const end = [...timeline].reverse().find((t) => t.kind === "run_completed" || t.kind === "run_failed")?.at;
     if (!start || !end) return "";
     const s = (Date.parse(end) - Date.parse(start)) / 1000;
-    return s >= 90 ? `${Math.round(s / 60)} 分钟` : `${s.toFixed(1)} 秒`;
+    return fmtDurationZh(s);
   }, [timeline]);
 
   const liveElapsed = useMemo(() => {
@@ -648,7 +649,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     if (!running || !start) return "";
     void tick;
     const s = (Date.now() - Date.parse(start)) / 1000;
-    return s >= 90 ? `${Math.round(s / 60)} 分钟` : `${s.toFixed(0)} 秒`;
+    return fmtDurationZh(s, 0);
   }, [timeline, running, tick]);
 
   const runCount = useMemo(() => timeline.filter((t) => t.kind === "run_started").length, [timeline]);
@@ -813,7 +814,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       const start = Math.min(...ended.map((c) => Date.parse(c.at)));
       const end = Math.max(...ended.map((c) => Date.parse(c.endedAt ?? c.at)));
       const s = (end - start) / 1000;
-      return s >= 90 ? `${Math.round(s / 60)}m` : `${s.toFixed(0)}s`;
+      return fmtDurationShort(s);
     };
     const concludedAt = [...timeline].reverse().find((t) => t.kind === "run_completed")?.at;
     const lastEnds = toolCalls.filter((c) => c.endedAt).map((c) => Date.parse(c.endedAt ?? c.at));
@@ -821,7 +822,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       concludedAt && lastEnds.length > 0
         ? (() => {
             const s = (Date.parse(concludedAt) - Math.max(...lastEnds)) / 1000;
-            return s > 0 ? (s >= 90 ? `${Math.round(s / 60)}m` : `${s.toFixed(0)}s`) : "";
+            return s > 0 ? fmtDurationShort(s) : "";
           })()
         : "";
     const durs = ["", span(toolCalls.filter((c) => !SEARCH_TOOLS.has(c.toolName))), span(toolCalls.filter((c) => SEARCH_TOOLS.has(c.toolName))), genSpan, ""];
@@ -1769,7 +1770,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
               <>
                 <span className="text-line">|</span>
                 <span title="工具总耗时 / 平均单次耗时">
-                  工具 {toolTime.total.toFixed(1)}s · 均 {toolTime.avg.toFixed(1)}s
+                  工具 {fmtSecondsShort(toolTime.total)} · 均 {fmtSecondsShort(toolTime.avg)}
                 </span>
               </>
             )}
@@ -1947,20 +1948,22 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
             <span
               className="h-full bg-glow-500"
               style={{ width: `${(timeSplit.toolMs / timeSplit.totalMs) * 100}%` }}
-              title={`工具调用 ${(timeSplit.toolMs / 1000).toFixed(1)}s`}
+              title={`工具调用 ${fmtSecondsShort(timeSplit.toolMs / 1000)}`}
             />
             <span
               className="h-full bg-jade-400"
               style={{ width: `${(timeSplit.genMs / timeSplit.totalMs) * 100}%` }}
-              title={`结论生成 ${(timeSplit.genMs / 1000).toFixed(1)}s`}
+              title={`结论生成 ${fmtSecondsShort(timeSplit.genMs / 1000)}`}
             />
             <span
               className="h-full bg-mist-600/60"
               style={{ width: `${(timeSplit.otherMs / timeSplit.totalMs) * 100}%` }}
-              title={`等待/其他 ${(timeSplit.otherMs / 1000).toFixed(1)}s`}
+              title={`等待/其他 ${fmtSecondsShort(timeSplit.otherMs / 1000)}`}
             />
           </span>
-          <span className="shrink-0 font-mono text-[10px] text-mist-600">{(timeSplit.totalMs / 1000).toFixed(0)}s</span>
+          <span className="shrink-0 font-mono text-[10px] text-mist-600">
+            {fmtSecondsShort(timeSplit.totalMs / 1000, 0)}
+          </span>
         </div>
       )}
 
@@ -3026,7 +3029,7 @@ function TimelineView({
           onClick={() => {
             const lines = toolCalls.map((c, i) => {
               const dur = c.endedAt
-                ? `${Math.max(0, (Date.parse(c.endedAt) - Date.parse(c.at)) / 1000).toFixed(1)}s`
+                ? fmtSecondsShort(Math.max(0, (Date.parse(c.endedAt) - Date.parse(c.at)) / 1000))
                 : "执行中";
               const a = c.args as Record<string, unknown> | null;
               const arg =
@@ -3399,7 +3402,7 @@ function ToolRow({
   const isSearch = SEARCH_TOOLS.has(name);
   const duration =
     call && call.ok !== null && call.endedAt
-      ? `${Math.max(0, (Date.parse(call.endedAt) - Date.parse(call.at)) / 1000).toFixed(1)}s`
+      ? fmtSecondsShort(Math.max(0, (Date.parse(call.endedAt) - Date.parse(call.at)) / 1000))
       : "";
   // 折叠态显示首个字符串入参作为摘要（如检索词、文件路径）
   const argPreview = (() => {

@@ -4,6 +4,7 @@
  * 纯函数，便于 apps/api/scripts/verify-run-tools.ts 直接校验。
  */
 import type { RunWindow } from "./run-artifacts.ts";
+import { fmtMs } from "./format.ts";
 
 export type CallRow = {
   id: string;
@@ -44,10 +45,9 @@ export function durationMs(at: string, endedAt: string | null): number | null {
   return b - a;
 }
 
+/** 工具耗时：口径统一走 format.ts（SI 写法，单位前留一个空格，与字节数一致） */
 export function fmtDuration(ms: number | null): string {
-  if (ms === null) return "—";
-  if (ms < 1000) return `${ms} ms`;
-  return `${(ms / 1000).toFixed(1)} s`;
+  return fmtMs(ms);
 }
 
 /** 按运行时间窗分组；run=0 表示落在任何运行窗口之外（例如首个 run_started 之前） */
