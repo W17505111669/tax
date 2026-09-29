@@ -46,6 +46,7 @@ import { buildManifest } from "../manifest.ts";
 import { traceDocRefs } from "../policy-trace.ts";
 import { gradeCitation, GRADE_HINT, GRADE_TEXT, summarizeGrades } from "../citation-grade.ts";
 import { topDomainWords, topicHint } from "../domain-keywords.ts";
+import { deltaText, evidenceDelta, evidenceSnapshot } from "../revision-impact.ts";
 import {
   buildRevisionInstruction,
   citationTargets,
@@ -792,6 +793,12 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     return { added: added.slice(0, 6), removed: removed.slice(0, 6) };
   }, [prevConclusion, finalResult]);
 
+  // 本次修订对证据的影响：与「结论较上次运行变化」同一触发条件（存在上一轮结论）
+  const revImpact = useMemo(() => {
+    if (!prevConclusion || !finalResult) return null;
+    return evidenceDelta(evidenceSnapshot(prevConclusion), evidenceSnapshot(finalResult));
+  }, [prevConclusion, finalResult]);
+
   const steps = useMemo(() => {
     const hasRun = timeline.some((t) => t.kind === "run_started");
     const toolDone = toolCalls.some((c) => !SEARCH_TOOLS.has(c.toolName) && c.ok !== null);
@@ -1160,6 +1167,13 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     "",
     "## 联网引用",
     "",
+    ...(revImpact
+      ? [
+          `- 本次修订对证据的影响：${deltaText(revImpact)}`,
+          `- 对比口径：只统计结论正文里的引用地址（按证据力分级）与政策文号数；工具留存跨运行累积，不参与对比`,
+          "",
+        ]
+      : []),
     ...(citations.length > 0
       ? [
           `- 证据力分级：官方原文 ${citationGrades.official} 条 · 专业来源 ${citationGrades.professional} 条 · 证据力弱 ${citationGrades.weak} 条`,
@@ -2003,6 +2017,25 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                         ))}
                       </ul>
                     )}
+                  </div>
+                )}
+                {revImpact && (
+                  <div className="mb-3 rounded-md border border-line bg-night-850 px-3 py-2">
+                    <div className="kicker mb-1">本次修订对证据的影响</div>
+                    <p
+                      className={`text-[11.5px] leading-5 ${
+                        revImpact.regressed && !revImpact.improved
+                          ? "text-amber-300"
+                          : revImpact.improved && !revImpact.regressed
+                            ? "text-jade-300"
+                            : "text-mist-400"
+                      }`}
+                    >
+                      {deltaText(revImpact)}
+                    </p>
+                    <p className="mt-1 text-[10.5px] leading-5 text-mist-600">
+                      对比口径：只统计结论正文里的引用地址（按证据力分级）与政策文号数；工具留存跨运行累积，不参与对比。
+                    </p>
                   </div>
                 )}
                 <div className="glow-card mb-4 px-4 py-3">

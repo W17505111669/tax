@@ -29,6 +29,7 @@
     "verify:citegrade": "tsx scripts/verify-citation-grade.ts",
     "verify:searchev": "tsx scripts/verify-search-evidence.ts",
     "verify:refcheck": "tsx scripts/verify-ref-check.ts",
+    "verify:revimpact": "tsx scripts/verify-revision-impact.ts",
     "verify:upload": "tsx scripts/verify-upload-policy.ts",
     "case:run": "tsx scripts/run-case.ts"
   },

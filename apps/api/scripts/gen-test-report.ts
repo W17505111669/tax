@@ -121,6 +121,11 @@ const VERIFY_SCRIPTS: Array<{ name: string; cmd: string; scope: string }> = [
     scope: "政策文号联网复查（发文机关前缀与检索词构造 / 四级判定 / 落库往返与覆盖 / 真实任务走查）",
   },
   {
+    name: "verify:revimpact",
+    cmd: "pnpm verify:revimpact",
+    scope: "修订前后证据对比（快照口径 / 差值与总体判断 / 按事件流重组结论的真实续跑走查）",
+  },
+  {
     name: "verify:upload",
     cmd: "pnpm verify:upload",
     scope: "上传预检规则（扩展名 / 大小 / 空文件 / 批量分组 / 提示文案）",
