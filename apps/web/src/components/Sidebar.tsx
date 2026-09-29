@@ -6,12 +6,16 @@ import {
   asStringArray,
   clearStarred,
   KEYS,
+  localFootprint,
   readJson,
   readStarred,
+  resetAllLocal,
+  resetUiPreferences,
   toggleStarred,
   writeJson,
   writeTaskOrder,
 } from "../local-store.ts";
+import { fmtBytes } from "../run-artifacts.ts";
 import {
   IconBuilding,
   IconCopy,
@@ -202,6 +206,15 @@ export function Sidebar({
   const [dragTag, setDragTag] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [armedRerun, setArmedRerun] = useState<string | null>(null);
+  // 本机数据复位：弹层开关 + 两步确认（破坏性操作，第一次点只是武装）
+  const [localOpen, setLocalOpen] = useState(false);
+  const [armedLocal, setArmedLocal] = useState<"ui" | "all" | null>(null);
+  const [localNote, setLocalNote] = useState("");
+  useEffect(() => {
+    if (!armedLocal) return;
+    const t = window.setTimeout(() => setArmedLocal(null), 4000);
+    return () => window.clearTimeout(t);
+  }, [armedLocal]);
   const [managing, setManaging] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameVal, setRenameVal] = useState("");
@@ -267,6 +280,8 @@ export function Sidebar({
   // 手动排序（拖拽置顶），localStorage 持久化
   const [order, setOrder] = useState<string[]>(() => readJson(KEYS.taskOrder, asStringArray, []));
   const dragIdRef = useRef<string | null>(null);
+  // 放在相关 state 之后：useMemo 在渲染时立刻执行，引用还没声明的变量会踩 TDZ
+  const footprint = useMemo(() => localFootprint(), [localOpen, starNonce, tagNonce, order]);
   const sortByOrder = (list: TaskInfo[]) => {
     const idx = (id: string) => {
       const i = order.indexOf(id);
@@ -954,20 +969,95 @@ export function Sidebar({
         })}
       </div>
 
-      <div className="flex items-center justify-between gap-2 border-t border-line px-5 py-3 text-[11px] text-mist-600">
+      <div className="relative flex items-center justify-between gap-2 border-t border-line px-5 py-3 text-[11px] text-mist-600">
         <span>Pi Agent SDK · Fastify · React</span>
-        {order.length > 0 && (
+        <span className="flex shrink-0 items-center gap-2">
+          {order.length > 0 && (
+            <button
+              type="button"
+              className="action-btn"
+              title="清除手动排序，恢复时间倒序"
+              onClick={() => {
+                setOrder([]);
+                writeTaskOrder([]);
+              }}
+            >
+              复位排序
+            </button>
+          )}
           <button
             type="button"
             className="action-btn"
-            title="清除手动排序，恢复时间倒序"
+            title="本机浏览器里存了哪些偏好与数据，可一键复位"
             onClick={() => {
-              setOrder([]);
-              writeTaskOrder([]);
+              setLocalOpen((v) => !v);
+              setArmedLocal(null);
+              setLocalNote("");
             }}
           >
-            复位排序
+            本机数据
           </button>
+        </span>
+        {localOpen && (
+          <div className="absolute bottom-[52px] right-3 z-40 w-80 rounded-lg border border-line bg-night-900 p-3 shadow-2xl">
+            <div className="kicker mb-1">本机数据</div>
+            <p className="text-[11px] leading-[1.6] text-mist-500">
+              都存在这台机器的浏览器里（localStorage），现有 {footprint.keys} 项 · 约 {fmtBytes(footprint.bytes)}
+              ；不进服务端、不影响其他人，换浏览器或清缓存就回到默认。
+            </p>
+            <ul className="mt-2 space-y-1 text-[11px] leading-[1.5] text-mist-400">
+              <li>界面偏好 {footprint.ui} 项：分组折叠、手动排序、结论字号、比对筛选、阅读器冻结与排序、报告版式</li>
+              <li>用户数据 {footprint.data} 项：收藏、任务标签、自定义备注模板、平台指标快照（周环比要用）</li>
+            </ul>
+            <div className="mt-2.5 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className="action-btn"
+                title={
+                  armedLocal === "ui"
+                    ? "再点一次确认：清掉界面偏好，收藏、标签与自定义模板保留"
+                    : "只清界面偏好，人工写下的内容一律保留"
+                }
+                onClick={() => {
+                  if (armedLocal !== "ui") {
+                    setArmedLocal("ui");
+                    return;
+                  }
+                  const cleared = resetUiPreferences();
+                  setArmedLocal(null);
+                  setLocalNote(`已复位 ${cleared.length} 项界面偏好，正在刷新…`);
+                  window.setTimeout(() => window.location.reload(), 700);
+                }}
+              >
+                {armedLocal === "ui" ? "再点一次：复位偏好" : "复位界面偏好"}
+              </button>
+              <button
+                type="button"
+                className="action-btn hover:!text-rose-300"
+                title={
+                  armedLocal === "all"
+                    ? "再点一次确认：收藏、标签、自定义备注模板与指标快照一起清掉，不可恢复"
+                    : "连用户数据一起清，不可恢复"
+                }
+                onClick={() => {
+                  if (armedLocal !== "all") {
+                    setArmedLocal("all");
+                    return;
+                  }
+                  const cleared = resetAllLocal();
+                  setArmedLocal(null);
+                  setLocalNote(`已清空 ${cleared.length} 项本机数据，正在刷新…`);
+                  window.setTimeout(() => window.location.reload(), 700);
+                }}
+              >
+                {armedLocal === "all" ? "再点一次：全部清空" : "全部清空"}
+              </button>
+              <button type="button" className="action-btn" title="关闭" onClick={() => setLocalOpen(false)}>
+                关闭
+              </button>
+            </div>
+            {localNote && <p className="mt-1.5 text-[10.5px] text-jade-300">{localNote}</p>}
+          </div>
         )}
       </div>
     </aside>

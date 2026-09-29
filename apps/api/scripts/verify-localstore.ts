@@ -19,6 +19,7 @@ import {
   clearStarred,
   isStarred,
   KEYS,
+  localFootprint,
   readEnum,
   readJson,
   readRaw,
@@ -26,7 +27,11 @@ import {
   readTaskOrder,
   readText,
   removeRaw,
+  resetAllLocal,
+  resetUiPreferences,
   toggleStarred,
+  UI_PREFERENCE_KEYS,
+  USER_DATA_KEYS,
   writeJson,
   writeRaw,
   writeStarred,
@@ -193,6 +198,52 @@ for (const rel of ["tags.ts", "hooks/usePaperTheme.ts", "components/Sidebar.tsx"
   const src = fs.readFileSync(path.join(webSrc, rel.replace(/\//g, path.sep)), "utf8");
   ok(`${rel} 从 local-store 导入`, src.includes('local-store.ts"'));
 }
+
+// 10) 复位：界面偏好与用户数据必须分开，一键清掉人家写下的东西是不可接受的
+writeRaw(KEYS.resultFontSize, "lg");
+writeRaw(KEYS.readerGroup, "gens");
+writeStarred(["t1"]);
+saveTags({ t1: ["研发"] });
+writeRaw(KEYS.customNoteTemplates, JSON.stringify({ "rd-audit": [{ label: "自定义", text: "与本项目专项台账核对一致" }] }));
+writeJson(KEYS.snapshots, { "2026-09-29": { tasks: 1 } });
+let foot = localFootprint();
+ok("统计到的键数不少于刚写入的 6 项", foot.keys >= 6, JSON.stringify(foot));
+expect("用户数据算 4 项", foot.data, 4);
+ok("字节数大于 0", foot.bytes > 0, String(foot.bytes));
+const clearedUi = resetUiPreferences();
+ok(
+  "复位偏好返回实际清掉的键",
+  clearedUi.includes(KEYS.resultFontSize) && clearedUi.includes(KEYS.readerGroup),
+  clearedUi.join(","),
+);
+expect("复位后字号回到默认", readText(KEYS.resultFontSize), "");
+expect("复位后阅读器分组回到默认", readText(KEYS.readerGroup), "");
+expect("复位偏好不动收藏", [...readStarred()], ["t1"]);
+expect("复位偏好不动标签", loadTags(), { t1: ["研发"] });
+expect("复位偏好不动自定义备注模板", readRaw(KEYS.customNoteTemplates) !== null, true);
+expect("复位偏好不动指标快照", readRaw(KEYS.snapshots) !== null, true);
+foot = localFootprint();
+expect("复位后界面偏好归零", foot.ui, 0);
+expect("复位后用户数据仍是 4 项", foot.data, 4);
+const clearedAll = resetAllLocal();
+ok("全部清空返回实际清掉的键", clearedAll.includes(KEYS.starred) && clearedAll.includes(KEYS.tags));
+expect("全部清空后收藏没了", [...readStarred()], []);
+expect("全部清空后标签没了", loadTags(), {});
+expect("全部清空后自定义模板没了", readRaw(KEYS.customNoteTemplates), null);
+expect("全部清空后指标快照没了", readRaw(KEYS.snapshots), null);
+expect("全部清空后统计归零", localFootprint(), { keys: 0, bytes: 0, ui: 0, data: 0 });
+// 键分类完整性：新增键必须归入其中一类，漏了会被这两条抓住
+const classified = new Set<string>([...UI_PREFERENCE_KEYS, ...USER_DATA_KEYS]);
+expect("两类合起来覆盖全部登记键", [...classified].sort(), Object.values(KEYS).sort());
+expect("两类之间没有重复键", classified.size, UI_PREFERENCE_KEYS.length + USER_DATA_KEYS.length);
+const sidebarNow = fs.readFileSync(path.join(webSrc, "components", "Sidebar.tsx"), "utf8");
+ok("侧栏有本机数据入口", sidebarNow.includes("本机数据"));
+ok(
+  "两个复位动作都是两步确认",
+  sidebarNow.includes("再点一次：复位偏好") && sidebarNow.includes("再点一次：全部清空"),
+);
+ok("武装状态会自动解除", sidebarNow.includes("setArmedLocal(null), 4000"));
+ok("弹层报出规模而不是闷头清", sidebarNow.includes("footprint.keys") && sidebarNow.includes("fmtBytes(footprint.bytes)"));
 
 console.log(`[verify] 本地存储检查项=${checks} 失败=${failures.length}（扫过 ${files.length} 个前端文件）`);
 if (failures.length > 0) {

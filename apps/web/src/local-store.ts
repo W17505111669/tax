@@ -221,3 +221,68 @@ export function writeTaskOrder(ids: string[]): void {
   if (ids.length === 0) removeRaw(KEYS.taskOrder);
   else writeJson(KEYS.taskOrder, ids);
 }
+
+/* ===== 复位：界面偏好与用户数据分开，不能一键把人家写的东西也清掉 ===== */
+
+/** 界面偏好：清掉只是回到默认外观与筛选，不丢任何人工写下的内容 */
+export const UI_PREFERENCE_KEYS = [
+  KEYS.taskOrder,
+  KEYS.sidebarGroups,
+  KEYS.compareKind,
+  KEYS.resultFontSize,
+  KEYS.readerFreeze,
+  KEYS.readerAliases,
+  KEYS.readerSort,
+  KEYS.readerGroup,
+  KEYS.paperTheme,
+] as const;
+
+/** 用户数据：收藏、标签、自定义备注模板与指标快照，清了不可恢复 */
+export const USER_DATA_KEYS = [
+  KEYS.starred,
+  KEYS.tags,
+  KEYS.customNoteTemplates,
+  KEYS.snapshots,
+] as const;
+
+/** 复位界面偏好，返回实际清掉的键（就地回报清了什么，不让人猜） */
+export function resetUiPreferences(): string[] {
+  const cleared: string[] = [];
+  for (const k of UI_PREFERENCE_KEYS) {
+    if (readRaw(k) !== null) cleared.push(k);
+    removeRaw(k);
+  }
+  return cleared;
+}
+
+/** 连用户数据一起清；返回清掉的键 */
+export function resetAllLocal(): string[] {
+  const cleared = resetUiPreferences();
+  for (const k of USER_DATA_KEYS) {
+    if (readRaw(k) !== null) cleared.push(k);
+    removeRaw(k);
+  }
+  return cleared;
+}
+
+/** 本机存了多少：给复位入口报规模，字节数按字符串长度估算（够用来提示量级） */
+export function localFootprint(): { keys: number; bytes: number; ui: number; data: number } {
+  let bytes = 0;
+  let ui = 0;
+  let data = 0;
+  for (const k of UI_PREFERENCE_KEYS) {
+    const v = readRaw(k);
+    if (v !== null) {
+      ui += 1;
+      bytes += v.length;
+    }
+  }
+  for (const k of USER_DATA_KEYS) {
+    const v = readRaw(k);
+    if (v !== null) {
+      data += 1;
+      bytes += v.length;
+    }
+  }
+  return { keys: ui + data, bytes, ui, data };
+}
