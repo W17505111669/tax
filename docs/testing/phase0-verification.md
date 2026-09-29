@@ -649,3 +649,13 @@ curl -L -o data/ocr-tessdata/eng.traineddata https://cdn.jsdelivr.net/gh/tessera
 顺手发现文件名时间戳更乱：`new Date().toISOString().slice(0, 19).replace(/[:T]/g, "")` 只删了冒号与 T，连字符还在，导出文件名实际是「时间线-2026-09-28120000.md」这种既不是日期也不是时间的写法；另有十处 `slice(0, 10)` 各写各的日期戳（快照键、概览导出、复核记录、任务清单、比对报告与差异 CSV、整页 MD、BibTeX 的 Accessed 字段）。`fileStamp()` 改为连字符一起去掉（`20260928120000`，14 位纯数字，Windows 与压缩包路径都安全），`dayStamp(when?)` 统一日期戳（`2026-09-28`，可接受 `Date` 或 ISO 字符串，空串如实返回空串）。
 
 `pnpm verify:reltime` 47 项：十二个分档边界（0 / 30 秒 / 59.9 秒 / 1 分钟 / 59 分钟 / 60 分钟 / 23 小时 / 23 小时 59 分 / 24 小时 / 8 天 / 400 天不换月 / 未来 5 分钟按刚刚且不出现负号）、六种坏数据兜底、**与旧实现在 15 个偏移量上逐值一致**（侧栏与看板那份必须一字不差，改的只是 link-check 的分档）、`ageText` 的空串语义、`fileStamp` 与 `dayStamp` 的格式与同一天一致性、以及静态走查（两份 `function relTime` 已删、四个组件都从 `time-format.ts` 导入、`link-check` 委托、工作台不再自己 `slice(0, 19).replace`、全部组件扫一遍不再出现 `new Date().toISOString().slice(0, 10)`）。`qa:all` 现 41 项 verify。
+
+## 阅读器查找：markdown 里「下一处」点不动的真 bug
+
+查找这件事之前有三份互不相干的实现：计数用 `baseText.toLowerCase().split(q).length - 1`，文本高亮用 `RegExp` 的捕获组 `split`，markdown 的 DOM 包裹用 `indexOf` **且只取每个文本节点的第一处**。第三份是实打实的功能缺陷：一段结论里出现三次「金额」，DOM 里只包了一个 `mark`，计数器却写着 3，「下一处」按 3 取模在 1 个 mark 上跳——用户看到的就是按钮点了没反应。
+
+计数本身也有口径问题：markdown 的 `baseText` 是原始源码，含 `#`、`*`、表格竖线与代码围栏，而用户看到的高亮发生在渲染后的文本上，两者天然对不齐（搜「##」或搜被标记切开的词时尤其明显）。修法是把 markdown 的命中数改成以 DOM 里真实的 `mark[data-find]` 数量为准（高亮 effect 跑完写回 `mdMarks`，查询为空时归零），text 类文档仍按文本计数——两种文档各自的「N/M」都等于用户看得见的高亮数。
+
+新增 `apps/web/src/text-find.ts`：`findRanges(text, query)` 一次扫描给出全部命中区间（大小写不敏感、不重叠、查询前后空格 trim、空查询返回空数组），`countMatches` 是它的长度，`splitForHighlight` 按区间切出「命中/非命中」分段供渲染包 `mark`（保留原文大小写），DOM 后处理与文本渲染因此共用同一份区间口径。另外把环形取模这个惯用法收进来：`wrapIndex(i, len)` 与 `stepIndex(cur, delta, len)`，此前在 mark 导航、表格命中导航、标签页切换、旋转角恢复四处各写一遍 `((x % n) + n) % n`；`matchLabel(current, total)` 统一计数文案，没有命中如实写「0 处」而不是「1/0」。
+
+`pnpm verify:textfind` 58 项：命中区间（重叠只算一次、紧邻两次都算、trim、中文多处、`.` `(` `\` 等正则特殊字符当普通文本、每个区间切回原文等于查询词、区间不重叠且递增）；**与旧的 split 计数在 8 段文本 × 7 个查询词上逐例一致**，保证 text 类文档的行为一字不变；分段拼接后与原文完全相同、命中段数等于计数；环形序号 19 项（越界回绕、负数多圈、长度为 0 或负、NaN 与 Infinity 给 0、小数截断、旋转角 -90 → 270）；计数文案 7 项；静态走查 8 项（不再用正则 split 高亮、不再 `indexOf` 只标一处、markdown 命中数以 DOM 为准、四处不再手写环形取模、全部组件扫一遍不再用 `.toLowerCase().split(` 数命中）。`qa:all` 现 42 项 verify。

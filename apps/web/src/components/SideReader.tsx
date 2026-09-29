@@ -16,6 +16,7 @@ import {
   writeJson,
   writeRaw,
 } from "../local-store.ts";
+import { countMatches, findRanges, matchLabel, splitForHighlight, stepIndex, wrapIndex } from "../text-find.ts";
 
 export type ReaderTarget =
   | { kind: "url"; url: string }
@@ -111,15 +112,15 @@ interface Props {
 /** 搜索命中包裹 mark 节点（主栏与对照副栏共用）。 */
 function highlightNodes(text: string, q: string): ReactNode {
   if (!q) return text;
-  const esc = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const parts = text.split(new RegExp(`(${esc})`, "gi"));
+  const parts = splitForHighlight(text, q);
+  if (parts.length === 1 && !parts[0]!.hit) return text;
   return parts.map((p, i) =>
-    p.toLowerCase() === q.toLowerCase() ? (
+    p.hit ? (
       <mark key={i} className="rounded-sm bg-amber-200 px-0.5 text-gray-900">
-        {p}
+        {p.text}
       </mark>
     ) : (
-      <span key={i}>{p}</span>
+      <span key={i}>{p.text}</span>
     ),
   );
 }
@@ -437,6 +438,9 @@ export function SideReader({
   const [findQuery, setFindQuery] = useState("");
   const [findIdx, setFindIdx] = useState(0);
   const [matchCounts, setMatchCounts] = useState<Record<string, number>>({});
+  // markdown 的命中数以 DOM 里真实的 mark 数为准：渲染会吃掉 #、*、表格竖线一类标记，
+  // 按原始 markdown 文本数出来的次数跟用户看得见的高亮对不上
+  const [mdMarks, setMdMarks] = useState(0);
   const [sort, setSort] = useState<Record<string, { col: string; dir: 1 | -1 }>>(() =>
     readJson(KEYS.readerSort, asSortRecord, {}),
   );
@@ -474,7 +478,7 @@ export function SideReader({
   // 恢复视图状态（粘贴 / ?vs= 短码共用；排序键重映射到当前标签）
   const applyStateObj = (s: ViewState) => {
     if (typeof s.zoom === "number") setZoom(Math.min(3, Math.max(0.5, s.zoom)));
-    if (typeof s.rot === "number") setRot(((s.rot % 360) + 360) % 360);
+    if (typeof s.rot === "number") setRot(wrapIndex(s.rot, 360));
     if (typeof s.fitWidth === "boolean") setFitWidth(s.fitWidth);
     if (typeof s.showLines === "boolean") setShowLines(s.showLines);
     if (typeof s.find === "string") setFindQuery(s.find);
@@ -537,14 +541,15 @@ export function SideReader({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [splitRequest?.nonce]);
   const baseText = state.kind === "text" ? state.text : state.kind === "markdown" ? state.markdown : "";
-  const matchCount = findTrim ? baseText.toLowerCase().split(findTrim.toLowerCase()).length - 1 : 0;
+  const matchCount =
+    state.kind === "markdown" ? (findTrim ? mdMarks : 0) : findTrim ? countMatches(baseText, findTrim) : 0;
 
   // 当前命中滚动到视口中央并加描边
   useEffect(() => {
     if (!findTrim || matchCount === 0) return;
     const marks = scrollRef.current?.querySelectorAll("mark") ?? [];
     if (marks.length === 0) return;
-    const idx = ((findIdx % marks.length) + marks.length) % marks.length;
+    const idx = wrapIndex(findIdx, marks.length);
     marks[idx]?.scrollIntoView({ block: "center" });
     marks.forEach((m, i) => m.classList.toggle("outline outline-2 outline-rose-400", i === idx));
   }, [findIdx, findTrim, matchCount, state.text, showLines]);
@@ -561,28 +566,36 @@ export function SideReader({
       parent.normalize();
     });
     const q = findTrim;
-    if (!q) return;
-    const lower = q.toLowerCase();
+    if (!q) {
+      setMdMarks((prev) => (prev === 0 ? prev : 0));
+      return;
+    }
     root.querySelectorAll(".md-body").forEach((body) => {
       const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
       const nodes: Text[] = [];
       while (walker.nextNode()) nodes.push(walker.currentNode as Text);
       for (const node of nodes) {
         const text = node.nodeValue ?? "";
-        const idx = text.toLowerCase().indexOf(lower);
-        if (idx < 0) continue;
+        // 一个文本节点里的每一处都要包上，只标第一处会让计数器与「下一处」对不上
+        const ranges = findRanges(text, q);
+        if (ranges.length === 0) continue;
         const frag = document.createDocumentFragment();
-        if (idx > 0) frag.appendChild(document.createTextNode(text.slice(0, idx)));
-        const mark = document.createElement("mark");
-        mark.setAttribute("data-find", "1");
-        mark.className = "rounded-sm bg-amber-200 px-0.5 text-gray-900";
-        mark.textContent = text.slice(idx, idx + q.length);
-        frag.appendChild(mark);
-        const rest = text.slice(idx + q.length);
-        if (rest) frag.appendChild(document.createTextNode(rest));
+        let cursor = 0;
+        for (const r of ranges) {
+          if (r.start > cursor) frag.appendChild(document.createTextNode(text.slice(cursor, r.start)));
+          const mark = document.createElement("mark");
+          mark.setAttribute("data-find", "1");
+          mark.className = "rounded-sm bg-amber-200 px-0.5 text-gray-900";
+          mark.textContent = text.slice(r.start, r.end);
+          frag.appendChild(mark);
+          cursor = r.end;
+        }
+        if (cursor < text.length) frag.appendChild(document.createTextNode(text.slice(cursor)));
         node.parentNode?.replaceChild(frag, node);
       }
     });
+    const found = root.querySelectorAll("mark[data-find]").length;
+    setMdMarks((prev) => (prev === found ? prev : found));
   }, [findTrim, state.kind, state.markdown, state.loading]);
 
   // 记录各标签页的搜索命中数，用于标签徽标
@@ -624,7 +637,7 @@ export function SideReader({
   const gotoHit = useCallback(
     (delta: number) => {
       if (hitTotal === 0) return;
-      setHitIdx((prev) => (((prev + delta) % hitTotal) + hitTotal) % hitTotal);
+      setHitIdx((prev) => stepIndex(prev, delta, hitTotal));
     },
     [hitTotal],
   );
@@ -675,7 +688,7 @@ export function SideReader({
       if (tabs.length < 2) return;
       e.preventDefault();
       const dir = e.shiftKey ? -1 : 1;
-      onSelect((((activeIndex + dir) % tabs.length) + tabs.length) % tabs.length);
+    onSelect(wrapIndex(activeIndex + dir, tabs.length));
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -1127,7 +1140,7 @@ export function SideReader({
                 ›
               </button>
               <span className="shrink-0 font-mono text-[10.5px] text-mist-600">
-                {matchCount > 0 ? `${(((findIdx % matchCount) + matchCount) % matchCount) + 1}/${matchCount}` : "0 处"}
+                {matchLabel(findIdx, matchCount)}
               </span>
             </>
           )}

@@ -171,6 +171,11 @@ const VERIFY_SCRIPTS: Array<{ name: string; cmd: string; scope: string }> = [
     scope: "时间显示口径（相对时间分档 / 坏数据兜底不猜「刚刚」/ 与旧实现逐值一致 / link-check 空串语义 / 文件名时间戳 / 不许再出现第二份实现）",
   },
   {
+    name: "verify:textfind",
+    cmd: "pnpm verify:textfind",
+    scope: "阅读器查找口径（命中区间 / 计数与旧口径逐例一致 / 高亮分段拼接保真 / 环形序号与旋转角 / 计数文案 / markdown 以 DOM mark 数为准 / 无第二份实现）",
+  },
+  {
     name: "verify:upload",
     cmd: "pnpm verify:upload",
     scope: "上传预检规则（扩展名 / 大小 / 空文件 / 批量分组 / 提示文案）",
