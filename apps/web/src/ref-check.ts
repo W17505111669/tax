@@ -10,7 +10,8 @@
  */
 
 import { gradeCitation, isOfficialChannelPage } from "./citation-grade.ts";
-import { normalizeRef } from "./policy-trace.ts";
+import { DOMAIN_KEYWORDS } from "./domain-keywords.ts";
+import { extractDocRefs, normalizeRef } from "./policy-trace.ts";
 import type { RefTraceResult } from "./policy-trace.ts";
 
 /** docref = 政策文号复查（citation 预留给弱证据引用复查） */
@@ -286,6 +287,37 @@ export function topicOverlap(originalTitle: string, hitTitle: string, hitSnippet
   return topicTokens(`${hitTitle} ${hitSnippet}`).filter((t) => want.has(t));
 }
 
+/** 词元能对上涉税领域词表：互为子串即算（「研发」是「研发费用」的一部分，「土地」是「土地增值税」的一部分） */
+export function isDomainToken(token: string): boolean {
+  const t = token.toLowerCase();
+  if (t === "") return false;
+  return DOMAIN_KEYWORDS.some((k) => {
+    const w = k.toLowerCase();
+    return w.includes(t) || t.includes(w);
+  });
+}
+
+/**
+ * 共同主题词里够格支撑「两者谈的是同一件事」的那些。
+ *
+ * 判「找到官方原文」只要求「有共同词」是不够的：实测一条弱证据「国情_中国政府网」被换成了
+ * gov.cn 上的《全面认识和把握我国基本国情》——两者只共用「国情」这一个泛词，谈的根本不是
+ * 同一件事，却因此被判成 matched 并写进了修订指令。通用词黑名单是手工维护的，永远会漏
+ * （「国家」「政府」都在表里，「国情」却漏了），因此对 matched 改用白名单口径：
+ * 共同词里至少要有一个能对上领域词表，对不上就降为 candidate 交人工确认。
+ * 这与本文件既定的「宁可漏判，不可误判成找到官方原文」一致。
+ *
+ * 领域词之外还认「两边出现同一个政策文号」：原引用标题本身就是文号时（弱证据清单里常见），
+ * 命中页出现同一文号是最强的同一性证据，比领域词更强，不能因为它不是领域词就降级。
+ */
+export function domainOverlap(originalTitle: string, hitTitle: string, hitSnippet = ""): string[] {
+  const domains = topicOverlap(originalTitle, hitTitle, hitSnippet).filter(isDomainToken);
+  if (domains.length > 0) return domains;
+  const want = new Set(extractDocRefs(originalTitle).map((r) => r.core));
+  if (want.size === 0) return [];
+  const got = new Set(extractDocRefs(`${hitTitle} ${hitSnippet}`).map((r) => r.core));
+  return [...want].filter((c) => got.has(c));
+}
 /** 候选排序：官方原文优先，其次专业来源，再看相关度 */
 const GRADE_RANK: Record<string, number> = { official: 0, professional: 1, weak: 2 };
 
@@ -325,7 +357,7 @@ export function gradeRefCheck(t: RefCheckTarget, outcome: RefSearchOutcome): Ref
     // 不限定为政策法规库：科技部一类的官方文件页（most.gov.cn 上的指引 PDF）同样是合格的原文。
     const isOfficial = (h: RefSearchHit) =>
       gradeCitation(h.url, h.title).grade === "official" && !isOfficialChannelPage(h.url);
-    const official = pool.find((h) => isOfficial(h) && topicOverlap(t.text, h.title, h.snippet ?? "").length > 0);
+    const official = pool.find((h) => isOfficial(h) && domainOverlap(t.text, h.title, h.snippet ?? "").length > 0);
     if (official) {
       return {
         verdict: "matched",
@@ -338,7 +370,7 @@ export function gradeRefCheck(t: RefCheckTarget, outcome: RefSearchOutcome): Ref
       return {
         verdict: "candidate",
         evidence: toEvidence(unrelated),
-        note: `检索到官方站点页面，但与原引用「${t.text}」没有共同主题词，看不出谈的是同一件事，需人工确认后再替换`,
+        note: `检索到官方站点页面，但与原引用「${t.text}」没有共同的涉税领域词，看不出谈的是同一件事，需人工确认后再替换`,
       };
     }
     const best = bestHit(pool);
@@ -420,17 +452,24 @@ export function unresolvedTargets<T extends { key: string }>(
   checks: Array<{
     key: string;
     kind?: RefCheckKind;
+    /** 原引用标题或文号原文：引用替换的主题相关判据要用它重算，缺了就纠正不了收紧前的误判 */
+    text?: string;
     verdict: RefCheckVerdict;
-    evidence?: { url: string; title: string } | null;
+    evidence?: { url: string; title: string; snippet?: string } | null;
   }>,
   stillValid: (check: {
     kind?: RefCheckKind;
-    evidence: { url: string; title: string } | null;
+    text: string;
+    evidence: { url: string; title: string; snippet?: string } | null;
   }) => boolean = () => true,
 ): T[] {
   const done = new Set(
     checks
-      .filter((c) => c.verdict === "matched" && stillValid({ kind: c.kind, evidence: c.evidence ?? null }))
+      .filter(
+        (c) =>
+          c.verdict === "matched" &&
+          stillValid({ kind: c.kind, text: c.text ?? "", evidence: c.evidence ?? null }),
+      )
       .map((c) => c.key),
   );
   return targets.filter((t) => !done.has(t.key));
@@ -447,21 +486,31 @@ export function shouldOverwrite(
 }
 
 /**
- * 旧的「已找到公开出处」现在还站得住吗：按复查类型用不同门槛重算证据分级。
+ * 旧的「已找到公开出处」现在还站得住吗：按复查类型用当前判据重算一遍。
  * - 文号复查承诺的是「公开页面里出现了这个文号」，专业来源（税务实务库、法规 PDF）同样算出处，
  *   只有掉到「证据力弱」（门户首页、百科词条）才算失效；
- * - 引用替换承诺的是「找到官方原文」，因此必须仍是官方站点。
- * 不这样做的话，分级规则一旦收紧（例如把 index_pc.html 也认成门户入口页），
- * 上一轮误判的 matched 就会被不降级护栏永久锁死，再也纠正不回来。
+ * - 引用替换承诺的是「找到官方原文」，因此必须仍是官方站点、不是税务机关的解读/新闻频道页，
+ *   且与原引用谈的是同一件事（`domainOverlap` 非空）。
+ *
+ * 主题相关这一条是后加的判据，必须在这里同样生效，否则收紧只对新增记录有效：
+ * 实测库里有 9 条引用替换是在旧判据下判成 matched 的，拿《全面认识和把握我国基本国情》替换
+ * 「国情_中国政府网」、拿《中华人民共和国宪法》替换「中华人民共和国_百度百科」、拿
+ * 「国家政务服务平台 个人办事」替换同名门户——都是只共用了泛词。这些记录一旦被不降级护栏
+ * 锁死就再也纠正不回来，而它们会顺着修订指令与交付材料扩散成「已找到官方原文」。
+ *
+ * `originalText` 缺省时跳过主题相关判定，保持既有调用方与离线测试的行为不变。
  */
 export function matchedStillValid(
   kind: RefCheckKind,
-  evidence: { url: string; title: string } | null,
+  evidence: { url: string; title: string; snippet?: string } | null,
   gradeOf: (url: string, title: string) => { grade: string },
+  originalText = "",
 ): boolean {
   if (!evidence || evidence.url === "") return false;
   const grade = gradeOf(evidence.url, evidence.title).grade;
-  return kind === "citation" ? grade === "official" : grade !== "weak";
+  if (kind !== "citation") return grade !== "weak";
+  if (grade !== "official" || isOfficialChannelPage(evidence.url)) return false;
+  return originalText === "" || domainOverlap(originalText, evidence.title, evidence.snippet ?? "").length > 0;
 }
 
 /** 保留旧证据时写进 note 的说明：把这次重试如实记下来，不藏失败 */

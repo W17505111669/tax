@@ -110,7 +110,7 @@ export function pendingRefTargets(taskId: string): RefCheckTarget[] {
     // 主题词兜底：与引用复查同一套 topicHint，供上下文里没有发文机关的文号使用
     refCheckTargets(traceDocRefs(text, parsed, rows.map((r) => r.tool_name), rechecked), topicHint(text, 2)),
     checks,
-    (c) => matchedStillValid(c.kind ?? "docref", c.evidence, gradeCitation),
+    (c) => matchedStillValid(c.kind ?? "docref", c.evidence, gradeCitation, c.text),
   );
 }
 
@@ -231,7 +231,7 @@ export function pendingCitationTargets(taskId: string, limit: number = MAX_REF_C
   return unresolvedTargets(
     citationTargets(cites, topicHint(getTask(taskId)?.result ?? "", 2), limit),
     listRefChecks(taskId),
-    (c) => matchedStillValid(c.kind ?? "citation", c.evidence, gradeCitation),
+    (c) => matchedStillValid(c.kind ?? "citation", c.evidence, gradeCitation, c.text),
   );
 }
 
@@ -448,12 +448,13 @@ export async function runRefChecks(
 export function saveRefCheck(taskId: string, rec: RefCheckRecord): void {
   const prev = db
     .prepare(
-      `SELECT kind, verdict, note, evidence_title, evidence_url, evidence_grade, evidence_snippet, attempts
+      `SELECT kind, text, verdict, note, evidence_title, evidence_url, evidence_grade, evidence_snippet, attempts
          FROM ref_checks WHERE task_id = ? AND ref_key = ?`,
     )
     .get(taskId, rec.key) as
     | {
         kind: string;
+        text: string | null;
         verdict: string;
         note: string | null;
         evidence_title: string | null;
@@ -467,8 +468,14 @@ export function saveRefCheck(taskId: string, rec: RefCheckRecord): void {
   // 旧证据按当前分级规则仍算官方原文才享受不降级保护；规则收紧后误判的 matched 可以被纠正
   const prevStillValid = matchedStillValid(
     (prev?.kind ?? rec.kind) as RefCheckKind,
-    { url: prev?.evidence_url ?? "", title: prev?.evidence_title ?? "" },
+    {
+      url: prev?.evidence_url ?? "",
+      title: prev?.evidence_title ?? "",
+      snippet: prev?.evidence_snippet ?? "",
+    },
     gradeCitation,
+    // 原引用标题也要带上：引用替换的主题相关判据需要它，缺了就纠正不了收紧前的误判
+    prev?.text ?? rec.text,
   );
   // 官方原文不被商业站点顶掉：升级通道让重跑已 matched 的记录变多，反向替换必须挡住
   const notBetter =

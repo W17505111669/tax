@@ -41,7 +41,9 @@ import { gradeCitation } from "../../web/src/citation-grade.ts";
 import { topicHint } from "../../web/src/domain-keywords.ts";
 import {
   matchedStillValid,
+  domainOverlap,
   evidenceCanReplace,
+  isDomainToken,
   keptBetterNote,
   preservedNote,
   reusableDocNum,
@@ -643,9 +645,13 @@ for (const t of listTasks()) {
     });
   const tr = traceDocRefs(text, parsed, rows.map((r) => r.tool_name));
   const recs = listRefChecks(t.id);
-  // 已经找到公开出处的不再算「待复查」：与批量入口和看板口径保持一致
-  const stillOfficial = (c: { kind?: "docref" | "citation"; evidence: { url: string; title: string } | null }) =>
-    matchedStillValid(c.kind ?? "docref", c.evidence, gradeCitation);
+  // 已经找到公开出处的不再算「待复查」：与批量入口和看板口径保持一致。
+  // 原引用标题必须一起传进去——引用替换的主题相关判据要用它重算，少传就与服务端口径岔开。
+  const stillOfficial = (c: {
+    kind?: "docref" | "citation";
+    text: string;
+    evidence: { url: string; title: string; snippet?: string } | null;
+  }) => matchedStillValid(c.kind ?? "docref", c.evidence, gradeCitation, c.text);
   const pending = unresolvedTargets(refCheckTargets(tr), recs, stillOfficial);
   pendingTotal += pending.length;
   if (pending.length > 0) tasksPending += 1;
@@ -809,6 +815,56 @@ expect("旧证据仍算官方原文时不覆盖", shouldOverwrite("matched", "em
 expect("旧证据已不算官方原文时允许覆盖", shouldOverwrite("matched", "empty", false), true);
 expect("默认参数保持保护", shouldOverwrite("matched", "empty"), false);
 expect("没有旧证据时不保护", matchedStillValid("docref", null, gradeCitation), false);
+// 引用替换的主题相关判据要在「旧记录是否仍站得住」上同样生效，否则收紧只对新增记录有效，
+// 实测那 9 条误判会被不降级护栏永久锁死
+expect(
+  "引用替换：官方站点但与原引用只共用泛词 → 不再算有效",
+  matchedStillValid(
+    "citation",
+    {
+      url: "http://www.scio.gov.cn/31773/31774/31779/Document/1628713/1628713.htm",
+      title: "全面认识和把握我国基本国情",
+    },
+    gradeCitation,
+    "国情_中国政府网",
+  ),
+  false,
+);
+expect(
+  "引用替换：官方站点且共用领域词 → 仍算有效",
+  matchedStillValid(
+    "citation",
+    { url: "https://www.most.gov.cn/xxgk/a.pdf", title: "研发费用加计扣除政策执行指引" },
+    gradeCitation,
+    "研发 - MBA智库百科",
+  ),
+  true,
+);
+expect(
+  "引用替换：税务机关解读页不算有效替代来源",
+  matchedStillValid(
+    "citation",
+    {
+      url: "https://www.chinatax.gov.cn/chinatax/n810341/n810760/c2922282/content.html",
+      title: "研发费用加计扣除政策执行指引的解读",
+    },
+    gradeCitation,
+    "研发 - MBA智库百科",
+  ),
+  false,
+);
+expect(
+  "不传原引用标题时跳过主题判定（既有调用方与离线测试行为不变）",
+  matchedStillValid(
+    "citation",
+    {
+      url: "http://www.scio.gov.cn/31773/31774/31779/Document/1628713/1628713.htm",
+      title: "全面认识和把握我国基本国情",
+    },
+    gradeCitation,
+  ),
+  true,
+);
 expect("空地址不保护", matchedStillValid("docref", { url: "", title: "甲" }, gradeCitation), false);
 expect(
   "引用替换：门户入口页证据不受保护",
@@ -933,7 +989,7 @@ const unrelatedOfficial = gradeRefCheck(
   ]),
 );
 expect("官方页但主题不相关 → 只给候选", unrelatedOfficial.verdict, "candidate");
-ok("候选说明写清是主题不相关", (unrelatedOfficial.note ?? "").includes("没有共同主题词"), unrelatedOfficial.note);
+ok("候选说明写清是主题不相关", (unrelatedOfficial.note ?? "").includes("没有共同的涉税领域词"), unrelatedOfficial.note);
 expect(
   "候选仍给出证据链接",
   unrelatedOfficial.evidence?.url,
@@ -1002,6 +1058,59 @@ const libraryPage = gradeRefCheck(
   ]),
 );
 expect("政策法规库原文页仍算官方原文", libraryPage.verdict, "matched");
+expect(
+  "原引用标题就是文号时，命中同一文号的官方页仍算 matched",
+  gradeRefCheck(
+    { key: "citation:d", kind: "citation", text: "财税〔2015〕119号", excludeUrl: "https://baike.baidu.com/x" },
+    outcome([
+      hit(
+        "财政部 国家税务总局 科技部关于完善研究开发费用税前加计扣除政策的通知 财税〔2015〕119号",
+        "https://www.most.gov.cn/xxgk/a.pdf",
+        "研发费用加计扣除",
+      ),
+    ]),
+  ).verdict,
+  "matched",
+);
+expect(
+  "文号不同则不算同一件事",
+  domainOverlap("财税〔2015〕119号", "国家税务总局公告2019年第41号", "").length,
+  0,
+);
+
+// 主题相关门槛：共同词里要有涉税领域词。只共用泛词不算「谈同一件事」——通用词黑名单是手工
+// 维护的，「国家」「政府」都在表里而「国情」漏了，实测因此误判过一条。
+expect("领域词本身算", isDomainToken("加计扣除"), true);
+expect("领域词的二字片段也算（研发 ⊂ 研发费用）", isDomainToken("研发"), true);
+expect("泛词不算领域词", isDomainToken("国情"), false);
+expect("空词元不算", isDomainToken(""), false);
+expect(
+  "只共用泛词时领域重叠为空",
+  domainOverlap("国情_中国政府网", "全面认识和把握我国基本国情", "").length,
+  0,
+);
+expect(
+  "共用领域词时领域重叠非空",
+  domainOverlap("研发 - MBA智库百科", "研发费用加计扣除 政策执行指引 （2.0版）", "").length > 0,
+  true,
+);
+// 实测误判的那一条：弱证据「国情_中国政府网」曾被换成 gov.cn 上的《全面认识和把握我国基本国情》
+const genericOnly = gradeRefCheck(
+  { key: "citation:n", kind: "citation", text: "国情_中国政府网", excludeUrl: "https://baike.baidu.com/x" },
+  outcome([
+    hit(
+      "全面认识和把握我国基本国情",
+      "http://www.scio.gov.cn/31773/31774/31779/Document/1628713/1628713.htm",
+      "",
+    ),
+  ]),
+);
+expect("只共用泛词时不再判为找到官方原文", genericOnly.verdict, "candidate");
+ok(
+  "候选说明写清是没有共同领域词",
+  (genericOnly.note ?? "").includes("没有共同的涉税领域词"),
+  genericOnly.note,
+);
 // 10) 官方政策法规库定向检索：按发文字号精确命中，未命中如实退回通用检索
 // 通用搜索引擎对中文长查询已退化（Bing 忽略 site:、只命中「国家」二字返回百科词条，百度安全验证），
 // 政策文号改走官方库，命中门槛是发文字号归一化后全等。
