@@ -19,7 +19,7 @@ import {
   mergeCitations,
   searchEvidence,
 } from "../../web/src/search-evidence.ts";
-import { summarizeRefChecks } from "../../web/src/ref-check.ts";
+import { offTopicCitationTitles, summarizeRefChecks } from "../../web/src/ref-check.ts";
 import { deltaVerdict, evidenceDelta, evidenceSnapshot } from "../../web/src/revision-impact.ts";
 import { db } from "../src/db.ts";
 import { dirs } from "../src/config.ts";
@@ -67,6 +67,7 @@ const delivery = deliveryCheck({
   pendingReview: 0,
   citations: 2,
   citationGrades: { total: 2, official: 1, professional: 1, weak: 0 },
+  offTopicCitations: [],
   searches: { calls: 2, withUrls: 2, metadataOnly: 0, reportedResults: 0 },
   linkCheck: { total: 2, ok: 1, blocked: 1, dead: 0, unreachable: 0 },
   linkCheckAgeHours: 1,
@@ -467,6 +468,7 @@ for (const t of listTasks()) {
       pendingReview: pendingReviewIssues(t.id).length,
       citations: cites.length,
       citationGrades: cites.length > 0 ? grades : null,
+      offTopicCitations: offTopicCitationTitles(cites, detail?.result ?? ""),
       searches: searches.calls > 0 ? searches : null,
       linkCheck: null,
       linkCheckAgeHours: null,

@@ -30,6 +30,7 @@ const base: CheckInput = {
   pendingReview: 0,
   citations: 3,
   citationGrades: { total: 3, official: 2, professional: 1, weak: 0 },
+  offTopicCitations: [],
   searches: { calls: 2, withUrls: 2, metadataOnly: 0, reportedResults: 0 },
   linkCheck: null,
   linkCheckAgeHours: null,
@@ -489,6 +490,40 @@ for (const t of listTasks()) {
   }
 }
 console.log(`[verify] 真实任务走查=${listTasks().length} 其中完成态待复核=${reopenable}`);
+
+// 与业务主题无关的泛词条引用：找不到同主题的官方原文，该删而不是该替换
+expect(
+  "跑题引用给出提醒并写清条数",
+  deliveryCheck({
+    ...base,
+    offTopicCitations: ["国家（政治地理学名词）_百度百科", "国家政务服务平台"],
+  }).items.some((x) => x.level === "warn" && x.text.includes("2 条联网引用与业务主题无关")),
+  true,
+);
+expect(
+  "跑题提醒列出样例标题",
+  deliveryCheck({ ...base, offTopicCitations: ["土地（汉语词语）_百度百科"] }).items.some((x) =>
+    x.text.includes("「土地（汉语词语）_百度百科」"),
+  ),
+  true,
+);
+expect(
+  "跑题提醒写明建议删除而不是找替代来源",
+  deliveryCheck({ ...base, offTopicCitations: ["国家政务服务平台"] }).items.some((x) =>
+    x.text.includes("建议直接从结论中删掉"),
+  ),
+  true,
+);
+expect("跑题引用是提醒不是阻断", deliveryCheck({ ...base, offTopicCitations: ["国家数据"] }).verdict, "谨慎交付");
+expect("没有跑题引用时不产生该条目", deliveryCheck(base).items.some((x) => x.text.includes("与业务主题无关")), false);
+expect(
+  "样例最多列三条，不把所有标题堆进一句话",
+  (deliveryCheck({ ...base, offTopicCitations: ["甲", "乙", "丙", "丁"] }).items.find((x) =>
+    x.text.includes("与业务主题无关"),
+  )?.text ?? "").includes("丁"),
+  false,
+);
+
 console.log(`[verify] 交付自检检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  - ${f}`);

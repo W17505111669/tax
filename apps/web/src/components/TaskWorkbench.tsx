@@ -49,6 +49,7 @@ import {
 import { buildManifest } from "../manifest.ts";
 import { traceDocRefs } from "../policy-trace.ts";
 import { gradeCitation, GRADE_HINT, GRADE_TEXT, summarizeGrades } from "../citation-grade.ts";
+import { offTopicCitationTitles } from "../ref-check.ts";
 import { topDomainWords, topicHint } from "../domain-keywords.ts";
 import { deltaDetail, deltaText, deltaVerdict, evidenceDelta, evidenceSnapshot } from "../revision-impact.ts";
 import {
@@ -1106,6 +1107,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     pendingReview: pendingReviews,
     citations: citations.length,
     citationGrades: citations.length > 0 ? citationGrades : null,
+    // 与业务主题无关的泛词条引用：这类引用找不到同主题的官方原文，该删而不是该替换
+    offTopicCitations: offTopicCitationTitles(citations, finalResult),
     searches: searches.calls > 0 ? searches : null,
     linkCheck: linkCheckedAt ? linkSummary : null,
     linkCheckAgeHours: ageHours(linkCheckedAt),

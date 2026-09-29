@@ -336,6 +336,44 @@ export function onTaskTopic(taskHint: string, hitTitle: string, hitSnippet = "")
   const hit = `${hitTitle} ${hitSnippet ?? ""}`;
   return DOMAIN_KEYWORDS.some((k) => taskHint.includes(k) && hit.includes(k));
 }
+
+/**
+ * 与这份结论无关的弱证据引用标题。
+ *
+ * 实测结论里出现过「国家（政治地理学名词）_百度百科」「中华人民共和国_百度百科」
+ * 「国家政务服务平台」这类词条：它们不是政策依据，也永远找不到「同主题的官方原文」来替换
+ * ——复查层对它们只能判候选，于是待办清单里挂着一堆谁也解决不了的项。这类引用的正确处置
+ * 是从结论里删掉，而不是花时间找替代来源，因此单列出来交给交付自检提醒。
+ *
+ * 判据刻意保守，因为这里的误判代价与复查层相反：复查层误判只是多一条候选（交人工确认），
+ * 这里误判会劝人删掉正当引用。两道限制缺一不可——
+ * 1. 只看证据力弱的引用（门户首页 / 百科词条 / 检索页）。官方与专业来源即使标题用词与结论
+ *    不同也不该被建议删除；实测按「与任务主题词有交集」判会把 54 条引用里的 50 条判为跑题，
+ *    因为标题常常很短（「研发_百度百科」）或干脆是一串裸网址，凑不出完整领域词。
+ * 2. 比的是整篇结论正文而不是两三个主题词，且要求标题去虚词后与正文没有任何共同实词。
+ * 标题取不出任何实词时不判（无从判断，不猜）；结论正文为空时同样不判。
+ */
+export function offTopicCitationTitles(
+  citations: Array<{ title: string; url: string }>,
+  conclusionText: string,
+): string[] {
+  // 先把引用清单本身从正文里剔掉再取词元：结论通常会在末尾列出引用标题，
+  // 不剔就变成拿标题和它自己比，任何引用都「与正文有共同实词」，一条也判不出来
+  //（实测按整篇正文比对时 54 条引用里 0 条被判跑题）。
+  let body = conclusionText ?? "";
+  for (const c of citations) {
+    if (c.title.trim() !== "") body = body.split(c.title).join(" ");
+  }
+  const base = new Set(topicTokens(body));
+  if (base.size === 0) return [];
+  return citations
+    .filter((c) => gradeCitation(c.url, c.title).grade === "weak")
+    .filter((c) => {
+      const tokens = topicTokens(c.title);
+      return tokens.length > 0 && tokens.every((t) => !base.has(t));
+    })
+    .map((c) => c.title);
+}
 /** 候选排序：官方原文优先，其次专业来源，再看相关度 */
 const GRADE_RANK: Record<string, number> = { official: 0, professional: 1, weak: 2 };
 

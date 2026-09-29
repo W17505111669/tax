@@ -20,6 +20,11 @@ export type CheckInput = {
   citations: number;
   /** 联网引用的证据力分级汇总；null 表示本次任务没有联网引用 */
   citationGrades: GradeSummary | null;
+  /**
+   * 与业务主题无关的引用标题（标题与结论主题词没有任何完整涉税领域词交集）。
+   * 空数组表示没有，或结论里取不到主题词因而无从判断。
+   */
+  offTopicCitations: string[];
   /** 联网检索留痕；null 表示本任务没有任何联网检索类工具调用 */
   searches: { calls: number; withUrls: number; metadataOnly: number; reportedResults: number } | null;
   /** 最近一次链接核验的分级汇总；null 表示尚未核验，此时不做任何判断 */
@@ -212,6 +217,16 @@ export function deliveryCheck(i: CheckInput): CheckResult {
     items.push({ level: "warn", text: "无联网引用，涉及政策依据的结论请确认是否已完成在线核验" });
   }
 
+  if (i.offTopicCitations.length > 0) {
+    const sample = i.offTopicCitations
+      .slice(0, 3)
+      .map((t) => `「${t}」`)
+      .join("、");
+    items.push({
+      level: "warn",
+      text: `${i.offTopicCitations.length} 条联网引用与业务主题无关（如 ${sample}），不能替代政策依据；这类词条找不到同主题的官方原文，建议直接从结论中删掉，而不是花时间找替代来源`,
+    });
+  }
   if (i.citationGrades) {
     if (i.citationGrades.weak > 0) {
       items.push({

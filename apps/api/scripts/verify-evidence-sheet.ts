@@ -20,7 +20,12 @@ import {
 } from "../../web/src/search-evidence.ts";
 import { gradeCitation, summarizeGrades } from "../../web/src/citation-grade.ts";
 import { traceDocRefs } from "../../web/src/policy-trace.ts";
-import { refCheckTargets, refKey, summarizeRefChecks } from "../../web/src/ref-check.ts";
+import {
+  offTopicCitationTitles,
+  refCheckTargets,
+  refKey,
+  summarizeRefChecks,
+} from "../../web/src/ref-check.ts";
 import { amountKey, traceAmounts } from "../../web/src/amount-trace.ts";
 import { deliveryCheck } from "../../web/src/delivery-check.ts";
 import { deltaDetail, deltaVerdict, evidenceDelta, evidenceSnapshot } from "../../web/src/revision-impact.ts";
@@ -253,6 +258,7 @@ function sheetOf(taskId: string): SheetInput | null {
     pendingReview: pendingReviewIssues(taskId).length,
     citations: grades.total,
     citationGrades: grades.total > 0 ? grades : null,
+    offTopicCitations: offTopicCitationTitles(cites, text),
     searches: se.calls > 0 ? se : null,
     linkCheck: null,
     linkCheckAgeHours: null,

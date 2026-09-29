@@ -45,6 +45,7 @@ import {
   evidenceCanReplace,
   isDomainToken,
   keptBetterNote,
+  offTopicCitationTitles,
   onTaskTopic,
   preservedNote,
   reusableDocNum,
@@ -1117,6 +1118,47 @@ expect(
   false,
 );
 expect("主题词为空时返回 false，由调用方回退", onTaskTopic("", "研发费用加计扣除", ""), false);
+// 跑题引用识别：交付自检据此提醒「该删而不是该替换」。
+// 判据必须保守——这里误判会劝人删掉正当引用，代价比复查层多一条候选大得多。
+const CONCLUSION =
+  "本项目研发费用加计扣除比例按 100% 计算，辅助账与财务明细账存在差异，需核验合同与发票金额后填入底稿。";
+expect(
+  "只挑出与结论无关的弱证据引用",
+  offTopicCitationTitles(
+    [
+      { title: "国家（政治地理学名词）_百度百科", url: "https://baike.baidu.com/item/a" },
+      { title: "研发费用加计扣除政策执行指引", url: "https://www.most.gov.cn/xxgk/a.pdf" },
+      { title: "国家政务服务平台", url: "https://gjzwfw.gov.cn/" },
+    ],
+    CONCLUSION,
+  ),
+  ["国家（政治地理学名词）_百度百科", "国家政务服务平台"],
+);
+expect(
+  "官方与专业来源即使标题用词与结论不同也不建议删除",
+  offTopicCitationTitles(
+    [
+      {
+        title: "国家税务总局政策法规库",
+        url: "http://fgk.chinatax.gov.cn/zcfgk/c100012/c5194895/content.html",
+      },
+      { title: "企业所得税实务", url: "https://www.shui5.cn/article/cc/83114.html" },
+    ],
+    CONCLUSION,
+  ),
+  [],
+);
+expect(
+  "标题与结论有共同实词时不算跑题（研发类词条在研发结论里是正常的）",
+  offTopicCitationTitles([{ title: "研发_百度百科", url: "https://baike.baidu.com/item/b" }], CONCLUSION),
+  [],
+);
+expect(
+  "结论为空时不指责任何引用",
+  offTopicCitationTitles([{ title: "国家（政治地理学名词）_百度百科", url: "https://baike.baidu.com/item/a" }], ""),
+  [],
+);
+expect("没有引用时返回空", offTopicCitationTitles([], CONCLUSION).length, 0);
 expect(
   "研发类命中页与研发类主题词对得上",
   onTaskTopic("研发费用 加计扣除", "研发费用加计扣除 政策执行指引 （2.0版）", ""),
