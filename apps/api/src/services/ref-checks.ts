@@ -7,12 +7,14 @@
  */
 import {
   describeAttempts,
+  docNumYear,
   isLibraryDocUrl,
   matchPolicyDocNum,
   searchPolicyLibrary,
   searchWebDetailed,
   type DetailedSearch,
   type PolicyLibraryResult,
+  type PolicySearchOptions,
   type SearchAttempt,
 } from "@tax/business-tools";
 import { db, nowIso } from "../db.ts";
@@ -20,6 +22,7 @@ import { gradeCitation } from "../../../web/src/citation-grade.ts";
 import {
   buildRefQuery,
   citationTargets,
+  contextKeywords,
   evidenceCanReplace,
   gradeRefCheck,
   keptBetterNote,
@@ -47,7 +50,11 @@ import { getTask } from "./task-store.ts";
 export type Searcher = (query: string, signal?: AbortSignal) => Promise<DetailedSearch>;
 
 /** 政策法规库检索实现同样可注入，验证脚本用假数据离线跑通「精确命中」与「未命中退回」两条路径 */
-export type PolicySearcher = (query: string, signal?: AbortSignal) => Promise<PolicyLibraryResult>;
+export type PolicySearcher = (
+  query: string,
+  signal?: AbortSignal,
+  opts?: PolicySearchOptions,
+) => Promise<PolicyLibraryResult>;
 
 /**
  * 文号在官方政策法规库里的检索词，同时用作发文字号匹配基准：发文机关 + 文号（紧凑写法）。
@@ -59,6 +66,25 @@ export function policyDocNumQuery(t: RefCheckTarget): string {
   const prefix = refPrefix(t.context ?? "", t.text);
   if (prefix === "") return "";
   return `${prefix}${t.text.replace(/\s+/g, "")}`.trim();
+}
+
+/**
+ * 完整字号没查到时，政策法规库的第二条检索路径：标题关键词 + 制定年份。
+ *
+ * 接口按相关度排序，联合发文的长字号常被埋掉——实测《财政部 税务总局 科技部公告2022年第28号》
+ * 用完整字号查返回 14 条且不含它，而它就在库里（zcfgk/c102416/c5202002）。换成关键词配上
+ * `xxgkFormulatedYear=2022`，接口精确返回 1 条正是该原文页；去掉年份则退回相关度排序，
+ * 26 条里同样没有它。所以年份是这条路径的命门，缺年份就不发这个请求。
+ *
+ * 年份取自发文字号本身，关键词取上下文里最有区分度的一段中文；两者缺一返回 null。
+ */
+export function policyYearQuery(t: RefCheckTarget, want: string): { query: string; year: string } | null {
+  if (t.kind !== "docref") return null;
+  const year = docNumYear(want);
+  if (year === "") return null;
+  const kw = contextKeywords(t.context ?? "", t.text, refPrefix(t.context ?? "", t.text));
+  if (kw === "") return null;
+  return { query: kw, year };
 }
 export interface RefCheckRecord {
   key: string;
@@ -353,7 +379,7 @@ export async function runRefChecks(
     }
     if (want !== "") {
       const lib = await policySearcher(want, AbortSignal.timeout(REF_CHECK_TIMEOUT_MS));
-      const hit = lib.error === null ? matchPolicyDocNum(want, lib.hits) : null;
+      let hit = lib.error === null ? matchPolicyDocNum(want, lib.hits) : null;
       attempts.push({
         engine: "fgk",
         via: "JSON",
@@ -370,15 +396,47 @@ export async function runRefChecks(
             ? `返回 ${lib.total} 条，无发文字号完全相符的（检索接口未返回该字号，库内可能确有此文）`
             : `按发文字号「${hit.docNum}」精确命中官方原文页`),
       });
+      // 第一次没排上来时再走一遍「关键词 + 制定年份」：接口报错就不重试，同一故障换写法也是错。
+      // 判定口径不变，仍要求发文字号归一化后全等——关键词再噪也不会认错文件。
+      let viaYear = false;
+      const yq = hit === null && lib.error === null ? policyYearQuery(t, want) : null;
+      if (yq !== null) {
+        const lib2 = await policySearcher(yq.query, AbortSignal.timeout(REF_CHECK_TIMEOUT_MS), {
+          formulatedYear: yq.year,
+        });
+        const hit2 = lib2.error === null ? matchPolicyDocNum(want, lib2.hits) : null;
+        attempts.push({
+          engine: "fgk",
+          via: "JSON",
+          fetched: lib2.hits.length,
+          kept: hit2 === null ? 0 : 1,
+          dropped: Math.max(0, lib2.hits.length - (hit2 === null ? 0 : 1)),
+          httpStatus: lib2.status,
+          status: hit2 === null ? (lib2.error === null ? "irrelevant" : "error") : "ok",
+          note:
+            lib2.error ??
+            (hit2 === null
+              ? `改用「${yq.query}」+ 制定年份 ${yq.year} 后返回 ${lib2.total} 条，仍无发文字号完全相符的`
+              : `改用「${yq.query}」+ 制定年份 ${yq.year}，按发文字号「${hit2.docNum}」精确命中官方原文页`),
+        });
+        if (hit2 !== null) {
+          hit = hit2;
+          viaYear = true;
+        }
+      }
       if (hit !== null) {
         const libGrade = gradeCitation(hit.url, hit.title);
         const libRec: RefCheckRecord = {
           key: t.key,
           kind: t.kind,
           text: t.text,
+          // 仍记完整字号而不是关键词：这个字段兼作复用索引的兜底来源
+          //（reusableDocNum 要靠它补出「机关 + 文号」），实际用的检索词在上面 attempts 里留痕。
           query: want,
           verdict: "matched",
-          note: "国家税务总局政策法规库按发文字号精确命中，链接为官方原文页",
+          note: viaYear
+            ? "国家税务总局政策法规库按「标题关键词 + 制定年份」精确命中，链接为官方原文页"
+            : "国家税务总局政策法规库按发文字号精确命中，链接为官方原文页",
           evidence: {
             title: hit.title,
             url: hit.url,

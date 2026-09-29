@@ -46,6 +46,14 @@ export function normalizeDocNum(s: string): string {
 }
 
 /**
+ * 从发文字号里取制定年份：「2022年第28号」「财税〔2015〕119号」都取得到。
+ * 只认第一个四位年份，取不到就返回空串——宁可少发一次请求，也不要拿错年份把目标文件过滤掉。
+ */
+export function docNumYear(s: string): string {
+  return normalizeDocNum(s).match(/(?:19|20)\d{2}/)?.[0] ?? "";
+}
+
+/**
  * 是不是政策法规库文档树里的原文页。
  *
  * 只有 `fgk.chinatax.gov.cn/zcfgk/<栏目>/<稿件>/content.html` 这一类才是文件原文。主站
@@ -172,10 +180,24 @@ export function matchPolicyDocNum(want: string, hits: PolicyLibraryHit[]): Polic
   return hits.find((h) => h.docNum !== "" && normalizeDocNum(h.docNum) === target) ?? null;
 }
 
+/**
+ * 政策法规库检索的可选过滤条件。参数名与官方检索页 `zcfgk/xhtml/js/getSearch.js`
+ * 实际发出的一致，不是猜的写法。
+ */
+export type PolicySearchOptions = {
+  /**
+   * 制定年份（`xxgkFormulatedYear`）。接口按它精确过滤，比全文相关度排序可靠得多：
+   * 实测《财政部 税务总局 科技部公告2022年第28号》用完整字号查只返回 14 条且不含它，
+   * 换成「标题关键词 + 制定年份 2022」接口精确返回 1 条，正是库内原文页 c102416/c5202002。
+   */
+  formulatedYear?: string;
+};
+
 /** 定向检索政策法规库；网络或接口失败如实回报，不猜、不降级成通用检索结果 */
 export async function searchPolicyLibrary(
   query: string,
   signal?: AbortSignal,
+  opts?: PolicySearchOptions,
 ): Promise<PolicyLibraryResult> {
   if (query.trim() === "") return { hits: [], total: 0, status: null, error: "检索词为空" };
   const params = new URLSearchParams({
@@ -187,6 +209,9 @@ export async function searchPolicyLibrary(
     type: "0",
     participleRule: "5",
   });
+  // 只有明确给了年份才带上：这个参数一旦传错，接口会把目标文件直接过滤掉
+  const year = (opts?.formulatedYear ?? "").trim();
+  if (year !== "") params.set("xxgkFormulatedYear", year);
   try {
     const res = await fetch(`${POLICY_SEARCH_URL}?${params.toString()}`, {
       headers: {

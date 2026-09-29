@@ -4,9 +4,11 @@
  * 运行：pnpm verify:refcheck
  */
 import {
+  docNumYear,
   matchPolicyDocNum,
   normalizeDocNum,
   parsePolicyLibrary,
+  searchPolicyLibrary,
   type DetailedSearch,
   type PolicyLibraryHit,
   type SearchAttempt,
@@ -71,6 +73,7 @@ import {
   pendingRefTargets,
   planBatchRefChecks,
   policyDocNumQuery,
+  policyYearQuery,
   runRefChecks,
   saveRefCheck,
   toTargets,
@@ -1308,6 +1311,55 @@ expect(
   "",
 );
 
+// 第二条政策法规库检索路径：完整字号被全文排序埋掉时，改用「标题关键词 + 制定年份」
+expect("从光杆文号取制定年份", docNumYear("2022年第28号"), "2022");
+expect("从六角括号写法取制定年份", docNumYear("财税〔2015〕119号"), "2015");
+expect("从完整发文字号取制定年份", docNumYear("财政部 税务总局 科技部公告2022年第28号"), "2022");
+expect("两位数年份取不到，不猜世纪", docNumYear("国税发〔97〕100号"), "");
+
+const yq28 = policyYearQuery(
+  {
+    key: refKey("docref", "2022年第28号"),
+    kind: "docref",
+    text: "2022年第28号",
+    context: "财政部 税务总局 科技部公告2022年第28号关于加大支持科技创新税前扣除力度",
+  },
+  "财政部 税务总局 科技部公告2022年第28号",
+);
+expect("年份取自发文字号本身", yq28?.year, "2022");
+ok(
+  "关键词取自上下文、不含文号、够长能用",
+  (yq28?.query ?? "").length >= 4 && !(yq28?.query ?? "").includes("2022年第28号"),
+  yq28?.query,
+);
+expect(
+  "上下文取不出关键词时不发第二个请求",
+  policyYearQuery(
+    {
+      key: refKey("docref", "2019年第41号"),
+      kind: "docref",
+      text: "2019年第41号",
+      context: "已按国家税务总局公告2019年第41号",
+    },
+    "国家税务总局公告2019年第41号",
+  ),
+  null,
+);
+expect(
+  "字号里没有四位年份时不发第二个请求",
+  policyYearQuery(
+    {
+      key: refKey("docref", "国税发〔97〕100号"),
+      kind: "docref",
+      text: "国税发〔97〕100号",
+      context: "按国家税务总局国税发〔97〕100号执行",
+    },
+    "国家税务总局国税发[97]100号",
+  ),
+  null,
+);
+expect("引用类复查不走第二条政策法规库路径", policyYearQuery({ key: "citation:x", kind: "citation", text: "研发_百度百科" }, ""), null);
+
 const LIB_HITS: PolicyLibraryHit[] = [
   {
     docNum: "国家税务总局公告2019年第41号",
@@ -1413,7 +1465,11 @@ expect(
 );
 
 clearLib();
-const missLib: PolicySearcher = async () => ({ hits: [LIB_HITS[1]!], total: 6, status: 200, error: null });
+const missCalls: Array<{ q: string; year?: string }> = [];
+const missLib: PolicySearcher = async (q, _signal, opts) => {
+  missCalls.push({ q, year: opts?.formulatedYear });
+  return { hits: [LIB_HITS[1]!], total: 6, status: 200, error: null };
+};
 const libMiss = await runRefChecks(LIB_TASK, [libTarget], webHit, missLib, noDocs);
 expect("库内无相符发文字号时退回通用检索", libMiss[0]?.verdict, "matched");
 ok(
@@ -1421,7 +1477,43 @@ ok(
   (libMiss[0]?.attempts ?? []).some((a) => a.engine === "fgk" && a.note.includes("无发文字号完全相符")),
   JSON.stringify(libMiss[0]?.attempts),
 );
-expect("退回通用检索后两路都留痕", libMiss[0]?.attempts.length, 2);
+expect("两次政策法规库 + 一次通用检索都留痕", libMiss[0]?.attempts.length, 3);
+expect("第一次不带年份过滤", missCalls[0]?.year, undefined);
+expect("第二次带制定年份", missCalls[1]?.year, "2019");
+ok(
+  "第二次换的是标题关键词而不是重发字号",
+  (missCalls[1]?.q ?? "") !== (missCalls[0]?.q ?? "") && !(missCalls[1]?.q ?? "").includes("2019年第41号"),
+  JSON.stringify(missCalls),
+);
+ok(
+  "第二次仍未命中也如实留痕",
+  (libMiss[0]?.attempts ?? []).some((a) => a.engine === "fgk" && a.note.includes("制定年份 2019")),
+  JSON.stringify(libMiss[0]?.attempts),
+);
+
+clearLib();
+// 实测形状：完整字号查不回该文件（total=14 里没有它），配上制定年份接口精确返回 1 条原文页
+const yearOnlyLib: PolicySearcher = async (_q, _signal, opts) =>
+  opts?.formulatedYear === "2019"
+    ? { hits: [LIB_HITS[0]!], total: 1, status: 200, error: null }
+    : { hits: [LIB_HITS[1]!], total: 14, status: 200, error: null };
+const yearHit = await runRefChecks(LIB_TASK, [libTarget], webHit, yearOnlyLib, noDocs);
+expect("年份过滤命中判为找到出处", yearHit[0]?.verdict, "matched");
+expect(
+  "证据取官方原文页",
+  yearHit[0]?.evidence?.url,
+  "http://fgk.chinatax.gov.cn/zcfgk/c100012/c5194895/content.html",
+);
+expect("证据分级为官方原文", yearHit[0]?.evidence?.grade, "official");
+ok("note 写明走的是关键词 + 制定年份", (yearHit[0]?.note ?? "").includes("制定年份"), yearHit[0]?.note);
+expect("检索词字段仍记完整发文字号", yearHit[0]?.query, "国家税务总局公告2019年第41号");
+expect("命中即收手，不再退回通用检索", yearHit[0]?.attempts.length, 2);
+ok(
+  "第二次尝试记为 ok 并写明用的检索词",
+  (yearHit[0]?.attempts ?? []).some((a) => a.engine === "fgk" && a.status === "ok" && a.note.includes("制定年份 2019")),
+  JSON.stringify(yearHit[0]?.attempts),
+);
+clearLib();
 
 clearLib();
 const errLib: PolicySearcher = async () => ({ hits: [], total: 0, status: null, error: "接口超时" });
@@ -1639,6 +1731,33 @@ saveRefCheck(REUSE_SRC, {
 });
 expect("非官方证据不进索引", verifiedOfficialDocs().has("国税函[2099]999号"), false);
 clearReuse();
+
+// 实网核对：完整字号查不回的原文，配上制定年份接口能精确返回。
+// 默认门禁不联网（与 verify:websearch / verify:docsrc 同一约定），设 TAXAI_VERIFY_LIVE=1 才跑。
+if (process.env.TAXAI_VERIFY_LIVE === "1") {
+  const want28 = "财政部 税务总局 科技部公告2022年第28号";
+  const plain = await searchPolicyLibrary(want28, AbortSignal.timeout(20000));
+  const withYear = await searchPolicyLibrary("加大支持科技创新税前扣除力度", AbortSignal.timeout(20000), {
+    formulatedYear: "2022",
+  });
+  if (plain.error !== null || withYear.error !== null) {
+    // 接口不可用不算失败：如实跳过，不把环境问题记成规则问题
+    console.log(`[verify] 实网检索跳过（接口不可用：${plain.error ?? withYear.error}）`);
+  } else {
+    const plainHit = matchPolicyDocNum(want28, plain.hits);
+    const yearHitLive = matchPolicyDocNum(want28, withYear.hits);
+    ok(
+      "实网：关键词 + 制定年份能精确命中完整字号查不回的原文页",
+      yearHitLive !== null && yearHitLive.url.includes("/c5202002/"),
+      `完整字号 total=${plain.total} 命中=${plainHit !== null}；关键词+年份 total=${withYear.total} 地址=${yearHitLive?.url ?? "-"}`,
+    );
+    console.log(
+      `[verify] 实网检索：完整字号 total=${plain.total} 命中=${plainHit !== null}；关键词+制定年份 total=${withYear.total} 命中=${yearHitLive !== null}`,
+    );
+  }
+} else {
+  console.log("[verify] 实网检索跳过（默认门禁不联网；设 TAXAI_VERIFY_LIVE=1 可跑）");
+}
 
 console.log(`[verify] 文号复查检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
