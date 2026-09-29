@@ -675,7 +675,7 @@ export function AgentOverview({
                   label: "记录级比对准确率",
                   desc: `最近一次记录级比对的准确率（共 ${stats.platform.compareRuns} 次，按调用时间取最新${
                     stats.platform.compareLatestAt ? `：${stats.platform.compareLatestAt}` : ""
-                  }）；累计口径为全部记录级比对的 一致项/比对项 合计 = ${stats.platform.compareMatched}/${
+                  }）；累计口径为各任务最近一次记录级比对的 一致项/比对项 合计 = ${stats.platform.compareMatched}/${
                     stats.platform.compareCompared
                   }`,
                   value: stats.platform.compareAccuracy !== null ? String(stats.platform.compareAccuracy) : "—",

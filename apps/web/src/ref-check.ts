@@ -464,6 +464,7 @@ export function buildRevisionInstruction(items: RevisionItem[]): string {
   const unresolved = items.filter((i) => i.verdict === "candidate" || i.verdict === "empty");
   const lines: string[] = [
     "请依据下列联网核对结果修订上一轮结论中的政策依据与联网引用；只改依据与引用部分，不要改动金额、测算过程、差异认定与结论意见。",
+    "本轮只修订文字：不要重新调用解析、底稿生成、模板填列或底稿比对一类业务工具，也不要重新生成产物——已有工具结果与比对记录是上一轮的交付证据，重跑会把它们替换掉。",
     "",
   ];
   if (docMatched.length > 0) {

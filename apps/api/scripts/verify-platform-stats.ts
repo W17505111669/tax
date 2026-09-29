@@ -25,14 +25,18 @@ const s = computePlatformStats();
 // 1) 记录级比对：独立按时间顺序重算一遍
 const calls = db
   .prepare(
-    `SELECT result, started_at FROM tool_calls
+    `SELECT task_id, result, started_at FROM tool_calls
      WHERE tool_name = 'compare_workpapers' AND ok = 1 AND task_id IN (SELECT id FROM tasks)
      ORDER BY started_at ASC`,
   )
-  .all() as Array<{ result: string | null; started_at: string | null }>;
+  .all() as Array<{ task_id: string; result: string | null; started_at: string | null }>;
 let runs = 0;
 let matched = 0;
 let compared = 0;
+let matchedAll = 0;
+let comparedAll = 0;
+// 累计口径按「每个任务最近一次记录级比对」合计：同任务反复比对时只有最近一次代表当前状态
+const perTask = new Map<string, { at: string; matched: number; compared: number }>();
 let latestAt = "";
 let latestAcc: number | null = null;
 for (const c of calls) {
@@ -43,9 +47,13 @@ for (const c of calls) {
     };
     if (p.sheets?.[0]?.mode !== "record" || p.totals?.accuracyPercent === undefined) continue;
     runs += 1;
-    compared += p.totals.compared ?? 0;
-    matched += p.totals.matched ?? 0;
     const at = String(c.started_at ?? "");
+    comparedAll += p.totals.compared ?? 0;
+    matchedAll += p.totals.matched ?? 0;
+    const prev = perTask.get(c.task_id);
+    if (!prev || at >= prev.at) {
+      perTask.set(c.task_id, { at, matched: p.totals.matched ?? 0, compared: p.totals.compared ?? 0 });
+    }
     if (at >= latestAt) {
       latestAt = at;
       latestAcc = p.totals.accuracyPercent;
@@ -54,12 +62,22 @@ for (const c of calls) {
     // 忽略坏记录
   }
 }
+for (const v of perTask.values()) {
+  matched += v.matched;
+  compared += v.compared;
+}
 expect("记录级比对次数一致", s.compareRuns, runs);
 expect("最近一次准确率按调用时间取值", s.compareAccuracy, latestAcc);
 expect("最近一次时间戳一致", s.compareLatestAt, latestAt);
 expect("累计一致项一致", s.compareMatched, matched);
 expect("累计比对项一致", s.compareCompared, compared);
 expect("累计准确率一致", s.compareAccuracyOverall, compared > 0 ? Math.round((matched / compared) * 10000) / 100 : null);
+expect("累计口径的任务数不超过比对次数", perTask.size <= runs, true);
+if (perTask.size < runs) {
+  // 有任务比对过不止一次：累计必须只算最近一次，否则一次失败的重复比对会永久拉低准确率
+  expect("存在重复比对时累计小于全部相加", compared < comparedAll, true);
+  expect("重复比对时一致项也按最近一次取", matched <= matchedAll, true);
+}
 expect(
   "有比对记录时两种口径都必须有值",
   runs === 0 || (s.compareAccuracy !== null && s.compareAccuracyOverall !== null),

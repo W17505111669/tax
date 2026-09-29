@@ -255,25 +255,45 @@ for (const task of tasks) {
   const chain = calls.map((c) => `${c.tool_name}${c.ok === 1 ? "" : c.ok === 0 ? "(!)" : "(…)"}`).join(" → ") || "—";
 
   const compares = db
-    .prepare(`SELECT result FROM tool_calls WHERE task_id = ? AND tool_name = 'compare_workpapers' AND ok = 1`)
+    .prepare(
+      `SELECT result FROM tool_calls
+        WHERE task_id = ? AND tool_name = 'compare_workpapers' AND ok = 1
+        ORDER BY started_at ASC`,
+    )
     .all(task.id) as unknown as Array<{ result: string }>;
   let accuracy = "—";
-  if (compares.length > 0) {
-    const last = JSON.parse(compares[compares.length - 1]!.result) as {
-      totals?: { compared?: number; matched?: number; mismatched?: number; onlyA?: number; onlyB?: number; accuracyPercent?: number };
-      sheets?: Array<{ mode?: string }>;
-    };
-    const t = last.totals;
-    if (t && last.sheets?.[0]?.mode === "record") {
-      comparedTotal += t.compared ?? 0;
-      matchedTotal += t.matched ?? 0;
-      mismatchTotal += t.mismatched ?? 0;
-      onlyATotal += t.onlyA ?? 0;
-      onlyBTotal += t.onlyB ?? 0;
-      accuracy = `${t.accuracyPercent}%`;
-    } else if (t) {
-      accuracy = `${t.accuracyPercent}%（地址模式）`;
+  // 与平台统计同一口径：每个任务只取「最近一次记录级比对」计入合计。
+  // 原来取的是最后一次比对且不分模式，逐格比对排在后面时该任务就整个不计入，
+  // 于是报告与看板给出两个累计准确率（实测 60% vs 33.33%）——是本脚本自己的 WARN 抓到的。
+  type Totals = {
+    compared?: number;
+    matched?: number;
+    mismatched?: number;
+    onlyA?: number;
+    onlyB?: number;
+    accuracyPercent?: number;
+  };
+  let lastRecord: Totals | null = null;
+  let lastAny: Totals | null = null;
+  for (const c of compares) {
+    try {
+      const parsed = JSON.parse(c.result) as { totals?: Totals; sheets?: Array<{ mode?: string }> };
+      if (!parsed.totals) continue;
+      lastAny = parsed.totals;
+      if (parsed.sheets?.[0]?.mode === "record") lastRecord = parsed.totals;
+    } catch {
+      // 忽略坏记录
     }
+  }
+  if (lastRecord) {
+    comparedTotal += lastRecord.compared ?? 0;
+    matchedTotal += lastRecord.matched ?? 0;
+    mismatchTotal += lastRecord.mismatched ?? 0;
+    onlyATotal += lastRecord.onlyA ?? 0;
+    onlyBTotal += lastRecord.onlyB ?? 0;
+    accuracy = `${lastRecord.accuracyPercent}%`;
+  } else if (lastAny) {
+    accuracy = `${lastAny.accuracyPercent}%（地址模式）`;
   }
 
   const outDir = path.join(root, "data", "outputs", task.id);

@@ -68,11 +68,11 @@
 | 社区扩展 web_search 实测 | rd-audit | RD-2025-003 | failed（服务重启导致执行中断） | web_search → check_rd_expenses → web_search → fetch_content(…) → fetch_content | — | — |
 | 智研税审任务 2026/9/28 09:35:25 | rd-audit | DEMO-001 | completed | calculate_rd_adjustment → web_search → get_search_content → fetch_content → fetch_content | — | — |
 | 上传资料解析与底稿生成闭环 | rd-audit | RD-2026-001 | waiting_review | parse_uploaded_files → check_rd_expenses → calculate_rd_adjustment → web_search → generate_workpaper → parse_uploaded_files → search_rd_policy → fetch_content → get_search_content → fetch_public_document(…) → fetch_public_document → search_rd_policy → search_rd_policy → web_search → check_rd_expenses → calculate_rd_adjustment(…) → calculate_rd_adjustment → web_search → generate_workpaper | — | 2 个（上传 1） |
-| 模板保留式填列闭环 | land-vat | LV-2026-001 | waiting_review | parse_uploaded_files → inspect_workpaper_template → match_contract_invoice → fill_land_vat_workpaper → web_search → check_amount_consistency → generate_workpaper → parse_uploaded_files → render_matching_diagram → fetch_public_document(…) → fetch_public_document(…) → fetch_public_document → fetch_content → web_search → compare_workpapers → inspect_workpaper_template → compare_workpapers → search_public_cases(…) → search_public_cases(…) → search_public_cases → check_amount_consistency → search_public_cases(…) → search_public_cases | 57.14%（地址模式） | 2 个（上传 1） |
+| 模板保留式填列闭环 | land-vat | LV-2026-001 | waiting_review | parse_uploaded_files → inspect_workpaper_template → match_contract_invoice → fill_land_vat_workpaper → web_search → check_amount_consistency → generate_workpaper → parse_uploaded_files → render_matching_diagram → fetch_public_document(…) → fetch_public_document(…) → fetch_public_document → fetch_content → web_search → compare_workpapers → inspect_workpaper_template → compare_workpapers → search_public_cases(…) → search_public_cases(…) → search_public_cases → check_amount_consistency → search_public_cases(…) → search_public_cases → fetch_public_document(…) → fetch_public_document(…) → fetch_public_document → fetch_content | 25% | 2 个（上传 1） |
 | 政策依据检索与测算闭环 | rd-audit | RD-2026-002 | completed | parse_uploaded_files → search_rd_policy → calculate_rd_adjustment → search_rd_policy → web_search → web_search → search_public_cases → check_rd_expenses → generate_workpaper | — | 1 个 |
 | 映射模式填列验证 | land-vat | LV-2026-002 | failed（服务重启导致执行中断） | parse_uploaded_files → inspect_workpaper_template → match_contract_invoice → fill_land_vat_workpaper → web_search → search_public_cases(…) → search_public_cases → check_amount_consistency → generate_workpaper | — | 2 个（上传 1） |
 | 底稿比对准确率闭环 | rd-audit | RD-2026-003 | failed（服务重启导致执行中断） | parse_uploaded_files → generate_workpaper → compare_workpapers → generate_workpaper → compare_workpapers → generate_workpaper → compare_workpapers → check_rd_expenses → generate_workpaper → compare_workpapers → web_search | 0%（地址模式） | 4 个（上传 1） |
-| 记录级底稿比对闭环 | rd-audit | RD-2026-004 | waiting_review | parse_uploaded_files → generate_workpaper → compare_workpapers → web_search → parse_uploaded_files → search_rd_policy(…) → search_rd_policy → fetch_content → fetch_public_document(…) → fetch_public_document → get_search_content(…) → get_search_content → fetch_content → web_search → calculate_rd_adjustment → search_rd_policy → generate_workpaper → compare_workpapers | 0% | 2 个（上传 1） |
+| 记录级底稿比对闭环 | rd-audit | RD-2026-004 | waiting_review | parse_uploaded_files → generate_workpaper → compare_workpapers → web_search → parse_uploaded_files → search_rd_policy(…) → search_rd_policy → fetch_content → fetch_public_document(…) → fetch_public_document → get_search_content(…) → get_search_content → fetch_content → web_search → calculate_rd_adjustment → search_rd_policy → generate_workpaper → compare_workpapers → parse_uploaded_files → generate_workpaper → compare_workpapers | 66.67% | 3 个（上传 1） |
 | 人工复核流程验证 | rd-audit | RD-2026-005 | completed | parse_uploaded_files → check_rd_expenses → web_search → fetch_content → search_rd_policy → fetch_content → web_search | — | — |
 | 人工复核状态机验证 | rd-audit | RD-2026-006 | completed | parse_uploaded_files → check_rd_expenses | — | — |
 | 续跑会话历史验证 | rd-audit | RD-2026-007 | waiting_review | check_rd_expenses | — | — |
@@ -87,8 +87,8 @@
 
 ## 四、准确率统计（记录级比对口径）
 
-- 比对项合计 56：一致 1、差异 1、仅系统 48、仅人工 6
-- 记录级比对总准确率：**1.79%**
+- 比对项合计 21：一致 7、差异 2、仅系统 12、仅人工 0
+- 记录级比对总准确率：**33.33%**
 - 口径说明：一致=正确识别；差异=错误识别；仅人工=未识别；仅系统=系统多出项（需人工复核）。差异项一律列为待核查事项，不计入正确。
 
 ## 五、案例回归（case:run）

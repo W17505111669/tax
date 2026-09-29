@@ -292,6 +292,11 @@ expect("修订素材计数", revisionCounts(revItems), { total: 3, replace: 2, u
 expect("空素材返回空指令", buildRevisionInstruction([]), "");
 const instr = buildRevisionInstruction(revItems);
 ok("指令限定只改依据与引用", instr.includes("不要改动金额、测算过程、差异认定与结论意见"), instr.slice(0, 80));
+ok(
+  "指令禁止重跑业务工具（写回不能把底稿与比对记录换掉）",
+  instr.includes("不要重新调用解析、底稿生成、模板填列或底稿比对一类业务工具"),
+);
+ok("指令说明重跑会替换上一轮交付证据", instr.includes("已有工具结果与比对记录是上一轮的交付证据"));
 ok("指令含补文号出处段", instr.includes("【补文号出处】") && instr.includes("财税〔2015〕119号 → 《政策执行指引》 https://a.gov.cn/x.pdf"));
 ok("指令含替换弱证据段与原地址", instr.includes("【替换弱证据引用】") && instr.includes(WEAK_URL));
 ok("指令含未取得原文段", instr.includes("【标注未取得原文】") && instr.includes("国税发〔2006〕187号"));

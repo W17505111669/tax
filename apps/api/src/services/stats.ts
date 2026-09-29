@@ -76,7 +76,7 @@ export interface PlatformStats {
   artifacts: number;
   compareAccuracy: number | null;
   compareRuns: number;
-  /** 记录级比对的累计口径：全部记录级比对的 matched/compared 合计与百分比 */
+  /** 记录级比对的累计口径：每个任务只取最近一次记录级比对，再把 matched/compared 合计 */
   compareMatched: number;
   compareCompared: number;
   compareAccuracyOverall: number | null;
@@ -163,6 +163,12 @@ export function computePlatformStats(): PlatformStats {
     const okCount = calls.filter((c) => c.ok === 1).length;
     agent.toolOk += okCount;
     toolOk += okCount;
+    // 记录级比对的累计口径按「每个任务最近一次」合计：同一任务反复比对时只有最近一次
+    // 代表当前状态，把历史每一次都加进去会让一次失败的重复比对永久拉低准确率
+    let taskCompareAt = "";
+    let taskCompareFound = false;
+    let taskCompared = 0;
+    let taskMatched = 0;
     for (const call of calls) {
       let bucket = perToolMap.get(call.tool_name);
       if (!bucket) {
@@ -333,12 +339,20 @@ export function computePlatformStats(): PlatformStats {
             compareLatestAt = at;
             compareAccuracy = parsed.totals.accuracyPercent;
           }
-          compareCompared += typeof parsed.totals.compared === "number" ? parsed.totals.compared : 0;
-          compareMatched += typeof parsed.totals.matched === "number" ? parsed.totals.matched : 0;
+          if (!taskCompareFound || at >= taskCompareAt) {
+            taskCompareFound = true;
+            taskCompareAt = at;
+            taskCompared = typeof parsed.totals.compared === "number" ? parsed.totals.compared : 0;
+            taskMatched = typeof parsed.totals.matched === "number" ? parsed.totals.matched : 0;
+          }
         }
       } catch {
         // 忽略坏记录
       }
+    }
+    if (taskCompareFound) {
+      compareCompared += taskCompared;
+      compareMatched += taskMatched;
     }
   }
 
