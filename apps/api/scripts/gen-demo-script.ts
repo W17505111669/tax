@@ -13,6 +13,26 @@ const root = path.resolve(here, "..", "..", "..");
 const outDir = path.join(root, "docs", "competition");
 fs.mkdirSync(outDir, { recursive: true });
 
+/**
+ * 深链端口：环境变量优先，其次 apps/web/.env 与根 .env，最后 5173。
+ * 本机 5173 被别的项目占用时 Vite 会自动换端口，分镜表若仍写死 5173，
+ * 录屏时粘贴深链就会打开另一个应用（本次排查就是这么发现的）。
+ */
+function webPort(): number {
+  const fromEnv = Number(process.env.WEB_PORT);
+  if (Number.isFinite(fromEnv) && fromEnv > 0) return fromEnv;
+  for (const p of [path.join(root, "apps", "web", ".env"), path.join(root, ".env")]) {
+    try {
+      const m = fs.readFileSync(p, "utf8").match(/^\s*WEB_PORT\s*=\s*(\d+)/m);
+      if (m) return Number(m[1]);
+    } catch {
+      // 没有 .env 就用默认端口
+    }
+  }
+  return 5173;
+}
+const BASE = `http://127.0.0.1:${webPort()}`;
+
 interface TaskInfo {
   id: string;
   agentId: string;
@@ -54,7 +74,7 @@ const tasks: TaskInfo[] = rows.map((r) => {
 });
 
 const link = (t: TaskInfo | undefined, tab: string): string =>
-  t ? `http://127.0.0.1:5173/#/agent/${t.agentId}/task/${t.id}/tab/${tab}` : "（缺示例任务：可用首页示例任务一键创建）";
+  t ? `${BASE}/#/agent/${t.agentId}/task/${t.id}/tab/${tab}` : "（缺示例任务：可用首页示例任务一键创建）";
 
 function pick(pred: (t: TaskInfo) => boolean, titleHint?: string): TaskInfo | undefined {
   const pool = titleHint ? tasks.filter((t) => t.title.includes(titleHint)) : tasks;
@@ -74,7 +94,7 @@ const scenes: Array<{
   {
     title: "平台总览与应用效果看板",
     tab: "timeline",
-    link: "http://127.0.0.1:5173/#/agent/rd-audit",
+    link: `${BASE}/#/agent/rd-audit`,
     talk: "双智能体定位、共享底座、KPI 与平台应用效果实时数据（任务数/工具成功率/比对准确率）。",
     expect:
       "图标栏 + 可折叠会话侧栏（任务行带「未复核 N」角标，「复核 N」一键过滤全部待复核任务）、首页大数字 hero 与状态条形图、平台效果带（含全平台复核闭环缺口条：按作品分组，点击任务直达复核页，或两步确认「批量转为待复核」/「转该组 N」；以及全平台证据缺口条：弱证据引用与待复查文号按作品分组，点击任务直达结果页，条上同时给出联网检索拦下的无关结果数、只留元数据的检索次数、文号复查进度与「其中 N 条已找到官方替代来源、待人工写回结论」，「批量复查文号」与「批量找替代来源」两个入口均两步确认、按服务端预算分批，跑完当场回写缺口数字）、工具清单、底部发光输入框（Ctrl+Enter 提交；落区标注允许的类型与单文件上限，不合规文件当场拦下并逐份说明原因）。",
@@ -161,6 +181,15 @@ const scenes: Array<{
       "联网引用区的证据力汇总行（官方原文 N · 专业来源 M · 证据力弱 K，弱证据胶囊转琥珀色并悬停看判定理由）与「核验链接」四级标记、「弱证据引用找官方原文」一键检索替代来源（现场点一次：判定徽章 + 替代来源按钮直接在侧边阅读器打开 + 复制替换用的引用行）、「生成修订指令」把复查结果整理成一条续跑指令填进输入框（分「补文号出处 / 替换弱证据引用 / 标注未取得原文」三段，明确要求不改金额与结论意见；平台不自动改写结论，需人工核对后提交）、侧边阅读器「引用文件 / 文件生成」分组页签、点阵加载动画、白纸预览、版式切换器、打印样式与目录页。",
     seconds: 45,
   },
+  {
+    title: "交付留痕：核对表 / 备注模板 / 全平台台账",
+    tab: "result",
+    link: `${BASE}/#/agent/rd-audit`,
+    talk: "证据口径不止看得见，还能签字归档：单任务一页核对表，全平台一张台账，缺什么当场列出来。",
+    expect:
+      "平台总览底部展开「全平台证据核对台账」（15 列，按欠账倒序，合计行给出任务数与仍有欠账的任务数，行内「打开任务」直达结果页，「下载 MD / 下载 CSV / 复制 MD」三个出口，CSV 带 BOM 用 Excel 直接打开不乱码）→ 切到任一已完成任务的结果页交付区，展示「证据核对表」九项结论、「交付前待办」清单与核对人签字行，点「下载核对表」出一页 Markdown、「复制」进剪贴板 → 切到复核页「结论金额核对」，点按作品区分的核对依据模板（智研税审首条为研发支出辅助账、土增智填首条为清算底稿及合同发票台账），演示按分号追加、重复点同一条不堆叠、「删上一段」回退，以及备注为空时的就地提示「空着等于没有留痕」。",
+    seconds: 30,
+  },
 ];
 
 const total = scenes.reduce((a, s) => a + s.seconds, 0);
@@ -168,7 +197,7 @@ const lines: string[] = [];
 lines.push(`# 运行录屏分镜表（${new Date().toISOString().slice(0, 10)} 生成）`);
 lines.push("");
 lines.push(`> 由 \`pnpm demo:script\` 从数据库真实任务自动生成；深链可直接粘贴到浏览器跳转。`);
-lines.push(`> 附件4 要求：MP4、≤500MB、≤8 分钟。本表合计建议时长 **${Math.ceil(total / 60)} 分 ${total % 60} 秒**，${total <= 480 ? "符合要求" : "超出 8 分钟，需压缩旁白或删减幕" }。`);
+lines.push(`> 附件4 要求：MP4、≤500MB、≤8 分钟。本表合计建议时长 **${Math.floor(total / 60)} 分 ${total % 60} 秒**（${scenes.length} 幕），${total <= 480 ? "符合要求" : "超出 8 分钟，需压缩旁白或删减幕" }。`);
 lines.push("");
 lines.push(`| # | 幕 | 建议时长 | 深链 | 旁白要点 | 画面验收 |`);
 lines.push(`| --- | --- | --- | --- | --- | --- |`);
@@ -185,6 +214,20 @@ lines.push(`- 每幕开场先停 2 秒展示深链地址栏，证明为真实运
 lines.push(`- 执行类镜头优先选「重新执行」现场跑一遍（SSE 实时事件可见），历史任务镜头用深链回放；`);
 lines.push(`- 结尾 30 秒：测试报告（docs/testing/test-report-*.md）与两份作品说明滚屏，收在应用效果看板。`);
 lines.push("");
+
+// 出稿前自检：这两处都真实踩过坑——深链写死 5173 会在录屏时打开本机另一个项目；
+// 分钟用 Math.ceil 再加余数会把 450 秒说成「8 分 30 秒」，看起来像超时其实没超。
+const doc = lines.join("\n");
+const badPorts = [...new Set([...doc.matchAll(/127\.0\.0\.1:(\d+)/g)].map((m) => m[1]))].filter(
+  (p) => Number(p) !== webPort(),
+);
+if (badPorts.length > 0) {
+  throw new Error(`分镜表深链端口 ${badPorts.join("/")} 与当前前端端口 ${webPort()} 不一致，请检查 WEB_PORT`);
+}
+const dur = doc.match(/合计建议时长 \*\*(\d+) 分 (\d+) 秒\*\*/);
+if (!dur || Number(dur[1]) * 60 + Number(dur[2]) !== total) {
+  throw new Error(`时长文案与 ${scenes.length} 幕合计 ${total}s 不自洽：${dur ? dur[0] : "缺失"}`);
+}
 
 const out = path.join(outDir, "录屏分镜表.md");
 fs.writeFileSync(out, lines.join("\n"), "utf8");

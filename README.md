@@ -17,6 +17,8 @@ pnpm dev                    # 同时启动 API(8787) 与前端(5173)
 
 打开 `http://127.0.0.1:5173/`，选择智能体，输入任务或使用示例任务，点击「创建并执行」，即可在工作台实时查看 Agent 执行过程。
 
+端口以终端实际输出为准：5173 被别的项目占用时 Vite 会自动往后找一个空闲端口，这时浏览器里的旧地址打开的是别的应用。要固定端口就在 `.env`（或 `apps/web/.env`，后者优先）里写 `WEB_PORT=5174`；`/api` 代理始终指向 `API_PORT`，改端口不影响联调，录屏分镜表里的深链也会跟随 `WEB_PORT` 生成。
+
 ## 验证命令
 
 ```bash
@@ -35,6 +37,7 @@ pnpm verify:revimpact # 修订前后证据对比：快照口径 / 差值与判�
 pnpm verify:trend    # 指标趋势：每日快照 / 基线选择 / 环比差值 / 方向判断
 pnpm verify:sheet    # 证据核对表：九项核对结论 / 空输入兜底 / 待办分组 / 真实任务走查
 pnpm verify:amtnote  # 金额核对备注模板：追加去重 / 撤销 / 留痕有效性
+pnpm verify:ledger   # 全平台证据核对台账：缺口判断 / 排序合计 / CSV 与 MD 导出 / 与平台统计交叉核对
 pnpm report:test     # 生成测试报告（实时跑验证矩阵 + 汇总真实任务台账与准确率）
 pnpm gen:materials   # 生成两个作品的比赛说明文档（docs/competition/，含真实运行统计）
 pnpm gen:ppt         # 生成答辩 PPT 大纲（每作品 10 页，含讲稿要点与画面元素）
@@ -42,7 +45,7 @@ pnpm demo:script     # 生成录屏分镜表（docs/competition/录屏分镜表.
 pnpm case:run <id>   # 案例回归：上传→执行→与人工参考底稿比对→案例报告（data/cases/）
 pnpm verify:agents   # Phase 1：两个 Agent 的系统提示词与工具集相互独立
 pnpm -r typecheck    # 全仓类型检查
-pnpm qa:all          # 全量质量门：35 项 verify + 测试报告 + 比赛材料 + 证据包
+pnpm qa:all          # 全量质量门：36 项 verify + 测试报告 + 比赛材料 + 证据包
 ```
 
 验证记录见 [docs/testing/phase0-verification.md](docs/testing/phase0-verification.md)。

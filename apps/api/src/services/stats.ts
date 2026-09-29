@@ -16,6 +16,11 @@ import { gradeCitation, summarizeGrades } from "../../../web/src/citation-grade.
 import { traceDocRefs } from "../../../web/src/policy-trace.ts";
 import { pendingAfterRecheck, summarizeRefChecks, type RefCheckVerdict } from "../../../web/src/ref-check.ts";
 import { refKey } from "../../../web/src/ref-check.ts";
+import { traceAmounts, amountKey } from "../../../web/src/amount-trace.ts";
+import { deltaVerdict, evidenceDelta, evidenceSnapshot } from "../../../web/src/revision-impact.ts";
+import { ledgerSort, type LedgerRow } from "../../../web/src/evidence-ledger.ts";
+import { listAmountChecks } from "./amount-checks.ts";
+import { listConclusions } from "./task-store.ts";
 
 export interface AgentStats {
   agentId: string;
@@ -59,6 +64,8 @@ export interface EvidenceStats {
   docRefMatched: number;
   /** 仍有证据缺口的任务（存在弱证据引用或待复查文号） */
   gaps: Array<{ id: string; title: string; agentId: string; weakCitations: number; docRefPending: number }>;
+  /** 全平台证据核对台账：每任务一行，按欠账倒序，可直接导出归档 */
+  ledger: LedgerRow[];
 }
 
 export interface PlatformStats {
@@ -89,12 +96,13 @@ export interface PlatformStats {
 
 /** 平台级应用效果统计：全部来自数据库真实运行记录。 */
 export function computePlatformStats(): PlatformStats {
-  const tasks = db.prepare(`SELECT id, agent_id, status, title, result FROM tasks`).all() as unknown as Array<{
+  const tasks = db.prepare(`SELECT id, agent_id, status, title, result, instruction FROM tasks`).all() as unknown as Array<{
     id: string;
     agent_id: string;
     status: string;
     title: string;
     result: string | null;
+    instruction: string | null;
   }>;
 
   const perAgentMap = new Map<string, AgentStats>();
@@ -111,7 +119,8 @@ export function computePlatformStats(): PlatformStats {
   let ocrRuns = 0;
   let reviewPendingIssues = 0;
   const reviewBacklog: Array<{ id: string; title: string; agentId: string; pending: number }> = [];
-  const evidence: EvidenceStats = {
+  // 台账行单独收集，返回时排序后并入
+  const evidence: Omit<EvidenceStats, "ledger"> = {
     searchCalls: 0,
     searchMetadataOnly: 0,
     searchWithUrls: 0,
@@ -130,6 +139,7 @@ export function computePlatformStats(): PlatformStats {
     docRefMatched: 0,
     gaps: [],
   };
+  const ledger: LedgerRow[] = [];
 
   for (const task of tasks) {
     let agent = perAgentMap.get(task.agent_id);
@@ -238,9 +248,10 @@ export function computePlatformStats(): PlatformStats {
     evidence.weakCitations += grades.weak;
     evidence.citationsFromTools += cites.filter((c) => c.via !== "conclusion").length;
     evidence.citationsFromConclusion += cites.filter((c) => c.via === "conclusion").length;
-    evidence.weakWithReplacement += cites.filter(
+    const replacedCount = cites.filter(
       (c) => gradeCitation(c.url, c.title).grade === "weak" && replaced.has(refKey("citation", c.url)),
     ).length;
+    evidence.weakWithReplacement += replacedCount;
     evidence.docRefs += tr.total;
     evidence.docRefTraced += tr.traced;
     evidence.docRefPending += docRefPending;
@@ -254,6 +265,45 @@ export function computePlatformStats(): PlatformStats {
         docRefPending,
       });
     }
+
+    // 台账行：金额与修订影响在这里一并算，导出时不必再走一遍全库
+    const acked = new Set(listAmountChecks(task.id).map((c) => c.key));
+    const amounts = traceAmounts(
+      String(task.result ?? ""),
+      parsedCalls.map((c) => c.result),
+      String(task.instruction ?? ""),
+    );
+    const amountPending = amounts.untraced.filter((u) => !acked.has(amountKey(u))).length;
+    const conclusions = listConclusions(task.id);
+    const revision =
+      conclusions.length >= 2
+        ? deltaVerdict(
+            evidenceDelta(
+              evidenceSnapshot(conclusions[conclusions.length - 2]!),
+              evidenceSnapshot(conclusions[conclusions.length - 1]!),
+            ),
+          )
+        : null;
+    ledger.push({
+      taskId: task.id,
+      title: String(task.title ?? task.id),
+      agentId: task.agent_id,
+      status: task.status,
+      docRefTotal: tr.total,
+      docRefTraced: tr.traced,
+      docRefPending,
+      docRefMatched: rc.matched,
+      citations: grades.total,
+      official: grades.official,
+      weak: grades.weak,
+      replaced: replacedCount,
+      searchCalls: se.calls,
+      searchMetadataOnly: se.metadataOnly,
+      searchDropped: sf.dropped,
+      amountTotal: amounts.total,
+      amountPending,
+      revision,
+    });
 
     for (const call of calls) {
       if (call.tool_name === "parse_uploaded_files" && call.ok === 1 && call.result) {
@@ -314,6 +364,7 @@ export function computePlatformStats(): PlatformStats {
     evidence: {
       ...evidence,
       gaps: evidence.gaps.sort((a, b) => b.weakCitations + b.docRefPending - (a.weakCitations + a.docRefPending)),
+      ledger: ledgerSort(ledger),
     },
   };
 }

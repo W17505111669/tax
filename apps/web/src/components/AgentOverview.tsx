@@ -10,6 +10,25 @@ import {
   trendTitle,
   type DailySnapshot,
 } from "../metric-trend.ts";
+import {
+  CSV_BOM,
+  ledgerCells,
+  ledgerCsv,
+  ledgerMarkdown,
+  ledgerTotals,
+  LEDGER_COLUMNS,
+} from "../evidence-ledger.ts";
+
+/** 下载文本文件；CSV 前置 BOM，Excel 才能正确识别中文 */
+function downloadText(filename: string, text: string, mime: string, bom = false): void {
+  const blob = new Blob([bom ? CSV_BOM + text : text], { type: `${mime};charset=utf-8` });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 /** 每日指标快照的本地存储键（保留最近 60 天，由 recordSnapshot 裁剪） */
 const SNAPSHOT_KEY = "taxai-stats-snapshots";
@@ -902,6 +921,104 @@ export function AgentOverview({
                   {p.evidence.searchDropped + p.evidence.searchDroppedReplay} 条无关结果与门户首页
                 </div>
               ))}
+            {(() => {
+              const rows = p?.evidence?.ledger ?? [];
+              if (rows.length === 0) return null;
+              const totals = ledgerTotals(rows);
+              return (
+                <details className="mt-3 rounded-md border border-line bg-night-850 px-3 py-2">
+                  <summary className="cursor-pointer text-[12px] text-mist-300">
+                    全平台证据核对台账（{rows.length} 个任务）
+                    <span className="ml-2 text-[11px] text-mist-600">
+                      文号 {totals.docRefTraced}/{totals.docRefTotal} 有出处 · 待复查 {totals.docRefPending} · 引用{" "}
+                      {totals.citations} 条（官方 {totals.official} · 弱 {totals.weak}）· 金额待确认{" "}
+                      {totals.amountPending} · 欠账任务 {totals.withGaps} 个
+                    </span>
+                  </summary>
+                  <div className="no-print mt-2 flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      className="action-btn"
+                      title="下载台账 Markdown（含合计行与口径说明，可直接进归档材料）"
+                      onClick={() =>
+                        downloadText(
+                          "全平台证据核对台账.md",
+                          `${ledgerMarkdown(rows, agentName, new Date().toLocaleString("zh-CN", { hour12: false })).join("\n")}\n`,
+                          "text/markdown",
+                        )
+                      }
+                    >
+                      下载 MD
+                    </button>
+                    <button
+                      type="button"
+                      className="action-btn"
+                      title="下载台账 CSV（UTF-8 带 BOM，Excel 直接打开不乱码）"
+                      onClick={() => downloadText("全平台证据核对台账.csv", ledgerCsv(rows, agentName), "text/csv", true)}
+                    >
+                      下载 CSV
+                    </button>
+                    <button
+                      type="button"
+                      className="action-btn"
+                      title="复制台账 Markdown 到剪贴板"
+                      onClick={() =>
+                        void navigator.clipboard
+                          ?.writeText(ledgerMarkdown(rows, agentName).join("\n"))
+                          .catch(() => undefined)
+                      }
+                    >
+                      复制 MD
+                    </button>
+                    <span className="self-center text-[10.5px] text-mist-600">
+                      行序按欠账（证据力弱 + 待复查文号）倒序；口径与任务页证据核对表一致
+                    </span>
+                  </div>
+                  <div className="mt-2 overflow-x-auto">
+                    <table className="w-full border-collapse text-[11px]">
+                      <thead>
+                        <tr className="text-left text-mist-500">
+                          {LEDGER_COLUMNS.map((c) => (
+                            <th key={c} className="whitespace-nowrap border-b border-line px-1.5 py-1 font-normal">
+                              {c}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((r) => (
+                          <tr key={r.taskId} className="align-top">
+                            {ledgerCells(r, agentName).map((cell, i) =>
+                              i === 0 ? (
+                                <td key={i} className="max-w-[220px] truncate border-b border-line/60 px-1.5 py-1">
+                                  <button
+                                    type="button"
+                                    className="text-mist-200 transition-colors hover:text-glow-300"
+                                    title={`${r.title}（点击打开任务）`}
+                                    onClick={() => onOpenTask(r.taskId)}
+                                  >
+                                    {cell}
+                                  </button>
+                                </td>
+                              ) : (
+                                <td
+                                  key={i}
+                                  className={`whitespace-nowrap border-b border-line/60 px-1.5 py-1 ${
+                                    (i === 4 || i === 8) && cell !== "0" ? "text-amber-300" : "text-mist-500"
+                                  }`}
+                                >
+                                  {cell}
+                                </td>
+                              ),
+                            )}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              );
+            })()}
             {stats.platform.perAgent.length > 0 && (
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {stats.platform.perAgent.map((pa) => {

@@ -239,6 +239,8 @@ export interface PlatformStats {
     docRefMatched: number;
     /** 仍有证据缺口的任务：存在弱证据引用或待复查文号 */
     gaps: Array<{ id: string; title: string; agentId: string; weakCitations: number; docRefPending: number }>;
+    /** 全平台证据核对台账：每任务一行，按欠账倒序，可直接导出 MD / CSV 归档 */
+    ledger: import("./evidence-ledger.ts").LedgerRow[];
   };
   perAgent: Array<{
     agentId: string;

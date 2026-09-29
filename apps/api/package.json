@@ -33,6 +33,7 @@
     "verify:trend": "tsx scripts/verify-metric-trend.ts",
     "verify:sheet": "tsx scripts/verify-evidence-sheet.ts",
     "verify:amtnote": "tsx scripts/verify-amount-note.ts",
+    "verify:ledger": "tsx scripts/verify-evidence-ledger.ts",
     "verify:upload": "tsx scripts/verify-upload-policy.ts",
     "case:run": "tsx scripts/run-case.ts"
   },
