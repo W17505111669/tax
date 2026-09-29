@@ -5,7 +5,15 @@
  * 判定口径不在这里重写：服务端只负责发请求与存取，四级判定与检索词构造共用
  * apps/web/src/ref-check.ts 的纯函数，与前端界面、验证脚本同一份实现。
  */
-import { describeAttempts, searchWebDetailed, type DetailedSearch, type SearchAttempt } from "@tax/business-tools";
+import {
+  describeAttempts,
+  matchPolicyDocNum,
+  searchPolicyLibrary,
+  searchWebDetailed,
+  type DetailedSearch,
+  type PolicyLibraryResult,
+  type SearchAttempt,
+} from "@tax/business-tools";
 import { db, nowIso } from "../db.ts";
 import { gradeCitation } from "../../../web/src/citation-grade.ts";
 import {
@@ -14,6 +22,7 @@ import {
   gradeRefCheck,
   matchedStillValid,
   preservedNote,
+  refPrefix,
   refKey,
   refCheckTargets,
   refQueryVariants,
@@ -33,6 +42,20 @@ import { getTask } from "./task-store.ts";
 /** 检索实现可注入，验证脚本用假检索器离线跑通全链路 */
 export type Searcher = (query: string, signal?: AbortSignal) => Promise<DetailedSearch>;
 
+/** 政策法规库检索实现同样可注入，验证脚本用假数据离线跑通「精确命中」与「未命中退回」两条路径 */
+export type PolicySearcher = (query: string, signal?: AbortSignal) => Promise<PolicyLibraryResult>;
+
+/**
+ * 文号在官方政策法规库里的检索词，同时用作发文字号匹配基准：发文机关 + 文号（紧凑写法）。
+ * 机关取自结论上下文；上下文里没有机关时返回空串，这一路直接跳过——
+ * 机关不明就不该猜是哪一份文件，光杆「2022年第28号」在库里有成千上万条同名词条。
+ */
+export function policyDocNumQuery(t: RefCheckTarget): string {
+  if (t.kind !== "docref") return "";
+  const prefix = refPrefix(t.context ?? "", t.text);
+  if (prefix === "") return "";
+  return `${prefix}${t.text.replace(/\s+/g, "")}`.trim();
+}
 export interface RefCheckRecord {
   key: string;
   kind: RefCheckKind;
@@ -174,6 +197,7 @@ export async function runRefChecks(
   taskId: string,
   targets: RefCheckTarget[],
   searcher: Searcher = searchWebDetailed,
+  policySearcher: PolicySearcher = searchPolicyLibrary,
 ): Promise<RefCheckRecord[]> {
   const at = nowIso();
   const out: RefCheckRecord[] = [];
@@ -181,6 +205,52 @@ export async function runRefChecks(
     // 依次尝试检索词候选：拿到「找到出处」或「有候选页」就收手，只有空手而归才换一种写法再查
     const variants = refQueryVariants(t);
     const attempts: SearchAttempt[] = [];
+    // 政策文号先走官方政策法规库：按发文字号精确命中就是权威原文页，比通用检索可靠得多。
+    // 通用搜索引擎对中文长查询已退化（Bing 忽略 site: 运算符、长查询只命中「国家」二字就返回
+    // 百科词条，百度持续安全验证），因此未命中不代表文件不公开，照旧退回通用检索。
+    const want = policyDocNumQuery(t);
+    if (want !== "") {
+      const lib = await policySearcher(want, AbortSignal.timeout(REF_CHECK_TIMEOUT_MS));
+      const hit = lib.error === null ? matchPolicyDocNum(want, lib.hits) : null;
+      attempts.push({
+        engine: "fgk",
+        via: "JSON",
+        fetched: lib.hits.length,
+        kept: hit === null ? 0 : 1,
+        dropped: Math.max(0, lib.hits.length - (hit === null ? 0 : 1)),
+        httpStatus: lib.status,
+        status: hit === null ? (lib.error === null ? "irrelevant" : "error") : "ok",
+        note:
+          lib.error ??
+          (hit === null
+            ? `返回 ${lib.total} 条，无发文字号完全相符的（该文件可能已被后续公告替代，或库内未收录）`
+            : `按发文字号「${hit.docNum}」精确命中官方原文页`),
+      });
+      if (hit !== null) {
+        const libGrade = gradeCitation(hit.url, hit.title);
+        const libRec: RefCheckRecord = {
+          key: t.key,
+          kind: t.kind,
+          text: t.text,
+          query: want,
+          verdict: "matched",
+          note: "国家税务总局政策法规库按发文字号精确命中，链接为官方原文页",
+          evidence: {
+            title: hit.title,
+            url: hit.url,
+            snippet: hit.docNum,
+            grade: libGrade.grade,
+            gradeReason: libGrade.reason,
+          },
+          subjectUrl: t.excludeUrl ?? "",
+          attempts,
+          checkedAt: at,
+        };
+        saveRefCheck(taskId, libRec);
+        out.push(libRec);
+        continue;
+      }
+    }
     let graded: RefCheckResult | null = null;
     // 记录的是「得出结论所用」的检索词：换写法才查到时就记换后的，全都没查到时记最初那条最具体的
     let usedQuery = variants[0] ?? t.text;

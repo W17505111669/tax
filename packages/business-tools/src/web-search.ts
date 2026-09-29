@@ -402,11 +402,17 @@ export function detectBlockedPage(html: string): string | null {
 
 export type SearchAttemptStatus = "ok" | "irrelevant" | "empty" | "blocked" | "error";
 
+/**
+ * 留痕里的取数来源：通用搜索引擎之外还有官方政策法规库（fgk）。
+ * 政策文号复查会先走政策法规库，未命中再退回通用检索，两路都要能在 attempts 里看出来。
+ */
+export type SearchAttemptEngine = SearchEngine | "fgk";
+
 export type SearchAttempt = {
-  engine: SearchEngine;
+  engine: SearchAttemptEngine;
   status: SearchAttemptStatus;
-  /** 取数方式：Bing 的 RSS 输出或 HTML 结果页 */
-  via: "RSS" | "HTML";
+  /** 取数方式：Bing 的 RSS 输出或 HTML 结果页，政策法规库为 JSON 接口 */
+  via: "RSS" | "HTML" | "JSON";
   /** 引擎页面解析出的结果条数 */
   fetched: number;
   /** 过滤后保留的条数 */
@@ -483,7 +489,11 @@ export async function searchWeb(query: string, signal?: AbortSignal): Promise<We
   return (await searchWebDetailed(query, signal)).results;
 }
 
-const ENGINE_LABEL: Record<SearchEngine, string> = { bing: "Bing", baidu: "百度" };
+const ENGINE_LABEL: Record<SearchAttemptEngine, string> = {
+  bing: "Bing",
+  baidu: "百度",
+  fgk: "国家税务总局政策法规库",
+};
 
 const STATUS_LABEL: Record<SearchAttemptStatus, string> = {
   ok: "可用",

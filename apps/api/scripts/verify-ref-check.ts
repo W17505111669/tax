@@ -3,7 +3,15 @@
  * 检索通过注入的假实现离线跑通，不依赖网络。
  * 运行：pnpm verify:refcheck
  */
-import type { DetailedSearch, SearchAttempt, WebSearchResult } from "@tax/business-tools";
+import {
+  matchPolicyDocNum,
+  normalizeDocNum,
+  parsePolicyLibrary,
+  type DetailedSearch,
+  type PolicyLibraryHit,
+  type SearchAttempt,
+  type WebSearchResult,
+} from "@tax/business-tools";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -55,9 +63,11 @@ import {
   pendingCitationTargets,
   pendingRefTargets,
   planBatchRefChecks,
+  policyDocNumQuery,
   runRefChecks,
   saveRefCheck,
   toTargets,
+  type PolicySearcher,
   type Searcher,
 } from "../src/services/ref-checks.ts";
 import { getTask, listTasks } from "../src/services/task-store.ts";
@@ -934,6 +944,167 @@ ok(
   (appDownload.note ?? "").includes("没有可替换的官方原文"),
   appDownload.note,
 );
+
+// 10) 官方政策法规库定向检索：按发文字号精确命中，未命中如实退回通用检索
+// 通用搜索引擎对中文长查询已退化（Bing 忽略 site:、只命中「国家」二字返回百科词条，百度安全验证），
+// 政策文号改走官方库，命中门槛是发文字号归一化后全等。
+expect(
+  "有发文机关时给出完整发文字号",
+  policyDocNumQuery({
+    key: refKey("docref", "2019年第41号"),
+    kind: "docref",
+    text: "2019年第41号",
+    context: "已按国家税务总局公告2019年第41号自2019年度起废止",
+  }),
+  "国家税务总局公告2019年第41号",
+);
+expect(
+  "联合发文补齐全部机关",
+  policyDocNumQuery({
+    key: refKey("docref", "2022年第28号"),
+    kind: "docref",
+    text: "2022年第28号",
+    context: "财政部 税务总局 科技部公告2022年第28号同时废止",
+  }),
+  "财政部 税务总局 科技部公告2022年第28号",
+);
+expect(
+  "上下文没有发文机关时不走政策法规库",
+  policyDocNumQuery({
+    key: refKey("docref", "2022年第28号"),
+    kind: "docref",
+    text: "2022年第28号",
+    context: "同时废止 2021年第13号、2022年第16号、2022年第28号",
+  }),
+  "",
+);
+expect(
+  "引用类复查不走政策法规库",
+  policyDocNumQuery({ key: "citation:x", kind: "citation", text: "研发_百度百科" }),
+  "",
+);
+
+const LIB_HITS: PolicyLibraryHit[] = [
+  {
+    docNum: "国家税务总局公告2019年第41号",
+    title: "国家税务总局关于修订企业所得税年度纳税申报表有关问题的公告",
+    url: "http://fgk.chinatax.gov.cn/zcfgk/c100012/c5194895/content.html",
+    pubDate: "2019-12-31",
+  },
+  {
+    docNum: "财政部 税务总局 国家发展改革委 工业和信息化部公告2026年第23号",
+    title: "关于集成电路企业、工业母机企业非货币性资产投资",
+    url: "http://fgk.chinatax.gov.cn/zcfgk/c102416/c5251766/content.html",
+    pubDate: "2026-01-01",
+  },
+  { docNum: "", title: "国家税务总局例行新闻发布会实录", url: "https://www.chinatax.gov.cn/chinatax/n810219/c5248.html", pubDate: "" },
+];
+expect(
+  "按发文字号精确命中",
+  matchPolicyDocNum("国家税务总局公告2019年第41号", LIB_HITS)?.url,
+  "http://fgk.chinatax.gov.cn/zcfgk/c100012/c5194895/content.html",
+);
+expect("写法带空格也能命中", matchPolicyDocNum("国家税务总局公告 2019年第41号", LIB_HITS)?.pubDate, "2019-12-31");
+expect(
+  "后续替代文件不算命中（查 2023年第44号 不认成 2026年第23号）",
+  matchPolicyDocNum("财政部 税务总局 国家发展改革委 工业和信息化部公告2023年第44号", LIB_HITS),
+  null,
+);
+expect("光杆文号不猜机关，永不命中", matchPolicyDocNum("2019年第41号", LIB_HITS), null);
+expect("空发文字号不参与匹配", matchPolicyDocNum("", LIB_HITS), null);
+expect("发文字号归一化", normalizeDocNum("财税〔2015〕 119号"), "财税[2015]119号");
+
+// 响应解析：结果数组挂在 searchResultAll.searchTotal（名字有迷惑性），标题带 <em> 高亮
+const parsedLib = parsePolicyLibrary({
+  searchResultAll: {
+    total: 3,
+    searchTotal: [
+      {
+        title: "国家<em>税务总局</em>公告",
+        url: "http://fgk.chinatax.gov.cn/zcfgk/c1/a.html",
+        pubDate: "2019-12-31",
+        govDoc: { docNum: "国家税务总局公告2019年第41号" },
+      },
+      { title: "没有可用地址的条目", url: "", govDoc: { docNum: "x" } },
+      { title: "缺 govDoc 的条目", url: "https://www.chinatax.gov.cn/b.html" },
+    ],
+  },
+});
+expect("只保留有可用地址的条目", parsedLib.hits.length, 2);
+expect("命中总数取 total 字段", parsedLib.total, 3);
+expect("标题去掉高亮标记", parsedLib.hits[0]?.title, "国家税务总局公告");
+expect("缺 govDoc 时发文字号为空串", parsedLib.hits[1]?.docNum, "");
+expect("响应为 null 不抛错", parsePolicyLibrary(null).hits.length, 0);
+expect("结果数组缺失不抛错", parsePolicyLibrary({ searchResultAll: {} }).hits.length, 0);
+
+// 全链路：库内精确命中即定为找到出处且不再走通用检索；未命中或接口失败都退回通用检索
+const LIB_TASK = "__verify_refcheck_lib__";
+const clearLib = () => db.prepare(`DELETE FROM ref_checks WHERE task_id = ?`).run(LIB_TASK);
+const libTarget: RefCheckTarget = {
+  key: refKey("docref", "2019年第41号"),
+  kind: "docref",
+  text: "2019年第41号",
+  context: "已按国家税务总局公告2019年第41号自2019年度起废止",
+};
+const webHit: Searcher = async () =>
+  ({
+    results: [
+      hit(
+        "国家税务总局公告2019年第41号 全文",
+        "http://fgk.chinatax.gov.cn/zcfgk/c100012/c5194895/content.html",
+        "年度纳税申报表",
+      ),
+    ],
+    attempts: [attempt("ok", "保留 1 条")],
+    minScore: 2,
+  }) satisfies DetailedSearch;
+
+clearLib();
+const libRan = await runRefChecks(
+  LIB_TASK,
+  [libTarget],
+  async () => {
+    throw new Error("政策法规库已精确命中，不应再走通用检索");
+  },
+  async () => ({ hits: LIB_HITS, total: 1, status: 200, error: null }),
+);
+expect("政策法规库精确命中判为找到出处", libRan[0]?.verdict, "matched");
+ok("说明写明来自政策法规库", (libRan[0]?.note ?? "").includes("政策法规库"), libRan[0]?.note);
+expect(
+  "证据地址为官方原文页",
+  libRan[0]?.evidence?.url,
+  "http://fgk.chinatax.gov.cn/zcfgk/c100012/c5194895/content.html",
+);
+expect("证据分级为官方原文", libRan[0]?.evidence?.grade, "official");
+expect("证据摘要存发文字号", libRan[0]?.evidence?.snippet, "国家税务总局公告2019年第41号");
+expect("检索词记为完整发文字号", libRan[0]?.query, "国家税务总局公告2019年第41号");
+expect(
+  "政策法规库这一路留痕",
+  libRan[0]?.attempts.some((a) => a.engine === "fgk" && a.status === "ok" && a.via === "JSON"),
+  true,
+);
+
+clearLib();
+const missLib: PolicySearcher = async () => ({ hits: [LIB_HITS[1]!], total: 6, status: 200, error: null });
+const libMiss = await runRefChecks(LIB_TASK, [libTarget], webHit, missLib);
+expect("库内无相符发文字号时退回通用检索", libMiss[0]?.verdict, "matched");
+ok(
+  "未命中时如实说明库内没有发文字号相符的",
+  (libMiss[0]?.attempts ?? []).some((a) => a.engine === "fgk" && a.note.includes("无发文字号完全相符")),
+  JSON.stringify(libMiss[0]?.attempts),
+);
+expect("退回通用检索后两路都留痕", libMiss[0]?.attempts.length, 2);
+
+clearLib();
+const errLib: PolicySearcher = async () => ({ hits: [], total: 0, status: null, error: "接口超时" });
+const libErr = await runRefChecks(LIB_TASK, [libTarget], webHit, errLib);
+expect("政策法规库接口失败不影响通用检索", libErr[0]?.verdict, "matched");
+expect(
+  "接口失败如实记为 error",
+  libErr[0]?.attempts.find((a) => a.engine === "fgk")?.status,
+  "error",
+);
+clearLib();
 
 console.log(`[verify] 文号复查检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
