@@ -29,7 +29,14 @@ import { traceDocRefs } from "../../web/src/policy-trace.ts";
 import { extractCitations } from "../../web/src/search-evidence.ts";
 import { gradeCitation } from "../../web/src/citation-grade.ts";
 import { topicHint } from "../../web/src/domain-keywords.ts";
-import { matchedStillValid, preservedNote, shouldOverwrite, unresolvedTargets } from "../../web/src/ref-check.ts";
+import {
+  matchedStillValid,
+  preservedNote,
+  shouldOverwrite,
+  topicOverlap,
+  topicTokens,
+  unresolvedTargets,
+} from "../../web/src/ref-check.ts";
 import { db } from "../src/db.ts";
 import {
   BATCH_REF_BUDGET,
@@ -750,6 +757,76 @@ expect("纠正后复查时间更新", corrected?.checkedAt, "2026-09-29T06:00:00
 expect("纠正过程不新增记录", listRefChecks(TASK).length, 1);
 db.prepare(`DELETE FROM ref_checks WHERE task_id = ?`).run(TASK);
 expect("收尾清掉假任务记录", listRefChecks(TASK).length, 0);
+
+// 10) 替代来源的主题相关性：官方域名只是必要条件，谈的不是同一件事就只能算候选
+expect("中文按二字滑窗切词", topicTokens("研发费用").includes("研发") && topicTokens("研发费用").includes("发费"), true);
+expect("英文数字取 3 字以上", topicTokens("RD 2025 加计 abc").filter((t) => /^[a-z0-9]+$/.test(t)), ["2025", "abc"]);
+expect("通用词不进主题词", topicTokens("国家政务服务平台首页").includes("国家"), false);
+expect("通用词「平台」不进主题词", topicTokens("国家政务服务平台首页").includes("平台"), false);
+expect("切词去重", new Set(topicTokens("研发研发研发")).size, topicTokens("研发研发研发").length);
+expect("空标题没有主题词", topicTokens(""), []);
+ok(
+  "同一主题有共同词",
+  topicOverlap("研发费用加计扣除", "关于研发费用税前加计扣除政策的通知", "研发费用加计扣除比例").length > 0,
+);
+expect("不同主题没有共同词", topicOverlap("研发费用加计扣除", "中华人民共和国增值税暂行条例", "增值税税率调整"), []);
+ok(
+  "摘要里的共同词也算",
+  topicOverlap("土地增值税清算", "税务事项通知", "土地增值税清算管理办法").length > 0,
+);
+expect("原引用全是通用词时不给相关性（宁可降为候选）", topicOverlap("国家平台", "任意标题", "任意摘要"), []);
+ok(
+  "粗粒度切词会保留跨词二字组合（已知局限，靠功能页规则兜住）",
+  topicOverlap("国家政务服务平台", "国家税务总局12366纳税服务平台").length > 0,
+);
+const unrelatedOfficial = gradeRefCheck(
+  {
+    key: "citation:u",
+    kind: "citation",
+    text: "研发费用加计扣除",
+    excludeUrl: "https://baike.baidu.com/x",
+  },
+  outcome([
+    hit(
+      "中华人民共和国增值税暂行条例",
+      "https://www.gov.cn/zhengce/content/2023-08/28/content_6900000.htm",
+      "增值税税率与应纳税额",
+    ),
+  ]),
+);
+expect("官方页但主题不相关 → 只给候选", unrelatedOfficial.verdict, "candidate");
+ok("候选说明写清是主题不相关", (unrelatedOfficial.note ?? "").includes("没有共同主题词"), unrelatedOfficial.note);
+expect(
+  "候选仍给出证据链接",
+  unrelatedOfficial.evidence?.url,
+  "https://www.gov.cn/zhengce/content/2023-08/28/content_6900000.htm",
+);
+const relatedOfficial = gradeRefCheck(
+  {
+    key: "citation:r",
+    kind: "citation",
+    text: "研发费用加计扣除",
+    excludeUrl: "https://baike.baidu.com/x",
+  },
+  outcome([
+    hit(
+      "关于完善研发费用税前加计扣除政策的通知",
+      "https://www.gov.cn/zhengce/content/2023-08/28/content_6900001.htm",
+      "研发费用加计扣除比例提高至 100%",
+    ),
+  ]),
+);
+expect("官方页且主题相关 → matched", relatedOfficial.verdict, "matched");
+const appDownload = gradeRefCheck(
+  { key: "citation:a", kind: "citation", text: "国家政务服务平台", excludeUrl: "https://gjzwfw.gov.cn/" },
+  outcome([hit("国家政务服务平台", "https://app.gjzwfw.gov.cn/fwmhapp/downloadApp/android.html", "App 下载")]),
+);
+expect("同域名下的 App 下载页不算官方原文", appDownload.verdict, "empty");
+ok(
+  "App 下载页的说明写清没有可替换的官方原文",
+  (appDownload.note ?? "").includes("没有可替换的官方原文"),
+  appDownload.note,
+);
 
 console.log(`[verify] 文号复查检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {

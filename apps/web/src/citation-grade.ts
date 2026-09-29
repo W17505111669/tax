@@ -59,8 +59,24 @@ export function isEntryUrl(raw: string): boolean {
   if (trimmed === "") return true;
   const last = trimmed.split("/").pop() ?? "";
   if (ENTRY_LAST_SEGMENT.test(last)) return true;
+  if (isFunctionalPath(trimmed)) return true;
   // 单级路径且没有文件扩展名（如 /guoqing）多为门户栏目页
   return !trimmed.slice(1).includes("/") && !/\.[a-z]{2,5}$/i.test(last);
+}
+
+/**
+ * 功能性页面的路径段：下载页、App 页、工具页、登录注册检索页。
+ * 实测踩过：「批量找替代来源」把「国家政务服务平台」换成了同域名下的
+ * `app.gjzwfw.gov.cn/fwmhapp/downloadApp/android.html`，域名是官方的、内容却与政策依据无关。
+ */
+const FUNCTIONAL_SEGMENT =
+  /^(download|down|app|apps|apk|tools?|login|logout|register|signup|search|query|help|faq|feedback|sitemap|wap|mobile)[a-z0-9]*$/i;
+
+export function isFunctionalPath(trimmedPath: string): boolean {
+  return trimmedPath
+    .split("/")
+    .filter((s) => s !== "")
+    .some((seg) => FUNCTIONAL_SEGMENT.test(seg.replace(/\.[a-z]{2,5}$/i, "")));
 }
 
 /** 百科 / 知识库词条：可作背景了解，不能替代政策原文 */

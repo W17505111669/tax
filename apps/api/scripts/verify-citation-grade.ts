@@ -54,7 +54,30 @@ expect(
   isEntryUrl("https://www.chinatax.gov.cn/n810341/n810755/c101434/c5097638/content.html"),
   false,
 );
-expect("search2024.html 不误判为入口页", isEntryUrl("https://www.gov.cn/search2024.html"), false);
+expect("search2024.html 判为检索页（功能页，没有文件内容）", isEntryUrl("https://www.gov.cn/search2024.html"), true);
+expect(
+  "research 报告页不因含 search 字样被误判",
+  isEntryUrl("https://www.gov.cn/research-report-2024.html"),
+  false,
+);
+expect("App 下载页判为功能页", isEntryUrl("https://app.gjzwfw.gov.cn/fwmhapp/downloadApp/android.html"), true);
+expect("工具页判为功能页", isEntryUrl("https://12366.chinatax.gov.cn/wap/pages/tools.html"), true);
+expect("App 下载页不再分级为官方原文", gradeCitation("https://app.gjzwfw.gov.cn/fwmhapp/downloadApp/android.html", "国家政务服务平台").grade, "weak");
+expect(
+  "政策原文页不因功能页规则被误伤",
+  isEntryUrl("https://www.gov.cn/zhengce/content/2023-08/28/content_6900000.htm"),
+  false,
+);
+expect(
+  "税务实务库法规页不被误伤",
+  isEntryUrl("https://www.shui5.cn/article/ae/10559.html"),
+  false,
+);
+expect(
+  "12366 详情页不被误伤",
+  isEntryUrl("https://12366.chinatax.gov.cn/fwtz/detail?bh=e42d800091014105b4342"),
+  false,
+);
 expect("政策文件名里带 index 字样不误判", isEntryUrl("https://www.gov.cn/zhengce/2024/index-cpi-report.htm"), false);
 expect("百科词条判为弱", gradeCitation("https://baike.baidu.com/item/%E5%9C%9F%E5%9C%B0/12005092").weak, "encyclopedia");
 expect("MBA 智库百科判为弱", gradeCitation("https://wiki.mbalib.com/wiki/%E7%A0%94%E5%8F%91").weak, "encyclopedia");

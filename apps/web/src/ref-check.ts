@@ -197,6 +197,40 @@ function toEvidence(h: RefSearchHit): RefCheckEvidence {
   return { title: h.title, url: h.url, snippet: h.snippet ?? "", grade: g.grade, gradeReason: g.reason };
 }
 
+/**
+ * 通用词：两边标题里都出现也不代表谈的是同一件事（国名、站点类型、行业泛称、URL 碎片）。
+ * 主题相关性宁可漏判（降为 candidate 交人工确认），不可误判成「找到官方原文」。
+ */
+const GENERIC_TOPIC_TOKENS = new Set([
+  "国家", "中国", "中华", "人民", "共和", "和国", "政府", "政务", "服务", "平台", "系统", "网站",
+  "首页", "官网", "官方", "百科", "词条", "知乎", "下载", "工具", "信息", "数据", "查询", "文档",
+  "文件", "页面", "中心", "管理", "总局", "税务", "纳税", "税收", "财政", "12366",
+  "www", "com", "cn", "gov", "html", "htm", "http", "https", "pdf", "asp", "aspx", "php", "jsp",
+]);
+
+/** 粗粒度分词：中文取二字滑窗，英文与数字取 3 字以上的词，最后去掉通用词 */
+export function topicTokens(text: string): string[] {
+  const cleaned = (text ?? "").toLowerCase();
+  const ascii = cleaned.match(/[a-z0-9]{3,}/g) ?? [];
+  const runs = cleaned.match(/[\u4e00-\u9fff]+/g) ?? [];
+  const bigrams: string[] = [];
+  for (const run of runs) {
+    if (run.length === 1) bigrams.push(run);
+    for (let i = 0; i + 2 <= run.length; i += 1) bigrams.push(run.slice(i, i + 2));
+  }
+  return [...new Set([...ascii, ...bigrams])].filter((t) => !GENERIC_TOPIC_TOKENS.has(t));
+}
+
+/**
+ * 原引用与候选页的共同主题词（命中页标题与摘要一起看）。
+ * 空数组表示看不出两者谈的是同一件事——这时即使域名是官方的也只给候选，不给 matched。
+ */
+export function topicOverlap(originalTitle: string, hitTitle: string, hitSnippet = ""): string[] {
+  const want = new Set(topicTokens(originalTitle));
+  if (want.size === 0) return [];
+  return topicTokens(`${hitTitle} ${hitSnippet}`).filter((t) => want.has(t));
+}
+
 /** 候选排序：官方原文优先，其次专业来源，再看相关度 */
 const GRADE_RANK: Record<string, number> = { official: 0, professional: 1, weak: 2 };
 
@@ -209,6 +243,8 @@ function bestHit(hits: RefSearchHit[]): RefSearchHit | null {
 
 /**
  * 复查判定：
+ * - 引用（citation）除了「官方域名 + 非入口页」，还要与原引用有共同主题词，
+ *   否则同域名下的 App 下载页、工具页会被当成政策原文写进修订指令。
  * - 文号（docref）：标题或摘要里出现归一化后的文号核心才算「找到公开出处」，
  *   否则即使检索到相关页面也只给「有候选待确认」，不把候选当成依据；
  * - 引用（citation）：找到证据力更强的具体文件页才算 matched。
@@ -227,12 +263,23 @@ export function gradeRefCheck(t: RefCheckTarget, outcome: RefSearchOutcome): Ref
     if (pool.length === 0) {
       return { verdict: "empty", evidence: null, note: "只检索到这条引用本身，没有找到可替换的来源" };
     }
-    const official = pool.find((h) => gradeCitation(h.url, h.title).grade === "official");
+    // 官方域名只是必要条件：还要与原引用谈的是同一件事，否则会把同域名下的
+    // App 下载页、工具页当成政策原文写进修订指令
+    const isOfficial = (h: RefSearchHit) => gradeCitation(h.url, h.title).grade === "official";
+    const official = pool.find((h) => isOfficial(h) && topicOverlap(t.text, h.title, h.snippet ?? "").length > 0);
     if (official) {
       return {
         verdict: "matched",
         evidence: toEvidence(official),
-        note: "检索到政府或税务机关站点的具体文件页，可替换原弱证据引用",
+        note: `检索到政府或税务机关站点的具体文件页，且与原引用有共同主题词，可替换原弱证据引用`,
+      };
+    }
+    const unrelated = pool.find(isOfficial);
+    if (unrelated) {
+      return {
+        verdict: "candidate",
+        evidence: toEvidence(unrelated),
+        note: `检索到官方站点页面，但与原引用「${t.text}」没有共同主题词，看不出谈的是同一件事，需人工确认后再替换`,
       };
     }
     const best = bestHit(pool);

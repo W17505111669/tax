@@ -683,3 +683,13 @@ curl -L -o data/ocr-tessdata/eng.traineddata https://cdn.jsdelivr.net/gh/tessera
 `verify:citegrade` 87 → 99 项（`index_pc.html`、`index-m.html`、`default.aspx`、`homepage.htm`、栏目下的 `index.shtml` 判为入口页且不再分级成官方；真实文件页、`search2024.html`、`index-cpi-report.htm` 不误判）。`verify:refcheck` 279 → 300 项：`shouldOverwrite` 三态（旧证据仍有效时保护、失效时放行、默认保护）、`matchedStillValid` 两种类型六种地址（含专业来源在文号口径下受保护、在引用口径下不受保护）、DB 级演练（把门户入口页证据的 `matched` 落库，再用 `candidate` 覆盖，断言被纠正、失效证据不保留、note 与 checkedAt 更新、不新增记录）、批量清单自我修复、以及不传判定函数时按原样保护全部 matched。
 
 遗留问题（下一步）：替代来源目前只校验「官方域名 + 非入口页」，不校验主题相关性，实测出现把「国家政务服务平台」替换成 app 下载页、把「12366 纳税服务平台」替换成 `tools.html` 的情况，都判成了 matched。应当在 `gradeRefCheck` 的引用分支加主题相关性门槛（原引用标题与命中页标题/摘要的分词重合），不达标的降为 `candidate` 交人工确认，而不是让 Agent 直接写回结论。
+
+## 替代来源的两道门槛：功能页识别 + 主题相关性
+
+上一节记的遗留问题这一轮做掉了，拆成两道互补的门槛。第一道是功能页识别：`isEntryUrl` 除了入口页文件名，再检查路径里是否出现 `download / down / app / apps / apk / tool(s) / login / logout / register / signup / search / query / help / faq / feedback / sitemap / wap / mobile` 开头的路径段（大小写不敏感、允许尾随字母数字，因此 `downloadApp`、`tools.html`、`/wap/` 都算）。这条直接命中实测的两个坏例子：`app.gjzwfw.gov.cn/fwmhapp/downloadApp/android.html` 与 `12366.chinatax.gov.cn/wap/pages/tools.html`，它们从 `official` 掉到 `weak`，于是既不能再被判成 matched，也因为 `matchedStillValid` 失效而重新进入批量待办、被自动纠正。规则同样在两处同步（web 的 `citation-grade.ts` 与 `packages/business-tools` 的 `web-search.ts`），`verify:citegrade` 的逐条比对会盯住一致性。反向也测了不误伤：政策原文页、税务实务库法规页、12366 详情页、`research-report-2024.html`（含 search 字样但不在词首）都仍算内容页。
+
+第二道是主题相关性。官方域名 + 内容页仍不足以说明「谈的是同一件事」，因此 `gradeRefCheck` 的引用分支要求原引用标题与命中页标题/摘要有共同主题词才判 matched，否则降为 `candidate` 并在说明里写清「没有共同主题词，看不出谈的是同一件事，需人工确认后再替换」。分词是粗粒度的：中文取二字滑窗、英文与数字取 3 字以上，先剔掉一份通用词表（国家 / 中华 / 人民 / 政府 / 政务 / 服务 / 平台 / 系统 / 百科 / 词条 / 下载 / 工具 / 数据 / 查询 / 税务 / 纳税 / 12366 与 www、gov、html 一类 URL 碎片），因为两边都出现的通用词不构成相关性。这套做法的已知局限是二字滑窗会保留跨词组合（「国家政务服务平台」与「国家税务总局12366纳税服务平台」会共享「务平」），这一点写成了一条断言明记在验证脚本里，实际由第一道功能页规则兜住。
+
+门槛松紧是用真实数据量的，不是拍脑袋：先对库里 19 条 `matched` 引用逐条回算 `topicOverlap`，结果 keep=19 / drop=0，说明门槛没有误伤已有正确结论，才把它接进判定。重跑批量后 4 条历史误判被重新检查，只有 1 条仍站得住：「国家政务服务平台」换成了真正的内容页 `gjzwfw.www.gov.cn/fwmh/item/indexGR.do`，「12366 纳税服务平台」如实变成「未检索到可替换的官方原文」，「国家数据」是 candidate（图书馆页面，需人工确认）。看板「已找到替代」从 19 变成 18——数字变小是纠正，不是退步。
+
+`verify:citegrade` 99 → 106 项（App 下载页与工具页判弱、政策原文页与实务库法规页与 12366 详情页不误伤、`search2024.html` 按检索页处理、`research-report-2024.html` 不误判）。`verify:refcheck` 300 → 318 项：分词与通用词剔除、去重、空标题、同主题有共同词、不同主题无共同词、摘要里的共同词也算、原引用全是通用词时不给相关性、跨词组合的已知局限；判定层四条（官方但主题不相关 → candidate 且说明写清原因、官方且相关 → matched、同域名 App 下载页 → empty 且说明「没有可替换的官方原文」）。
