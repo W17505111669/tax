@@ -42,6 +42,7 @@ pnpm verify:csv      # CSV 与下载统一口径：转义 / 公式注入防护 /
 pnpm verify:diaexport # 图表导出：类型识别 / 文件名不覆盖 / 导出指令 / SVG 尺寸 / 交付件脱敏
 pnpm verify:localstore # 本地存储统一入口：脏数据回落 / 共享键一致 / 不许绕过入口
 pnpm verify:format   # 数字与单位排版：去零 / 百分比兜底 / % 紧贴数字 / 字节数
+pnpm verify:reltime  # 时间显示口径：相对时间分档 / 坏数据兜底 / 文件名时间戳
 pnpm report:test     # 生成测试报告（实时跑验证矩阵 + 汇总真实任务台账与准确率）
 pnpm gen:materials   # 生成两个作品的比赛说明文档（docs/competition/，含真实运行统计）
 pnpm gen:ppt         # 生成答辩 PPT 大纲（每作品 10 页，含讲稿要点与画面元素）
@@ -49,7 +50,7 @@ pnpm demo:script     # 生成录屏分镜表（docs/competition/录屏分镜表.
 pnpm case:run <id>   # 案例回归：上传→执行→与人工参考底稿比对→案例报告（data/cases/）
 pnpm verify:agents   # Phase 1：两个 Agent 的系统提示词与工具集相互独立
 pnpm -r typecheck    # 全仓类型检查
-pnpm qa:all          # 全量质量门：40 项 verify + 测试报告 + 比赛材料 + 证据包
+pnpm qa:all          # 全量质量门：41 项 verify + 测试报告 + 比赛材料 + 证据包
 ```
 
 验证记录见 [docs/testing/phase0-verification.md](docs/testing/phase0-verification.md)。

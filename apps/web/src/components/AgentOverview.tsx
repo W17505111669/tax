@@ -20,6 +20,7 @@ import {
 import { downloadBlob, downloadText } from "../download.ts";
 import { asSnapshotRecord, KEYS, readJson, writeJson } from "../local-store.ts";
 import { needsUnitSpace, percentFrom, percentOf, percentText, percentValue } from "../format.ts";
+import { dayStamp, relTime } from "../time-format.ts";
 
 /** 大数字 odometer：每位数字独立滚轮到目标值，对齐参考片数据页质感。 */
 const DESC_KEYWORDS = ["整数分", "行级", "记录级", "OCR", "mermaid", "联网"];
@@ -237,7 +238,7 @@ export function AgentOverview({
   // 快照、基线与差值口径统一走 metric-trend.ts，KPI 与证据类指标共用一套实现。
   useEffect(() => {
     if (!p) return;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = dayStamp();
     try {
       const snap = readJson<DailySnapshot>(KEYS.snapshots, asSnapshotRecord, {});
       const values: Record<string, number> = {
@@ -294,7 +295,7 @@ export function AgentOverview({
   // 平台看板快照导出（MD 表格 / JSON 原始）
   const exportStats = (fmt: "json" | "md") => {
     if (!p) return;
-    const stamp = new Date().toISOString().slice(0, 10);
+    const stamp = dayStamp();
     if (fmt === "json") {
       downloadBlob(new Blob([JSON.stringify(p, null, 2)], { type: "application/json" }), `platform-stats-${stamp}.json`);
       return;
@@ -356,7 +357,7 @@ export function AgentOverview({
     ];
     downloadBlob(
       new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" }),
-      `概览快照-${new Date().toISOString().slice(0, 10)}.md`,
+      `概览快照-${dayStamp()}.md`,
     );
   };
 
@@ -385,7 +386,7 @@ export function AgentOverview({
         ],
         { type: "application/json" },
       ),
-      `概览快照-${new Date().toISOString().slice(0, 10)}.json`,
+      `概览快照-${dayStamp()}.json`,
     );
   };
 
@@ -1179,15 +1180,6 @@ const RECENT_TEXT: Record<string, string> = {
   failed: "已中断",
   created: "待执行",
 };
-
-function relTime(iso: string): string {
-  const m = Math.floor((Date.now() - Date.parse(iso)) / 60000);
-  if (m < 1) return "刚刚";
-  if (m < 60) return `${m} 分钟前`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h} 小时前`;
-  return `${Math.floor(h / 24)} 天前`;
-}
 
 /** 近 14 天日桶计数（按智能体子集复用）。 */
 function buckets14(dates: string[]): number[] {

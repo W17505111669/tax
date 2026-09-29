@@ -16,6 +16,7 @@ import {
   writeTaskOrder,
 } from "../local-store.ts";
 import { fmtBytes } from "../run-artifacts.ts";
+import { dayStamp, relTime } from "../time-format.ts";
 import {
   IconBuilding,
   IconCopy,
@@ -69,15 +70,6 @@ const GROUP_ORDER: Array<{ id: string; label: string }> = [
   { id: "failed", label: "已中断" },
   { id: "created", label: "待执行" },
 ];
-
-function relTime(iso: string): string {
-  const m = Math.floor((Date.now() - Date.parse(iso)) / 60000);
-  if (m < 1) return "刚刚";
-  if (m < 60) return `${m} 分钟前`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h} 小时前`;
-  return `${Math.floor(h / 24)} 天前`;
-}
 
 const SIDEBAR_RING = 2 * Math.PI * 12;
 
@@ -313,7 +305,7 @@ export function Sidebar({
         t.id,
       ]);
     }
-    downloadCsv(`任务清单-${new Date().toISOString().slice(0, 10)}.csv`, rows);
+    downloadCsv(`任务清单-${dayStamp()}.csv`, rows);
   };
   const dropOn = (targetId: string) => {
     const from = dragIdRef.current;

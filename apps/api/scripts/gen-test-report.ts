@@ -166,6 +166,11 @@ const VERIFY_SCRIPTS: Array<{ name: string; cmd: string; scope: string }> = [
     scope: "数字与单位排版口径（小数去零 / 百分比取值与「—」兜底不写成「—%」/ 中文单位留空格而 % 紧贴 / 字节数 / 组件不再各自 round 的静态走查）",
   },
   {
+    name: "verify:reltime",
+    cmd: "pnpm verify:reltime",
+    scope: "时间显示口径（相对时间分档 / 坏数据兜底不猜「刚刚」/ 与旧实现逐值一致 / link-check 空串语义 / 文件名时间戳 / 不许再出现第二份实现）",
+  },
+  {
     name: "verify:upload",
     cmd: "pnpm verify:upload",
     scope: "上传预检规则（扩展名 / 大小 / 空文件 / 批量分组 / 提示文案）",

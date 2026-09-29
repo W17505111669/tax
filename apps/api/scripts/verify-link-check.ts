@@ -61,7 +61,7 @@ expect("超过阈值算过期", freshness("2026-09-25T11:59:59.000Z", NOW, STALE
 expect("从未核验算未知", freshness(null, NOW), "unknown");
 expect("时间不可解析算未知", freshness("不是时间", NOW), "unknown");
 expect("晚于当前时间算未知", freshness("2026-09-29T12:00:00.000Z", NOW), "unknown");
-expect("不足 1 小时显示刚刚", ageText("2026-09-28T11:30:00.000Z", NOW), "刚刚");
+expect("不足 1 小时按分钟显示（与全平台口径一致）", ageText("2026-09-28T11:30:00.000Z", NOW), "30 分钟前");
 expect("不足 1 天显示小时", ageText("2026-09-28T05:00:00.000Z", NOW), "7 小时前");
 expect("超过 1 天显示天数", ageText("2026-09-20T12:00:00.000Z", NOW), "8 天前");
 expect("无核验时间返回空串", ageText(null, NOW), "");

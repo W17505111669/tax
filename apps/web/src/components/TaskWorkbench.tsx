@@ -4,6 +4,7 @@ import { api } from "../api.ts";
 import { downloadBlob, downloadText } from "../download.ts";
 import { isStarred, KEYS, readEnum, toggleStarred, writeRaw } from "../local-store.ts";
 import { fmtDurationShort, fmtDurationZh, fmtSecondsShort } from "../format.ts";
+import { dayStamp, fileStamp } from "../time-format.ts";
 import type {
   AgentInfo,
   ArtifactInfo,
@@ -1529,7 +1530,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
 
   const exportBundleZip = () => {
     if (zipBusy) return;
-    const stamp = new Date().toISOString().slice(0, 10);
+    const stamp = dayStamp();
     const md = bundleLines().join("\n");
     setZipBusy(true);
     setZipNote("");
@@ -2423,7 +2424,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                     citations
                       .map(
                         (c, i) =>
-                          `@misc{ref${i + 1},\n  title = {${c.title.replace(/[{}]/g, "")}},\n  howpublished = {\\url{${c.url}}},\n  note = { Accessed: ${new Date().toISOString().slice(0, 10)} }\n}`,
+                          `@misc{ref${i + 1},\n  title = {${c.title.replace(/[{}]/g, "")}},\n  howpublished = {\\url{${c.url}}},\n  note = { Accessed: ${dayStamp()} }\n}`,
                       )
                       .join("\n\n") || "% 本次任务无联网引用\n",
                   )
@@ -2434,7 +2435,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                       citations
                         .map(
                           (c, i) =>
-                            `@misc{ref${i + 1},\n  title = {${c.title.replace(/[{}]/g, "")}},\n  howpublished = {\\url{${c.url}}},\n  note = { Accessed: ${new Date().toISOString().slice(0, 10)} }\n}`,
+                            `@misc{ref${i + 1},\n  title = {${c.title.replace(/[{}]/g, "")}},\n  howpublished = {\\url{${c.url}}},\n  note = { Accessed: ${dayStamp()} }\n}`,
                         )
                         .join("\n\n") || "% 本次任务无联网引用\n",
                     )
@@ -2456,7 +2457,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                 onExportBundle={() => {
                   const lines = bundleLines();
                   downloadText(
-                    `${task.title}-整页-${new Date().toISOString().slice(0, 10)}.md`,
+                    `${task.title}-整页-${dayStamp()}.md`,
                     lines.join("\n"),
                     "text/markdown",
                   );
@@ -2816,7 +2817,7 @@ function TimelineView({
       ...artifactTable(arts, "（本次运行未生成产物）"),
     ];
     downloadText(
-      `运行${runIdx}-时间线-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "")}.md`,
+      `运行${runIdx}-时间线-${fileStamp()}.md`,
       lines.join("\n"),
       "text/markdown",
     );
@@ -2987,7 +2988,7 @@ function TimelineView({
               lines.push("### 未归属到具体运行", "", ...artifactTable(unattr, ""));
             }
             downloadText(
-              `时间线-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "")}.md`,
+              `时间线-${fileStamp()}.md`,
               lines.join("\n"),
               "text/markdown",
             );

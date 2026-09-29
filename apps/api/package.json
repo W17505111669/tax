@@ -38,6 +38,7 @@
     "verify:diaexport": "tsx scripts/verify-diaexport.ts",
     "verify:localstore": "tsx scripts/verify-localstore.ts",
     "verify:format": "tsx scripts/verify-format.ts",
+    "verify:reltime": "tsx scripts/verify-reltime.ts",
     "verify:upload": "tsx scripts/verify-upload-policy.ts",
     "case:run": "tsx scripts/run-case.ts"
   },

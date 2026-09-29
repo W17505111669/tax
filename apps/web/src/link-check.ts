@@ -4,6 +4,8 @@
  * 纯函数，便于 apps/api/scripts/verify-link-check.ts 直接校验。
  */
 
+import { relTime } from "./time-format.ts";
+
 export type LinkVerdict = "ok" | "blocked" | "dead" | "unreachable";
 
 export type LinkCheckLike = { ok: boolean; status: number | null; error?: string };
@@ -69,7 +71,6 @@ export function freshness(
 export function ageText(iso: string | null | undefined, now: number = Date.now()): string {
   const h = ageHours(iso, now);
   if (h === null) return "";
-  if (h < 1) return "刚刚";
-  if (h < 24) return `${Math.floor(h)} 小时前`;
-  return `${Math.floor(h / 24)} 天前`;
+  // 分档口径统一走 time-format.ts；这里只保留「没有核验时间 / 时间在未来」返回空串的语义
+  return relTime(iso, now, "");
 }

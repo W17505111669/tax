@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { CompareDiff, CompareRecord, CompareRef } from "../types.ts";
 import { IconAlert, IconCheck, IconCopy, IconDownload } from "./Icons.tsx";
 import { downloadCsv, downloadText } from "../download.ts";
+import { dayStamp } from "../time-format.ts";
 import { KEYS, readEnum, writeRaw } from "../local-store.ts";
 
 const COMPARE_KINDS = ["all", "mismatch", "only_a", "only_b"] as const;
@@ -113,7 +114,7 @@ export function CompareView({ compares, onOpenTarget, onOpenPair }: Props) {
     lines.push("- 比对视图 ↑/↓ 选择差异行、Enter 在阅读器打开双底稿并定位；点击差异行同样联动。");
     lines.push("- 阅读器高亮行自动滚至视口中央；审查结论引用胶囊可在阅读器打开原文；Esc 收起阅读器/续跑面板。");
     lines.push("");
-    downloadText(`底稿比对报告-${(rec.at ?? "").slice(0, 10)}.md`, lines.join("\n"), "text/markdown");
+    downloadText(`底稿比对报告-${dayStamp(rec.at ?? "")}.md`, lines.join("\n"), "text/markdown");
   };
 
   // 差异摘要纯文本版（与 CSV 互补，便于粘贴聊天/工单）
@@ -154,7 +155,7 @@ export function CompareView({ compares, onOpenTarget, onOpenPair }: Props) {
         )} | ${sgn(t.onlyA - bt.onlyA)} | ${sgn(t.onlyB - bt.onlyB)} |`,
       );
     }
-    downloadText(`基准对比-${new Date().toISOString().slice(0, 10)}.md`, lines.join("\n"), "text/markdown");
+    downloadText(`基准对比-${dayStamp()}.md`, lines.join("\n"), "text/markdown");
   };
 
   // 仅复制当前筛选（类型+地址）下的差异
@@ -203,11 +204,11 @@ export function CompareView({ compares, onOpenTarget, onOpenPair }: Props) {
     return rows;
   };
   const exportCsv = (rec: CompareRecord) =>
-    downloadCsv(`底稿比对差异-${(rec.at ?? "").slice(0, 10)}.csv`, diffRows(rec));
+    downloadCsv(`底稿比对差异-${dayStamp(rec.at ?? "")}.csv`, diffRows(rec));
 
   // 仅导出当前筛选（类型+地址）下的差异 CSV
   const exportCsvFiltered = (rec: CompareRecord) =>
-    downloadCsv(`底稿比对差异-筛选-${(rec.at ?? "").slice(0, 10)}.csv`, diffRows(rec, matchFilter));
+    downloadCsv(`底稿比对差异-筛选-${dayStamp(rec.at ?? "")}.csv`, diffRows(rec, matchFilter));
 
   if (compares.length === 0) {
     return (

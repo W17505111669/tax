@@ -3,6 +3,7 @@ import type { ReviewRecord, TaskIssue } from "../types.ts";
 import { IconAlert, IconCheck, IconPlus, IconX } from "./Icons.tsx";
 import { downloadText } from "../download.ts";
 import { readRaw, removeRaw, writeRaw } from "../local-store.ts";
+import { dayStamp } from "../time-format.ts";
 import {
   LABEL_MAX,
   MAX_CUSTOM_TEMPLATES,
@@ -329,7 +330,7 @@ export function ReviewView({
         } | ${issue?.issueType ?? r.issueId} | 意见：${r.comment || "（无）"}`,
       );
     }
-    downloadText(`复核记录-${new Date().toISOString().slice(0, 10)}.md`, lines.join("\n"), "text/markdown");
+    downloadText(`复核记录-${dayStamp()}.md`, lines.join("\n"), "text/markdown");
   };
   const shown = onlyPending ? issues.filter((i) => !reviewMap.has(i.id)) : issues;
 
