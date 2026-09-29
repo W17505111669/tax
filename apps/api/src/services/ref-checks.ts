@@ -166,14 +166,15 @@ export type VerifiedOfficialDoc = { evidence: RefCheckEvidence; taskId: string }
 export function verifiedOfficialDocs(): Map<string, VerifiedOfficialDoc> {
   const rows = db
     .prepare(
-      `SELECT task_id, kind, text, verdict, evidence_title, evidence_url, evidence_grade, evidence_snippet
+      `SELECT task_id, kind, text, query, verdict, evidence_title, evidence_url, evidence_grade, evidence_snippet
          FROM ref_checks`,
     )
     .all() as unknown as Array<{
-    task_id: string;
-    kind: string;
-    text: string;
-    verdict: string;
+  task_id: string;
+  kind: string;
+  text: string;
+  query: string | null;
+  verdict: string;
     evidence_title: string | null;
     evidence_url: string | null;
     evidence_grade: string | null;
@@ -188,7 +189,8 @@ export function verifiedOfficialDocs(): Map<string, VerifiedOfficialDoc> {
     // 按当前分级规则重算，规则收紧后旧记录不会把误判带进索引
     const grade = gradeCitation(url, title);
     if (grade.grade !== "official") continue;
-    const key = reusableDocNum(r.text ?? "", r.evidence_snippet ?? "");
+    // snippet 存的是页面正文时（通用检索命中），退回用当时的检索词取完整发文字号
+    const key = reusableDocNum(r.text ?? "", r.evidence_snippet ?? "", r.query ?? "");
     if (key === "" || out.has(key)) continue;
     out.set(key, {
       taskId: r.task_id,

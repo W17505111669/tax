@@ -492,17 +492,36 @@ export function keptBetterNote(prevNote: string, nextGrade: string, checkedAt: s
 }
 
 /**
+ * 发文机关是否可信：去掉前导虚词后，要么以公文种类词结尾（公告/通知/函…），
+ * 要么本身就是「财税」「国税发」「国税函」「税总函」一类的短代号。
+ * 用来挡住「研发费用加计扣除财税」这种把关键词和机关黏在一起的串当机关用。
+ */
+function plausibleAgency(head: string): boolean {
+  const h = trimEdgeWords(head);
+  if (h === "" || h.length > 20) return false;
+  return DOC_KIND_TAIL.test(h) || h.length <= 4;
+}
+
+/**
  * 从一条已 matched 的文号复查记录里取出可跨任务复用的完整发文字号，取不到就返回空串。
  *
- * 只有 `snippet` 本身就是「发文机关 + 文号」且以该文号结尾时才可用——政策法规库精确命中时
- * 存进去的正是发文字号；通用检索命中时 snippet 往往是页面正文的一段话，拿它当字号会把噪声写进索引。
- * snippet 与文号相同（没有补出机关）时也返回空串：光杆字号跨机关有歧义，不能当复用键。
+ * 依次试 `snippet` 与 `query`：政策法规库精确命中时 snippet 存的就是发文字号；通用检索命中时
+ * snippet 往往是页面正文的一段话，但当时的检索词（紧凑写法）恰好就是「发文机关 + 文号」，
+ * 实测「国家税务总局公告2015年第97号」「财政部 税务总局 科技部公告2022年第28号」都完整留在 query 里。
+ *
+ * 两条来源都要求：以该文号结尾、且文号前面的部分是可信的发文机关。带上下文关键词的检索词
+ * （「…119号 企业研发费用加计扣除比例」）不以文号结尾，自然被排除，不会把关键词当成机关。
+ * 光杆字号（没补出机关）一律返回空串——跨机关有歧义，不能当复用键。
  */
-export function reusableDocNum(text: string, snippet: string): string {
+export function reusableDocNum(text: string, snippet: string, query = ""): string {
   const core = normalizeRef(text);
-  const full = normalizeRef(snippet);
-  if (core === "" || full === "" || full === core) return "";
-  return full.endsWith(core) ? full : "";
+  if (core === "") return "";
+  for (const raw of [snippet, query]) {
+    const full = normalizeRef(raw);
+    if (full === "" || full === core || !full.endsWith(core)) continue;
+    if (plausibleAgency(full.slice(0, full.length - core.length))) return full;
+  }
+  return "";
 }
 
 /** 修订指令的一条素材：一次已经出结果的复查记录 */
