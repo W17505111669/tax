@@ -152,8 +152,19 @@ if (process.env.TAXAI_VERIFY_LIVE === "1") {
         failures.push(`实网核对 ${docNum}：HTTP ${res.status}`);
         continue;
       }
-      if (isLibraryPageForDoc(await res.text(), docNum)) passed += 1;
+      const html = await res.text();
+      if (isLibraryPageForDoc(html, docNum)) passed += 1;
       else failures.push(`实网核对 ${docNum}：页面标题区不以该字号结尾，本页不是该文件（${v.evidence.url}）`);
+      // 标题也要能用：侧边阅读器的标签靠它区分是哪一份文件，取不到或取到站点名都等于没有标题。
+      // 不同栏目（税收规范性文件 / 财税文件 / 部门规章）的标题区格式若有差异，这里会先暴露出来。
+      const title = libraryDocTitle(html);
+      checks += 1;
+      if (title === "") failures.push(`实网核对 ${docNum}：取不到原文页标题（${v.evidence.url}）`);
+      else if (title.includes("政策法规库")) {
+        failures.push(`实网核对 ${docNum}：标题仍是站点名而非文件名「${title.slice(0, 40)}」`);
+      } else if (!normalizeDocNum(title).endsWith(docNum)) {
+        failures.push(`实网核对 ${docNum}：标题里没有该发文字号「${title.slice(0, 40)}」`);
+      }
     } catch (err) {
       // 网络不可用不算失败：如实跳过，不把环境问题记成证据问题
       skipped += 1;
