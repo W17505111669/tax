@@ -6,6 +6,7 @@ import { parseHTML } from "linkedom";
 import TurndownService from "turndown";
 import { dirs } from "../config.ts";
 import { parseExcelFile } from "@tax/document-tools";
+import { isLibraryDocUrl, libraryDocTitle } from "@tax/business-tools";
 import { getTask, listFiles } from "../services/task-store.ts";
 import { assertSafeUrl } from "../services/link-checks.ts";
 
@@ -74,11 +75,17 @@ async function readUrl(raw: string): Promise<ReaderResult> {
   type ReadabilityDoc = ConstructorParameters<typeof Readability>[0];
   const article = new Readability(document as unknown as ReadabilityDoc, { charThreshold: 0 }).parse();
   const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
+  // 政策法规库是 SPA，<title> 一律是「国家税务总局政策法规库」，Readability 也只能取到这个：
+  // 侧边阅读器里点开几份文件会全叫同一个名字，分不清谁是谁。真实标题在正文标题区，另行取。
+  const docTitle = isLibraryDocUrl(key) ? libraryDocTitle(html) : "";
+  const body = article?.content ? turndown.turndown(article.content) : "";
   const data: ReaderResult = {
     url: key,
-    title: article?.title ?? document.title ?? "",
+    title: docTitle || article?.title || document.title || "",
     excerpt: article?.excerpt ?? "",
-    markdown: article?.content ? turndown.turndown(article.content) : "",
+    // 正文抽出来常以「注释/废止说明」开头，看不到是哪份文件，补一行标题
+    markdown:
+      docTitle !== "" && !body.includes(docTitle.slice(0, 20)) ? `# ${docTitle}\n\n${body}` : body,
     retrievedAt: new Date().toISOString(),
     contentType,
   };

@@ -94,6 +94,36 @@ export function isLibraryPageForDoc(html: string, docNum: string): boolean {
   if (want === "") return false;
   return libraryPageHeader(html).endsWith(want);
 }
+
+/**
+ * 原文页的文件标题与发文字号（形如「<标题> <发文字号>」），取不到时返回空串。
+ *
+ * 政策法规库是 SPA，`<title>` 一律是「国家税务总局政策法规库」，Readability 也只能取到这个，
+ * 于是侧边阅读器里点开几份文件全叫同一个名字、分不清谁是谁。真实标题在正文标题区：
+ * 「当前位置： 首页 > 政策法规 > <栏目> <标题> <发文字号> （ ） 阅读量：N次」，
+ * 因此截到「阅读量」之前、去掉尾部那对空括号、再去掉面包屑即可。
+ */
+export function libraryDocTitle(html: string): string {
+  const text = html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<head[\s\S]*?<\/head>/gi, " ")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    // 面包屑分隔符在页面里可能写成字面 > 也可能写成 &gt;，先解码再找，否则面包屑切不掉
+    .replace(/&gt;/g, ">")
+    .replace(/&lt;/g, "<")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ");
+  const at = text.indexOf("阅读量");
+  if (at < 0) return "";
+  let head = text.slice(0, at).replace(/[（(]\s*[)）]\s*$/, "").trim();
+  const crumb = head.lastIndexOf(">");
+  if (crumb >= 0) head = head.slice(crumb + 1).trim();
+  return head;
+}
 /** 检索接口返回的标题带 <em> 高亮标记，落库前清掉 */
 function cleanTitle(raw: string): string {
   return raw

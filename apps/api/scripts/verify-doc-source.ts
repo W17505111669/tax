@@ -12,6 +12,7 @@ import {
   isLibraryDocUrl,
   isLibraryPageForDoc,
   libraryPageHeader,
+  libraryDocTitle,
   normalizeDocNum,
 } from "@tax/business-tools";
 import { verifiedOfficialDocs } from "../src/services/ref-checks.ts";
@@ -95,6 +96,26 @@ expect(
   "缺阅读量标记时不把正文中间的字号当成标题区",
   isLibraryPageForDoc("<html><body>正文里 财税〔2015〕119号 出现在中间</body></html>", "财税〔2015〕119号"),
   false,
+);
+
+// 2b) 原文页标题：SPA 的 <title> 是站点名，阅读器标签要靠正文标题区才能区分是哪一份文件。
+//     面包屑切掉后栏目名会留在开头（「财税文件」），它本身是标题区的一部分，无害且有助于判断文件类别。
+expect(
+  "标题取到栏目、文件名与发文字号",
+  libraryDocTitle(
+    page("财税〔2015〕119号", "财政部 国家税务总局 科技部关于完善研究开发费用税前加计扣除政策的通知"),
+  ),
+  "财税文件 财政部 国家税务总局 科技部关于完善研究开发费用税前加计扣除政策的通知 财税〔2015〕119号",
+);
+expect(
+  "标题里不含站点名（SPA 的 title 必须被 head 剔除）",
+  libraryDocTitle(page("国税发〔2006〕187号", "关于土地增值税清算有关问题的通知")).includes("政策法规库"),
+  false,
+);
+expect(
+  "缺阅读量标记时返回空串，不猜",
+  libraryDocTitle("<html><body>只有正文 财税〔2015〕119号</body></html>"),
+  "",
 );
 
 // 3) 真实索引的结构校验（离线）
