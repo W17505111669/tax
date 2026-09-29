@@ -46,7 +46,7 @@
 | `pnpm verify:revimpact` | 修订前后证据对比（快照口径 / 差值与总体判断 / 按事件流重组结论的真实续跑走查） | PASS |
 | `pnpm verify:trend` | 指标趋势（每日快照记录与裁剪 / 基线日选择 / 环比差值 / 越高越好与越低越好的方向判断） | PASS |
 | `pnpm verify:sheet` | 证据核对表（九项核对结论 / 空输入如实兜底 / 待办分组 / MD 片段 / 真实任务走查） | PASS |
-| `pnpm verify:amtnote` | 金额核对备注模板（模板可用性 / 追加分段与去重 / 撤销最近一段 / 留痕有效性判断） | PASS |
+| `pnpm verify:amtnote` | 金额核对备注模板（模板可用性 / 追加分段与去重 / 撤销最近一段 / 留痕有效性判断 / 自定义模板按作品存取、脏数据丢弃、新增校验与合并去重） | PASS |
 | `pnpm verify:ledger` | 全平台证据核对台账（缺口判断 / 排序与合计 / 15 列单元格 / CSV 与 Markdown 导出 / 与平台统计口径交叉核对） | PASS |
 | `pnpm verify:upload` | 上传预检规则（扩展名 / 大小 / 空文件 / 批量分组 / 提示文案） | PASS |
 

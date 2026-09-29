@@ -138,7 +138,7 @@ const VERIFY_SCRIPTS: Array<{ name: string; cmd: string; scope: string }> = [
   {
     name: "verify:amtnote",
     cmd: "pnpm verify:amtnote",
-    scope: "金额核对备注模板（模板可用性 / 追加分段与去重 / 撤销最近一段 / 留痕有效性判断）",
+    scope: "金额核对备注模板（模板可用性 / 追加分段与去重 / 撤销最近一段 / 留痕有效性判断 / 自定义模板按作品存取、脏数据丢弃、新增校验与合并去重）",
   },
   {
     name: "verify:ledger",

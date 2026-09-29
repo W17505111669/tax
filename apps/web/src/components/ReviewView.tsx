@@ -1,12 +1,24 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ReviewRecord, TaskIssue } from "../types.ts";
-import { IconAlert, IconCheck } from "./Icons.tsx";
+import { IconAlert, IconCheck, IconPlus, IconX } from "./Icons.tsx";
 import {
-  amountNoteTemplates,
+  LABEL_MAX,
+  MAX_CUSTOM_TEMPLATES,
+  loadCustomTemplates,
+  mergeTemplates,
+  removeCustomTemplate,
+  saveCustomTemplates,
+  validateCustomTemplate,
   composeNote,
   dropLastNoteSegment,
   noteIsMeaningful,
+  type AmountNoteTemplate,
+  type TemplateStorage,
 } from "../amount-note.ts";
+
+/** 自定义模板存本机：存储不可用时降级为只在本次会话有效，不影响内置模板 */
+const templateStorage: TemplateStorage | undefined =
+  typeof localStorage === "undefined" ? undefined : localStorage;
 
 interface Props {
   issues: TaskIssue[];
@@ -67,6 +79,38 @@ export function ReviewView({
   const [comments, setComments] = useState<Record<string, string>>({});
   const [amountNotes, setAmountNotes] = useState<Record<string, string>>({});
   const [onlyPending, setOnlyPending] = useState(true);
+  // 自定义核对依据模板：按作品分开存本机，换作品时重新读一遍
+  const [customTpls, setCustomTpls] = useState<AmountNoteTemplate[]>(() =>
+    loadCustomTemplates(templateStorage, agentId ?? ""),
+  );
+  const [tplOpen, setTplOpen] = useState(false);
+  const [tplDraft, setTplDraft] = useState({ label: "", text: "" });
+  const [tplErr, setTplErr] = useState<string | null>(null);
+  useEffect(() => {
+    setCustomTpls(loadCustomTemplates(templateStorage, agentId ?? ""));
+    setTplOpen(false);
+    setTplErr(null);
+    setTplDraft({ label: "", text: "" });
+  }, [agentId]);
+  const noteTemplates = mergeTemplates(agentId ?? "", customTpls);
+  const addTemplate = () => {
+    const err = validateCustomTemplate(tplDraft, noteTemplates, customTpls.length);
+    if (err) {
+      setTplErr(err);
+      return;
+    }
+    const next = [...customTpls, { label: tplDraft.label.trim(), text: tplDraft.text.trim() }];
+    setCustomTpls(next);
+    saveCustomTemplates(templateStorage, agentId ?? "", next);
+    setTplDraft({ label: "", text: "" });
+    setTplErr(null);
+  };
+  const dropTemplate = (label: string) => {
+    const next = removeCustomTemplate(customTpls, label);
+    setCustomTpls(next);
+    saveCustomTemplates(templateStorage, agentId ?? "", next);
+    setTplErr(null);
+  };
   const reviewMap = new Map(reviews.map((r) => [r.issueId, r]));
 
   // 结论金额核对：与正文里的就地标注同一份数据，这里给出可批量处理的清单
@@ -82,7 +126,84 @@ export function ReviewView({
           {amounts.pending.length === 0 && (
             <span className="rounded bg-jade-400/15 px-1.5 py-0.5 text-[10.5px] text-jade-300">金额核对已完成</span>
           )}
+          <button
+            type="button"
+            className="action-btn ml-auto flex shrink-0 items-center gap-1 !text-[10.5px]"
+            title="按作品自定义核对依据模板，存本机，不影响其他人"
+            onClick={() => {
+              setTplOpen((v) => !v);
+              setTplErr(null);
+            }}
+          >
+            <IconPlus className="h-3 w-3" />
+            自定义模板
+          </button>
         </div>
+        {tplOpen && (
+          <div className="mt-2 rounded border border-line bg-night-850/70 px-2 py-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <input
+                value={tplDraft.label}
+                onChange={(e) => setTplDraft((p) => ({ ...p, label: e.target.value }))}
+                placeholder={`标签 ≤${LABEL_MAX} 字`}
+                className="w-28 shrink-0 rounded border border-line bg-night-900 px-2 py-0.5 text-[11px] text-mist-100 outline-none focus:glow-ring"
+              />
+              <input
+                value={tplDraft.text}
+                onChange={(e) => setTplDraft((p) => ({ ...p, text: e.target.value }))}
+                placeholder="核对依据原文，例如：与本项目研发支出辅助账第 3 行逐笔核对一致"
+                className="min-w-48 flex-1 rounded border border-line bg-night-900 px-2 py-0.5 text-[11px] text-mist-100 outline-none focus:glow-ring"
+              />
+              <button
+                type="button"
+                className="action-btn shrink-0"
+                title="保存到本机，只在这个作品的复核页出现"
+                onClick={addTemplate}
+              >
+                保存模板
+              </button>
+              <button
+                type="button"
+                className="action-btn shrink-0"
+                title="收起，不保存草稿"
+                onClick={() => {
+                  setTplOpen(false);
+                  setTplErr(null);
+                }}
+              >
+                取消
+              </button>
+            </div>
+            {tplErr && <p className="mt-1 text-[10.5px] leading-4 text-amber-300">{tplErr}</p>}
+            {customTpls.length > 0 ? (
+              <ul className="mt-1.5 space-y-1">
+                {customTpls.map((t) => (
+                  <li key={t.label} className="flex items-center gap-2">
+                    <span className="shrink-0 rounded-full border border-line px-2 py-0.5 text-[10.5px] text-mist-300">
+                      {t.label}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[10.5px] text-mist-600" title={t.text}>
+                      {t.text}
+                    </span>
+                    <button
+                      type="button"
+                      className="action-btn shrink-0"
+                      title={`删除自定义模板「${t.label}」`}
+                      onClick={() => dropTemplate(t.label)}
+                    >
+                      <IconX className="h-3 w-3" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-1 text-[10.5px] leading-4 text-mist-600">
+                还没有自定义模板。加上本所常用口径，存在本机浏览器里，只在这个作品出现，最多{" "}
+                {MAX_CUSTOM_TEMPLATES} 条
+              </p>
+            )}
+          </div>
+        )}
         {amounts.pending.length > 0 && (
           <ul className="mt-2 space-y-1">
             {amounts.pending.slice(0, 20).map((a) => (
@@ -138,7 +259,7 @@ export function ReviewView({
                 </div>
                 <div className="mt-1 flex items-center gap-1.5">
                   <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
-                    {amountNoteTemplates(agentId ?? "").map((t) => (
+                    {noteTemplates.map((t) => (
                       <button
                         key={t.label}
                         type="button"

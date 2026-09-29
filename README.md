@@ -36,7 +36,7 @@ pnpm verify:refcheck # 政策文号联网复查：检索词构造 / 四级判定
 pnpm verify:revimpact # 修订前后证据对比：快照口径 / 差值与判断 / 真实续跑走查
 pnpm verify:trend    # 指标趋势：每日快照 / 基线选择 / 环比差值 / 方向判断
 pnpm verify:sheet    # 证据核对表：九项核对结论 / 空输入兜底 / 待办分组 / 真实任务走查
-pnpm verify:amtnote  # 金额核对备注模板：追加去重 / 撤销 / 留痕有效性
+pnpm verify:amtnote  # 金额核对备注模板：追加去重 / 撤销 / 留痕有效性 / 自定义模板按作品存取与校验
 pnpm verify:ledger   # 全平台证据核对台账：缺口判断 / 排序合计 / CSV 与 MD 导出 / 与平台统计交叉核对
 pnpm report:test     # 生成测试报告（实时跑验证矩阵 + 汇总真实任务台账与准确率）
 pnpm gen:materials   # 生成两个作品的比赛说明文档（docs/competition/，含真实运行统计）

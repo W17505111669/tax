@@ -8,6 +8,18 @@ import {
   dropLastNoteSegment,
   NOTE_SEP,
   noteIsMeaningful,
+  builtinAgentTemplates,
+  CUSTOM_NOTE_STORE_KEY,
+  LABEL_MAX,
+  loadCustomTemplates,
+  MAX_CUSTOM_TEMPLATES,
+  mergeTemplates,
+  parseCustomStore,
+  removeCustomTemplate,
+  saveCustomTemplates,
+  validateCustomTemplate,
+  type AmountNoteTemplate,
+  type TemplateStorage,
 } from "../../web/src/amount-note.ts";
 
 const failures: string[] = [];
@@ -81,10 +93,182 @@ expect("多段里有一段够长就算有依据", noteIsMeaningful(`短${NOTE_SE
 expect("全部过短不算有依据", noteIsMeaningful(`短${NOTE_SEP}也短`), false);
 expect("英文分号分段也能判断", noteIsMeaningful(`短;${T1}`), true);
 
+// 5) 自定义模板：本地存储解析、按作品读写、新增校验、合并顺序与去重
+class FakeStorage implements TemplateStorage {
+  private map = new Map<string, string>();
+  removed = 0;
+  getItem(k: string): string | null {
+    return this.map.get(k) ?? null;
+  }
+  setItem(k: string, v: string): void {
+    this.map.set(k, v);
+  }
+  removeItem(k: string): void {
+    this.map.delete(k);
+    this.removed += 1;
+  }
+  seed(k: string, v: string): void {
+    this.map.set(k, v);
+  }
+}
+const tpl = (label: string, text: string): AmountNoteTemplate => ({ label, text });
+const GOOD = tpl("与台账一致", "与客户合同发票台账逐笔核对一致");
+
+// 5.1 解析：脏数据只丢那一条，不整体失效
+expect("空值解析为空对象", parseCustomStore(null), {});
+expect("空串解析为空对象", parseCustomStore(""), {});
+expect("坏 JSON 不抛异常", parseCustomStore("{不是 json"), {});
+expect("顶层数组不接受", parseCustomStore(`[{"label":"a","text":"足够长的内容"}]`), {});
+expect("顶层字符串不接受", parseCustomStore(`"rd-audit"`), {});
+expect(
+  "正常结构原样读出",
+  parseCustomStore(JSON.stringify({ "rd-audit": [GOOD] })),
+  { "rd-audit": [GOOD] },
+);
+expect(
+  "非数组的作品键被跳过",
+  parseCustomStore(JSON.stringify({ "rd-audit": "x", "land-vat": [GOOD] })),
+  { "land-vat": [GOOD] },
+);
+expect(
+  "不合规条目被丢掉、合规的留下",
+  parseCustomStore(
+    JSON.stringify({
+      "rd-audit": [
+        GOOD,
+        { label: "", text: "标签为空要丢掉" },
+        { label: "标签实在太长了超过八个字", text: "标签过长要丢掉" },
+        { label: "太短", text: "短" },
+        { label: "带分号", text: `一句话${NOTE_SEP}被拆成两段` },
+        { label: "缺字段" },
+        { label: 1, text: 2 },
+        null,
+      ],
+    }),
+  ),
+  { "rd-audit": [GOOD] },
+);
+expect(
+  "标签与内容两侧空格被 trim",
+  parseCustomStore(JSON.stringify({ "rd-audit": [{ label: "  与台账一致 ", text: "  与客户合同发票台账逐笔核对一致 " }] })),
+  { "rd-audit": [GOOD] },
+);
+expect(
+  "超过上限只保留前 N 条",
+  parseCustomStore(
+    JSON.stringify({
+      "rd-audit": Array.from({ length: MAX_CUSTOM_TEMPLATES + 3 }, (_, i) =>
+        tpl(`标签${i}`, `第 ${i} 条足够长的核对依据`),
+      ),
+    }),
+  )["rd-audit"]!.length,
+  MAX_CUSTOM_TEMPLATES,
+);
+
+// 5.2 读写：按作品隔离，往返一致
+const st = new FakeStorage();
+expect("没有存储内容时为空清单", loadCustomTemplates(st, "rd-audit"), []);
+saveCustomTemplates(st, "rd-audit", [GOOD]);
+expect("写入后读回一致", loadCustomTemplates(st, "rd-audit"), [GOOD]);
+expect("换了作品读不到别人的模板", loadCustomTemplates(st, "land-vat"), []);
+expect("未知作品为空清单", loadCustomTemplates(st, "no-such-agent"), []);
+expect("没有 storage 时降级为空清单", loadCustomTemplates(undefined, "rd-audit"), []);
+expect("没有 agentId 时降级为空清单", loadCustomTemplates(st, ""), []);
+saveCustomTemplates(st, "land-vat", [tpl("与申报表一致2", "与土地增值税申报表相应栏次核对一致")]);
+expect("两个作品各存各的", loadCustomTemplates(st, "rd-audit"), [GOOD]);
+expect("互不覆盖", loadCustomTemplates(st, "land-vat").length, 1);
+saveCustomTemplates(st, "rd-audit", [GOOD, tpl("与底稿一致2", "与本项目工作底稿合计数逐笔核对一致")]);
+expect("同作品再存是覆盖不是追加", loadCustomTemplates(st, "rd-audit").length, 2);
+saveCustomTemplates(st, "rd-audit", []);
+expect("清空后该作品读不到模板", loadCustomTemplates(st, "rd-audit"), []);
+expect("清空后另一个作品还在", loadCustomTemplates(st, "land-vat").length, 1);
+saveCustomTemplates(st, "land-vat", []);
+expect("全部清空后整份存储被删掉", st.removed, 1);
+expect("删掉后确实没有残留", st.getItem(CUSTOM_NOTE_STORE_KEY), null);
+st.seed(CUSTOM_NOTE_STORE_KEY, "{坏数据");
+saveCustomTemplates(st, "rd-audit", [GOOD]);
+expect("存储里是坏数据时也能重新写入", loadCustomTemplates(st, "rd-audit"), [GOOD]);
+saveCustomTemplates(st, "rd-audit", [GOOD, tpl("短", "短")]);
+expect("保存时会过滤掉不合规条目", loadCustomTemplates(st, "rd-audit"), [GOOD]);
+saveCustomTemplates(undefined, "rd-audit", [GOOD]);
+ok("storage 为 undefined 时保存不抛异常", true);
+
+// 5.3 新增校验：每条错误都要能直接给用户看
+const builtins = mergeTemplates("rd-audit", []);
+expect("合规模板通过校验", validateCustomTemplate(GOOD, builtins, 0), null);
+expect("前后有空格也算合规", validateCustomTemplate({ label: "  与台账一致  ", text: `  ${GOOD.text}  ` }, builtins, 0), null);
+expect(
+  "达到上限先拦下",
+  validateCustomTemplate(GOOD, builtins, MAX_CUSTOM_TEMPLATES),
+  `自定义模板最多 ${MAX_CUSTOM_TEMPLATES} 条，先删掉不用的再加`,
+);
+expect("空标签被拦下", validateCustomTemplate(tpl("   ", GOOD.text), builtins, 0), "给模板起个短标签，方便在胶囊按钮上认出来");
+expect(
+  "标签过长被拦下",
+  validateCustomTemplate(tpl("一二三四五六七八九", GOOD.text), builtins, 0),
+  `标签最多 ${LABEL_MAX} 个字，太长会把同一行的其他模板挤下去`,
+);
+expect("空内容被拦下", validateCustomTemplate(tpl("新模板", "  "), builtins, 0), "模板内容不能为空：空模板点进去等于没有留痕");
+expect(
+  "内容过短被拦下",
+  validateCustomTemplate(tpl("新模板", "已核对"), builtins, 0),
+  `模板内容至少 6 个字，否则不足以作为核对依据`,
+);
+expect(
+  "内容带分号被拦下",
+  validateCustomTemplate(tpl("新模板", `与辅助账核对一致${NOTE_SEP}无差异`), builtins, 0),
+  "模板内容不要带分号：分号是备注的分段符，会把一句话拆成两段",
+);
+expect(
+  "与内置标签重名被拦下",
+  validateCustomTemplate(tpl(builtins[0]!.label, "与本项目专项台账逐笔核对一致"), builtins, 0),
+  `已有同名标签「${builtins[0]!.label}」，换一个`,
+);
+expect(
+  "与内置内容重复被拦下",
+  validateCustomTemplate(tpl("换个标签", builtins[1]!.text), builtins, 0),
+  `已有内容相同的模板「${builtins[1]!.label}」，不必重复添加`,
+);
+expect("过短内容本身不足以留痕", noteIsMeaningful("已核对"), false);
+
+// 5.4 合并与删除：顺序稳定、同名只出现一次
+expect("合并顺序为专属内置 → 自定义 → 通用", mergeTemplates("rd-audit", [GOOD]).slice(0, 2).map((t) => t.label), [
+  builtinAgentTemplates("rd-audit")[0]!.label,
+  GOOD.label,
+]);
+expect("自定义排在通用之前", mergeTemplates("rd-audit", [GOOD]).findIndex((t) => t.label === GOOD.label) < mergeTemplates("rd-audit", [GOOD]).findIndex((t) => t.label === "与底稿合计一致"), true);
+expect("未知作品只有自定义与通用", mergeTemplates("no-such-agent", [GOOD])[0]!.label, GOOD.label);
+expect("没有自定义时与内置清单一致", mergeTemplates("land-vat"), amountNoteTemplates("land-vat"));
+expect("空自定义数组与不传等价", mergeTemplates("rd-audit", []), mergeTemplates("rd-audit"));
+expect(
+  "标签重名只保留先出现的（内置优先）",
+  mergeTemplates("rd-audit", [tpl(builtins[0]!.label, "与本项目专项台账逐笔核对一致")]).filter(
+    (t) => t.label === builtins[0]!.label,
+  ).length,
+  1,
+);
+expect(
+  "重名时保留的是内置那条文案",
+  mergeTemplates("rd-audit", [tpl(builtins[0]!.label, "与本项目专项台账逐笔核对一致")]).find(
+    (t) => t.label === builtins[0]!.label,
+  )!.text,
+  builtins[0]!.text,
+);
+expect(
+  "不合规的自定义条目不进合并结果",
+  mergeTemplates("rd-audit", [GOOD, tpl("太短", "短")]).filter((t) => t.label === "太短").length,
+  0,
+);
+expect("合并后标签仍唯一", new Set(mergeTemplates("rd-audit", [GOOD, tpl("另一条", "与另一份专项台账核对一致")]).map((t) => t.label)).size, mergeTemplates("rd-audit", [GOOD, tpl("另一条", "与另一份专项台账核对一致")]).length);
+expect("合并后每条都算有效核对依据", mergeTemplates("land-vat", [GOOD]).every((t) => noteIsMeaningful(t.text)), true);
+expect("删除指定标签", removeCustomTemplate([GOOD, tpl("另一条", "与另一份专项台账核对一致")], "另一条"), [GOOD]);
+expect("删除不存在的标签不影响清单", removeCustomTemplate([GOOD], "没有这条"), [GOOD]);
+expect("删到最后是空清单", removeCustomTemplate([GOOD], GOOD.label), []);
+
 console.log(`[verify] 金额核对备注模板检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
   for (const f of failures.slice(0, 20)) console.log(`  - ${f}`);
   console.log("[FAIL] 金额核对备注模板规则不符");
   process.exit(1);
 }
-console.log("[PASS] 金额核对备注模板正确（模板可用性 / 追加分段与去重 / 撤销 / 留痕有效性）");
+console.log("[PASS] 金额核对备注模板正确（模板可用性 / 追加分段与去重 / 撤销 / 留痕有效性 / 自定义模板存取与校验）");
