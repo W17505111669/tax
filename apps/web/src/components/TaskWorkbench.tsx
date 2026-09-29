@@ -2497,6 +2497,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                 reviews={reviews}
                 pending={pendingReviews}
                 status={reopened ? "waiting_review" : task.status}
+                agentId={agent.id}
                 onReview={handleReview}
                 onReopen={handleReopenReview}
                 amounts={{

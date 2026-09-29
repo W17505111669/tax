@@ -11,15 +11,25 @@
 
 export type AmountNoteTemplate = { label: string; text: string };
 
-/** 常用核对依据；文案与作品口径一致（金额由确定性工具计算、模型零口算） */
-export const AMOUNT_NOTE_TEMPLATES: AmountNoteTemplate[] = [
-  { label: "与辅助账一致", text: "与研发支出辅助账明细逐笔核对一致" },
+/** 两个作品通用的核对依据；文案与作品口径一致（金额由确定性工具计算、模型零口算） */
+const SHARED_TEMPLATES: AmountNoteTemplate[] = [
   { label: "与底稿合计一致", text: "与工作底稿合计数核对一致" },
   { label: "与申报表一致", text: "与申报表相应栏次核对一致" },
   { label: "工具计算已复核", text: "由确定性工具计算，已复核计算过程，无口算" },
   { label: "差异已列待核查", text: "差异已在待核查事项中列示，暂不作为认定依据" },
   { label: "客户已说明", text: "客户已提供书面说明，口径可接受，留存备查" },
 ];
+
+/** 各作品最常用的一条：研发看辅助账，土增看清算底稿与合同发票台账 */
+const AGENT_TEMPLATES: Record<string, AmountNoteTemplate[]> = {
+  "rd-audit": [{ label: "与辅助账一致", text: "与研发支出辅助账明细逐笔核对一致" }],
+  "land-vat": [{ label: "与清算底稿一致", text: "与土地增值税清算底稿及合同发票台账核对一致" }],
+};
+
+/** 按作品给出模板清单（作品专属那条排最前）；未知作品只给通用模板 */
+export function amountNoteTemplates(agentId: string): AmountNoteTemplate[] {
+  return [...(AGENT_TEMPLATES[agentId] ?? []), ...SHARED_TEMPLATES];
+}
 
 /** 备注分段符：中文分号，与人工书写习惯一致 */
 export const NOTE_SEP = "；";

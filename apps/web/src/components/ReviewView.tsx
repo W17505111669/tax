@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { ReviewRecord, TaskIssue } from "../types.ts";
 import { IconAlert, IconCheck } from "./Icons.tsx";
 import {
-  AMOUNT_NOTE_TEMPLATES,
+  amountNoteTemplates,
   composeNote,
   dropLastNoteSegment,
   noteIsMeaningful,
@@ -14,6 +14,8 @@ interface Props {
   pending: number;
   /** 任务当前状态：完成态仍有待复核问题时要给出补救入口 */
   status: string;
+  /** 所属作品：金额核对备注模板按作品给（研发看辅助账、土增看清算底稿） */
+  agentId?: string;
   onReview: (issueId: string, decision: "confirm" | "dismiss", comment: string) => void;
   onReopen: () => void;
   /** 结论金额溯源与人工核对状态（与正文就地标注同源） */
@@ -55,6 +57,7 @@ export function ReviewView({
   reviews,
   pending,
   status,
+  agentId,
   onReview,
   onReopen,
   amounts,
@@ -135,7 +138,7 @@ export function ReviewView({
                 </div>
                 <div className="mt-1 flex items-center gap-1.5">
                   <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
-                    {AMOUNT_NOTE_TEMPLATES.map((t) => (
+                    {amountNoteTemplates(agentId ?? "").map((t) => (
                       <button
                         key={t.label}
                         type="button"

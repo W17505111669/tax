@@ -3,7 +3,7 @@
  * 运行：pnpm verify:amtnote
  */
 import {
-  AMOUNT_NOTE_TEMPLATES,
+  amountNoteTemplates,
   composeNote,
   dropLastNoteSegment,
   NOTE_SEP,
@@ -25,24 +25,31 @@ function ok(name: string, cond: boolean, detail = ""): void {
   if (!cond) failures.push(`${name}${detail ? `: ${detail}` : ""}`);
 }
 
-const T1 = AMOUNT_NOTE_TEMPLATES[0]!.text;
-const T2 = AMOUNT_NOTE_TEMPLATES[1]!.text;
+const RD = amountNoteTemplates("rd-audit");
+const LV = amountNoteTemplates("land-vat");
+const T1 = RD[0]!.text;
+const T2 = RD[1]!.text;
 
-// 1) 模板自身：点了就能当核对依据用
-ok("模板至少 5 条", AMOUNT_NOTE_TEMPLATES.length >= 5, `实际 ${AMOUNT_NOTE_TEMPLATES.length}`);
+// 1) 模板自身：点了就能当核对依据用，且按作品给不同的第一条
+ok("每个作品至少 5 条模板", RD.length >= 5 && LV.length >= 5, `研发 ${RD.length} / 土增 ${LV.length}`);
+expect("标签唯一（研发）", new Set(RD.map((t) => t.label)).size, RD.length);
+expect("文案唯一（研发）", new Set(RD.map((t) => t.text)).size, RD.length);
+expect("标签唯一（土增）", new Set(LV.map((t) => t.label)).size, LV.length);
+expect("文案唯一（土增）", new Set(LV.map((t) => t.text)).size, LV.length);
+expect("每条模板都能算作有效核对依据", [...RD, ...LV].every((t) => noteIsMeaningful(t.text)), true);
+expect("模板文案不含分段符", [...RD, ...LV].every((t) => !t.text.includes(NOTE_SEP)), true);
+expect("模板标签比文案短（芯片放得下）", [...RD, ...LV].every((t) => t.label.length < t.text.length), true);
+expect("作品专属模板排在最前", [RD[0]!.label, LV[0]!.label], ["与辅助账一致", "与清算底稿一致"]);
+expect("两个作品的专属模板不同", RD[0]!.text !== LV[0]!.text, true);
+expect("专属模板贴合各自作品口径", RD[0]!.text.includes("研发支出辅助账") && LV[0]!.text.includes("土地增值税清算底稿"), true);
 expect(
-  "模板标签唯一",
-  new Set(AMOUNT_NOTE_TEMPLATES.map((t) => t.label)).size,
-  AMOUNT_NOTE_TEMPLATES.length,
+  "通用模板两个作品一致",
+  RD.slice(1).map((t) => t.label),
+  LV.slice(1).map((t) => t.label),
 );
-expect(
-  "模板文案唯一",
-  new Set(AMOUNT_NOTE_TEMPLATES.map((t) => t.text)).size,
-  AMOUNT_NOTE_TEMPLATES.length,
-);
-expect("每条模板都能算作有效核对依据", AMOUNT_NOTE_TEMPLATES.every((t) => noteIsMeaningful(t.text)), true);
-expect("模板文案不含分段符", AMOUNT_NOTE_TEMPLATES.every((t) => !t.text.includes(NOTE_SEP)), true);
-expect("模板标签比文案短（芯片放得下）", AMOUNT_NOTE_TEMPLATES.every((t) => t.label.length < t.text.length), true);
+expect("未知作品只给通用模板", amountNoteTemplates("别的作品").length, RD.length - 1);
+expect("未知作品不含专属模板", amountNoteTemplates("别的作品").some((t) => t.label === "与辅助账一致"), false);
+expect("空 agentId 安全返回通用模板", amountNoteTemplates("").length, RD.length - 1);
 
 // 2) 填入与追加
 expect("空备注直接填入", composeNote("", T1), T1);
