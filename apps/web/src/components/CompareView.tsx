@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CompareDiff, CompareRecord, CompareRef } from "../types.ts";
 import { IconAlert, IconCheck, IconCopy, IconDownload } from "./Icons.tsx";
+import { downloadCsv } from "../csv-download.ts";
 
 const KIND_META = {
   mismatch: { label: "差异", cls: "border-rose-400/40 bg-rose-400/10 text-rose-300" },
@@ -12,11 +13,6 @@ function fmt(v: string | number | null): string {
   if (v === null || v === undefined) return "∅";
   if (typeof v === "number") return v.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return String(v);
-}
-
-function csvEsc(v: string | number | null | undefined): string {
-  const s = v === null || v === undefined ? "" : String(v);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
 /** 底稿比对视图：准确率 KPI + 差异高亮表，服务交付质检与答辩展示。 */
@@ -204,41 +200,25 @@ export function CompareView({ compares, onOpenTarget, onOpenPair }: Props) {
     if (b) onOpenTarget(b);
   };
 
-  // 差异表导出 CSV（BOM + 引号转义，Excel 中文可直接打开）
-  const exportCsv = (rec: CompareRecord) => {
-    const lines = ["类型,位置,系统底稿(A),人工底稿(B)"];
+  // 差异表导出 CSV：口径统一走 csv.ts（BOM + CRLF + 引号转义 + 公式注入防护）
+  const diffRows = (rec: CompareRecord, only?: (d: CompareDiff) => boolean) => {
+    const rows: Array<Array<string | number | null | undefined>> = [
+      ["类型", "位置", "系统底稿(A)", "人工底稿(B)"],
+    ];
     for (const s of rec.result.sheets) {
       for (const d of s.diffs) {
-        const kind = d.kind === "mismatch" ? "差异" : d.kind === "only_a" ? "仅系统" : "仅人工";
-        lines.push([csvEsc(kind), csvEsc(d.address), csvEsc(d.a), csvEsc(d.b)].join(","));
+        if (only && !only(d)) continue;
+        rows.push([KIND_META[d.kind].label, d.address, d.a, d.b]);
       }
     }
-    const blob = new Blob([`\uFEFF${lines.join("\n")}`], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `底稿比对差异-${(rec.at ?? "").slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    return rows;
   };
+  const exportCsv = (rec: CompareRecord) =>
+    downloadCsv(`底稿比对差异-${(rec.at ?? "").slice(0, 10)}.csv`, diffRows(rec));
 
   // 仅导出当前筛选（类型+地址）下的差异 CSV
-  const exportCsvFiltered = (rec: CompareRecord) => {
-    const lines = ["类型,位置,系统底稿(A),人工底稿(B)"];
-    for (const s of rec.result.sheets) {
-      for (const d of s.diffs.filter(matchFilter)) {
-        const kind = d.kind === "mismatch" ? "差异" : d.kind === "only_a" ? "仅系统" : "仅人工";
-        lines.push([csvEsc(kind), csvEsc(d.address), csvEsc(d.a), csvEsc(d.b)].join(","));
-      }
-    }
-    const blob = new Blob([`\uFEFF${lines.join("\n")}`], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `底稿比对差异-筛选-${(rec.at ?? "").slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  const exportCsvFiltered = (rec: CompareRecord) =>
+    downloadCsv(`底稿比对差异-筛选-${(rec.at ?? "").slice(0, 10)}.csv`, diffRows(rec, matchFilter));
 
   if (compares.length === 0) {
     return (

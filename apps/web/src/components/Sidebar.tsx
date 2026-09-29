@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentInfo, TaskInfo } from "../types.ts";
+import { downloadCsv } from "../csv-download.ts";
 import {
   IconBuilding,
   IconCopy,
@@ -284,35 +285,25 @@ export function Sidebar({
     });
   };
 
-  // 导出当前过滤结果为 CSV（BOM + 转义，Excel 中文可直接打开）
+  // 导出当前过滤结果为 CSV：口径统一走 csv.ts（BOM + CRLF + 转义 + 公式注入防护）
   const exportCsv = () => {
-    const esc = (v: string | number) => {
-      const s = String(v);
-      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    };
-    const lines = ["标题,状态,案例,创建时间,运行次数,工具次数,进度,标签,任务ID"];
+    const rows: Array<Array<string | number | null | undefined>> = [
+      ["标题", "状态", "案例", "创建时间", "运行次数", "工具次数", "进度", "标签", "任务ID"],
+    ];
     for (const t of filtered) {
-      lines.push(
-        [
-          esc(t.title),
-          esc(STATUS_TEXT[t.status] ?? t.status),
-          esc(t.caseId),
-          esc(new Date(t.createdAt).toLocaleString("zh-CN", { hour12: false })),
-          t.runCount ?? 1,
-          t.toolCount ?? 0,
-          t.progress ?? 0,
-          esc((tagsMap[t.id] ?? []).join("|")),
-          esc(t.id),
-        ].join(","),
-      );
+      rows.push([
+        t.title,
+        STATUS_TEXT[t.status] ?? t.status,
+        t.caseId,
+        new Date(t.createdAt).toLocaleString("zh-CN", { hour12: false }),
+        t.runCount ?? 1,
+        t.toolCount ?? 0,
+        t.progress ?? 0,
+        (tagsMap[t.id] ?? []).join("|"),
+        t.id,
+      ]);
     }
-    const blob = new Blob([`\uFEFF${lines.join("\n")}`], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `任务清单-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCsv(`任务清单-${new Date().toISOString().slice(0, 10)}.csv`, rows);
   };
   const dropOn = (targetId: string) => {
     const from = dragIdRef.current;

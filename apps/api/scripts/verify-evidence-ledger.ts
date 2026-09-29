@@ -16,6 +16,7 @@ import {
 } from "../../web/src/evidence-ledger.ts";
 import { computePlatformStats } from "../src/services/stats.ts";
 import { db } from "../src/db.ts";
+import { CSV_EOL } from "../../web/src/csv.ts";
 
 const failures: string[] = [];
 let checks = 0;
@@ -118,13 +119,14 @@ expect("含逗号加引号", csvField("a,b"), '"a,b"');
 expect("含引号翻倍", csvField('a"b'), '"a""b"');
 expect("含换行加引号", csvField("a\nb"), '"a\nb"');
 const csv = ledgerCsv([row({ title: "含,逗号的任务" }), row({ taskId: "t2", title: "第二个任务" })]);
-const csvLines = csv.split("\n");
+const csvLines = csv.split(CSV_EOL);
 expect("CSV 行数 = 表头 + 数据 + 合计", csvLines.length, 4);
 expect("CSV 表头列数", csvLines[0]!.split(",").length, LEDGER_COLUMNS.length);
 ok("CSV 转义含逗号的标题", csvLines.some((l) => l.includes('"含,逗号的任务"')), csv.slice(0, 120));
 ok("CSV 含合计行", csvLines[csvLines.length - 1]!.startsWith("合计（2 个任务）"), csvLines[csvLines.length - 1] ?? "");
 expect("BOM 常量可用于 Excel", CSV_BOM.charCodeAt(0), 0xfeff);
-expect("空台账也能导出", ledgerCsv([]).split("\n").length, 2);
+expect("空台账也能导出", ledgerCsv([]).split(CSV_EOL).length, 2);
+expect("台账 CSV 用 CRLF 分行（Excel 与记事本一致）", ledgerCsv([]).includes(CSV_EOL), true);
 
 // 5) Markdown 导出
 const md = ledgerMarkdown([row(), row({ taskId: "t2", title: "第二个任务", weak: 9 })], (x) => x, "2026-09-29 10:00");
@@ -189,7 +191,7 @@ expect(
   true,
 );
 expect("每行都有任务标题", led.every((r) => r.title.length > 0), true);
-expect("台账导出行数 = 表头 + 任务 + 合计", ledgerCsv(led).split("\n").length, led.length + 2);
+expect("台账导出行数 = 表头 + 任务 + 合计", ledgerCsv(led).split(CSV_EOL).length, led.length + 2);
 ok(
   "台账 MD 含全部任务标题",
   led.every((r) => ledgerMarkdown(led).join("\n").includes(r.title.slice(0, 12))),

@@ -38,6 +38,7 @@ pnpm verify:trend    # 指标趋势：每日快照 / 基线选择 / 环比差值
 pnpm verify:sheet    # 证据核对表：九项核对结论 / 空输入兜底 / 待办分组 / 真实任务走查
 pnpm verify:amtnote  # 金额核对备注模板：追加去重 / 撤销 / 留痕有效性 / 自定义模板按作品存取与校验
 pnpm verify:ledger   # 全平台证据核对台账：缺口判断 / 排序合计 / CSV 与 MD 导出 / 与平台统计交叉核对
+pnpm verify:csv      # CSV 导出统一口径：转义 / 公式注入防护 / CRLF 与 BOM / 往返解析
 pnpm report:test     # 生成测试报告（实时跑验证矩阵 + 汇总真实任务台账与准确率）
 pnpm gen:materials   # 生成两个作品的比赛说明文档（docs/competition/，含真实运行统计）
 pnpm gen:ppt         # 生成答辩 PPT 大纲（每作品 10 页，含讲稿要点与画面元素）
@@ -45,7 +46,7 @@ pnpm demo:script     # 生成录屏分镜表（docs/competition/录屏分镜表.
 pnpm case:run <id>   # 案例回归：上传→执行→与人工参考底稿比对→案例报告（data/cases/）
 pnpm verify:agents   # Phase 1：两个 Agent 的系统提示词与工具集相互独立
 pnpm -r typecheck    # 全仓类型检查
-pnpm qa:all          # 全量质量门：36 项 verify + 测试报告 + 比赛材料 + 证据包
+pnpm qa:all          # 全量质量门：37 项 verify + 测试报告 + 比赛材料 + 证据包
 ```
 
 验证记录见 [docs/testing/phase0-verification.md](docs/testing/phase0-verification.md)。

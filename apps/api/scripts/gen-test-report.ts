@@ -146,6 +146,11 @@ const VERIFY_SCRIPTS: Array<{ name: string; cmd: string; scope: string }> = [
     scope: "全平台证据核对台账（缺口判断 / 排序与合计 / 15 列单元格 / CSV 与 Markdown 导出 / 与平台统计口径交叉核对）",
   },
   {
+    name: "verify:csv",
+    cmd: "pnpm verify:csv",
+    scope: "CSV 导出统一口径（转义 / 公式注入防护 / CRLF 与 BOM / RFC 往返解析 / 台账·比对差异·任务清单三处调用方不再各写一份）",
+  },
+  {
     name: "verify:upload",
     cmd: "pnpm verify:upload",
     scope: "上传预检规则（扩展名 / 大小 / 空文件 / 批量分组 / 提示文案）",

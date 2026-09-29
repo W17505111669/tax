@@ -8,6 +8,11 @@
 
 import { mdCell } from "./run-tools.ts";
 
+import { csvBody, CSV_BOM, csvField } from "./csv.ts";
+
+// 台账的 CSV 口径全部走 csv.ts，这里只做转出口：AgentOverview 与验证脚本的导入不必改
+export { CSV_BOM, csvField };
+
 export type LedgerRow = {
   taskId: string;
   title: string;
@@ -151,41 +156,30 @@ export function ledgerCells(r: LedgerRow, agentName: (id: string) => string): st
   ];
 }
 
-/** CSV 字段转义：含逗号、引号、换行时加引号并把引号翻倍 */
-export function csvField(value: string): string {
-  return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
-}
-
-/** Excel 打开中文 CSV 需要 BOM，导出时由调用方前置 */
-export const CSV_BOM = "\uFEFF";
-
-/** 台账 CSV（不含 BOM；下载时前置 CSV_BOM） */
+/** 台账 CSV（不含 BOM；下载时前置 CSV_BOM），行序与 MD 一致 */
 export function ledgerCsv(rows: LedgerRow[], agentName: (id: string) => string = (x) => x): string {
-  const lines = [LEDGER_COLUMNS.map(csvField).join(",")];
-  for (const r of ledgerSort(rows)) lines.push(ledgerCells(r, agentName).map(csvField).join(","));
   const t = ledgerTotals(rows);
-  lines.push(
+  return csvBody([
+    LEDGER_COLUMNS,
+    ...ledgerSort(rows).map((r) => ledgerCells(r, agentName)),
     [
       `合计（${t.tasks} 个任务）`,
       "",
       "",
       `${t.docRefTraced}/${t.docRefTotal}`,
-      String(t.docRefPending),
-      String(t.docRefMatched),
-      String(t.citations),
-      String(t.official),
-      String(t.weak),
-      String(t.replaced),
-      String(t.searchCalls),
-      String(t.searchMetadataOnly),
-      String(t.searchDropped),
+      t.docRefPending,
+      t.docRefMatched,
+      t.citations,
+      t.official,
+      t.weak,
+      t.replaced,
+      t.searchCalls,
+      t.searchMetadataOnly,
+      t.searchDropped,
       `${t.amountPending}/${t.amountTotal}`,
       `可比 ${t.revisionCompared} · 改善 ${t.revisionImproved}`,
-    ]
-      .map(csvField)
-      .join(","),
-  );
-  return lines.join("\n");
+    ],
+  ]);
 }
 
 /** 台账 Markdown（含合计行与口径说明） */
