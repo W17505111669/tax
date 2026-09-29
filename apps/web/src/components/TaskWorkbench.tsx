@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { marked } from "marked";
 import { api } from "../api.ts";
+import { downloadBlob, downloadText } from "../download.ts";
 import type {
   AgentInfo,
   ArtifactInfo,
@@ -1549,12 +1550,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     void api
       .bundleZip(task.id, md, `${task.title}-交付包-${stamp}`, buildDeliveryManifest())
       .then((blob) => {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `${task.title}-交付包-${stamp}.zip`;
-        a.click();
-        URL.revokeObjectURL(url);
+        downloadBlob(blob, `${task.title}-交付包-${stamp}.zip`);
       })
       .catch((err: unknown) => {
         download(`${task.title}-整页-${stamp}.md`, md);
@@ -1614,13 +1610,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   }, [tab, secInto, finalResult]);
 
   const download = (name: string, content: string) => {
-    const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = name;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadText(name, content, "text/markdown");
   };
 
   return (
@@ -2477,13 +2467,11 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                 zipNote={zipNote}
                 onExportBundle={() => {
                   const lines = bundleLines();
-                  const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = `${task.title}-整页-${new Date().toISOString().slice(0, 10)}.md`;
-                  a.click();
-                  URL.revokeObjectURL(url);
+                  downloadText(
+                    `${task.title}-整页-${new Date().toISOString().slice(0, 10)}.md`,
+                    lines.join("\n"),
+                    "text/markdown",
+                  );
                 }}
               />
               </>
@@ -2839,13 +2827,11 @@ function TimelineView({
       "",
       ...artifactTable(arts, "（本次运行未生成产物）"),
     ];
-    const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `运行${runIdx}-时间线-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "")}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadText(
+      `运行${runIdx}-时间线-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "")}.md`,
+      lines.join("\n"),
+      "text/markdown",
+    );
   };
 
   type TItem = (typeof items)[number];
@@ -3012,13 +2998,11 @@ function TimelineView({
             if (unattr.length > 0) {
               lines.push("### 未归属到具体运行", "", ...artifactTable(unattr, ""));
             }
-            const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `时间线-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "")}.md`;
-            a.click();
-            URL.revokeObjectURL(url);
+            downloadText(
+              `时间线-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "")}.md`,
+              lines.join("\n"),
+              "text/markdown",
+            );
           }}
         >
           <IconDownload className="h-3 w-3" />

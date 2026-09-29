@@ -1,6 +1,7 @@
 import { useEffect, useRef, type MouseEvent } from "react";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
+import { downloadText } from "../download.ts";
 
 type MermaidApi = typeof import("mermaid").default;
 
@@ -77,13 +78,7 @@ function renderMarkdown(el: HTMLElement, text: string, live: boolean): void {
           btn.addEventListener("click", () => {
             const clone = svg.cloneNode(true) as SVGSVGElement;
             clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-            const blob = new Blob([clone.outerHTML], { type: "image/svg+xml;charset=utf-8" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = "diagram.svg";
-            a.click();
-            URL.revokeObjectURL(url);
+            downloadText("diagram.svg", clone.outerHTML, "image/svg+xml");
           });
           bar.appendChild(btn);
           node.appendChild(bar);

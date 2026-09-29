@@ -11,24 +11,13 @@ import {
   type DailySnapshot,
 } from "../metric-trend.ts";
 import {
-  CSV_BOM,
   ledgerCells,
   ledgerCsv,
   ledgerMarkdown,
   ledgerTotals,
   LEDGER_COLUMNS,
 } from "../evidence-ledger.ts";
-
-/** 下载文本文件；CSV 前置 BOM，Excel 才能正确识别中文 */
-function downloadText(filename: string, text: string, mime: string, bom = false): void {
-  const blob = new Blob([bom ? CSV_BOM + text : text], { type: `${mime};charset=utf-8` });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
+import { downloadBlob, downloadText } from "../download.ts";
 
 /** 每日指标快照的本地存储键（保留最近 60 天，由 recordSnapshot 裁剪） */
 const SNAPSHOT_KEY = "taxai-stats-snapshots";
@@ -302,15 +291,6 @@ export function AgentOverview({
   };
   const perTool = p?.perTool ?? [];
   const toolCount = (name: string) => perTool.find((t) => t.name === name)?.calls ?? 0;
-
-  const downloadBlob = (blob: Blob, name: string) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = name;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
 
   // 平台看板快照导出（MD 表格 / JSON 原始）
   const exportStats = (fmt: "json" | "md") => {

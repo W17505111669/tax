@@ -130,7 +130,7 @@ for (const [name, src] of [
   ["CompareView", compare],
   ["Sidebar", sidebar],
 ] as const) {
-  ok(`${name} 走共享 downloadCsv`, src.includes('import { downloadCsv } from "../csv-download.ts"'));
+  ok(`${name} 走共享下载助手`, src.includes('from "../download.ts"') && src.includes("downloadCsv"));
   // 只针对 CSV：Markdown 与剪贴板导出仍然自己拼 \n，那是正常口径
   ok(
     `${name} 不再自己拼 CSV（BOM 与 text/csv 都交给 downloadCsv）`,
@@ -138,11 +138,25 @@ for (const [name, src] of [
   );
 }
 ok("csv.ts 保持纯函数不碰 DOM（api 侧可直接引用与验证）", !read("csv.ts").includes("document"));
-ok("下载助手单独一个模块", read("csv-download.ts").includes("export function downloadCsv"));
+ok("下载助手单独一个模块", read("download.ts").includes("export function downloadCsv"));
+// 组件里不许再手写 createObjectURL：抄一份就可能漏掉 charset、BOM 或 revokeObjectURL
+const componentsDir = path.join(webSrc, "components");
+const handRolled = fs
+  .readdirSync(componentsDir)
+  .filter((f) => f.endsWith(".tsx") || f.endsWith(".ts"))
+  .filter((f) => fs.readFileSync(path.join(componentsDir, f), "utf8").includes("createObjectURL"))
+  .sort();
+expect("组件里不再手写 createObjectURL（统一走 download.ts）", handRolled, []);
+const dl = read("download.ts");
+expect("下载助手里只有一处 createObjectURL 调用", dl.split("URL.createObjectURL(").length - 1, 1);
+expect("每处 createObjectURL 都对应一次回收", dl.split("URL.revokeObjectURL(").length - 1, 1);
 ok("台账模块从 csv.ts 取口径", ledger.includes('from "./csv.ts"'));
 ok("台账模块仍转出 csvField 与 CSV_BOM", /export \{[^}]*CSV_BOM[^}]*csvField[^}]*\}/s.test(ledger));
 ok("台账不再自己 join LF", !ledger.includes('lines.join("\\n")'));
-ok("平台总览仍能用转出口的 CSV_BOM", overview.includes("CSV_BOM"));
+ok(
+  "平台总览的下载也走共享助手（不再自己碰 BOM）",
+  overview.includes('from "../download.ts"') && !overview.includes("CSV_BOM"),
+);
 
 console.log(`[verify] CSV 导出口径检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {

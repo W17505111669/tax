@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentInfo, TaskInfo } from "../types.ts";
-import { downloadCsv } from "../csv-download.ts";
+import { downloadCsv } from "../download.ts";
 import {
   IconBuilding,
   IconCopy,

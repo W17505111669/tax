@@ -148,7 +148,7 @@ const VERIFY_SCRIPTS: Array<{ name: string; cmd: string; scope: string }> = [
   {
     name: "verify:csv",
     cmd: "pnpm verify:csv",
-    scope: "CSV 导出统一口径（转义 / 公式注入防护 / CRLF 与 BOM / RFC 往返解析 / 台账·比对差异·任务清单三处调用方不再各写一份）",
+    scope: "CSV 与文件下载统一口径（转义 / 公式注入防护 / CRLF 与 BOM / RFC 往返解析 / 组件里不再手写 createObjectURL）",
   },
   {
     name: "verify:upload",

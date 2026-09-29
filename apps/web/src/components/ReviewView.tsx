@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ReviewRecord, TaskIssue } from "../types.ts";
 import { IconAlert, IconCheck, IconPlus, IconX } from "./Icons.tsx";
+import { downloadText } from "../download.ts";
 import {
   LABEL_MAX,
   MAX_CUSTOM_TEMPLATES,
@@ -328,13 +329,7 @@ export function ReviewView({
         } | ${issue?.issueType ?? r.issueId} | 意见：${r.comment || "（无）"}`,
       );
     }
-    const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `复核记录-${new Date().toISOString().slice(0, 10)}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadText(`复核记录-${new Date().toISOString().slice(0, 10)}.md`, lines.join("\n"), "text/markdown");
   };
   const shown = onlyPending ? issues.filter((i) => !reviewMap.has(i.id)) : issues;
 
