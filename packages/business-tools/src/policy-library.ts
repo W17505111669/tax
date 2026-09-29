@@ -21,6 +21,9 @@ const POLICY_SITE_CODE = "bm29000002";
 const POLICY_SITE_NAME = "GSFFK";
 
 /** 政策法规库检索命中项 */
+import { hostOf } from "./web-search.ts";
+
+/** 政策法规库检索命中项 */
 export type PolicyLibraryHit = {
   /** 结构化发文字号，如「国家税务总局公告2019年第41号」；库内部分条目为空串 */
   docNum: string;
@@ -42,6 +45,55 @@ export function normalizeDocNum(s: string): string {
   return s.replace(/\s+/g, "").replace(/[〔【]/g, "[").replace(/[〕】]/g, "]");
 }
 
+/**
+ * 是不是政策法规库文档树里的原文页。
+ *
+ * 只有 `fgk.chinatax.gov.cn/zcfgk/<栏目>/<稿件>/content.html` 这一类才是文件原文。主站
+ * `www.chinatax.gov.cn/chinatax/n…/c…/content.html` 是新闻与解读频道，实测有过一条
+ * 《关于〈…归集范围有关问题的公告〉的解读》被当成「国家税务总局公告2017年第40号」的原文
+ * 收进复用索引——页面里确实出现了该字号，但它只是链接到原文，不是原文本身。
+ */
+export function isLibraryDocUrl(raw: string): boolean {
+  if (hostOf(raw) !== "fgk.chinatax.gov.cn") return false;
+  try {
+    const p = new URL(raw).pathname;
+    return p.startsWith("/zcfgk/") && p.endsWith("/content.html");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 原文页的标题区文本（「阅读量」之前那段，去掉尾部夹着的一对空括号），已归一化。
+ * 页面格式固定为「当前位置：… <标题> <发文字号> （ ） 阅读量：N次」。
+ */
+export function libraryPageHeader(html: string): string {
+  const text = html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    // head 与 title 的文字要一并去掉：政策法规库是 SPA，<title> 是站点名而不是文件名，
+    // 留着只会混进标题区文本（判定用的是 endsWith，混在前面不影响结果，但取出来的段落就不干净了）
+    .replace(/<head[\s\S]*?<\/head>/gi, " ")
+    .replace(/<title[\s\S]*?<\/title>/gi, " ")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ");
+  const at = text.indexOf("阅读量");
+  const head = at >= 0 ? text.slice(0, at) : text;
+  return normalizeDocNum(head.replace(/[（(]\s*[)）]\s*$/, "").trim());
+}
+
+/**
+ * 该页是否就是这份文件：标题区以该发文字号结尾。
+ *
+ * 不能用 `<title>` 判断——政策法规库是 SPA，所有页面的 `<title>` 都是「国家税务总局政策法规库」。
+ * 也不能只判断「页面里出现了该字号」：解读页、废止目录页都会提到别的文件。
+ */
+export function isLibraryPageForDoc(html: string, docNum: string): boolean {
+  const want = normalizeDocNum(docNum);
+  if (want === "") return false;
+  return libraryPageHeader(html).endsWith(want);
+}
 /** 检索接口返回的标题带 <em> 高亮标记，落库前清掉 */
 function cleanTitle(raw: string): string {
   return raw

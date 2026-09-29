@@ -7,6 +7,7 @@
  */
 import {
   describeAttempts,
+  isLibraryDocUrl,
   matchPolicyDocNum,
   searchPolicyLibrary,
   searchWebDetailed,
@@ -186,6 +187,9 @@ export function verifiedOfficialDocs(): Map<string, VerifiedOfficialDoc> {
     const url = r.evidence_url ?? "";
     const title = r.evidence_title ?? "";
     if (url === "") continue;
+    // 只收政策法规库文档树里的原文页：主站解读频道页也会出现该字号，但它只是链接到原文。
+    // 实测有过一条《关于〈…归集范围有关问题的公告〉的解读》被当成 2017年第40号 的原文收进索引。
+    if (!isLibraryDocUrl(url)) continue;
     // 按当前分级规则重算，规则收紧后旧记录不会把误判带进索引
     const grade = gradeCitation(url, title);
     if (grade.grade !== "official") continue;
