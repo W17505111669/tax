@@ -4,6 +4,9 @@
  * 运行：pnpm verify:refcheck
  */
 import type { DetailedSearch, SearchAttempt, WebSearchResult } from "@tax/business-tools";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   buildRefQuery,
   buildRevisionInstruction,
@@ -39,6 +42,13 @@ import {
 } from "../../web/src/ref-check.ts";
 import { db } from "../src/db.ts";
 import {
+  isRevisionBlocked,
+  REVISION_ALLOWED_TOOLS,
+  REVISION_BLOCKED_TOOLS,
+  revisionAllowedTools,
+  revisionBlockedNames,
+} from "../../web/src/revision-mode.ts";
+import {
   BATCH_REF_BUDGET,
   BATCH_REF_MAX,
   listRefChecks,
@@ -54,6 +64,7 @@ import {
 import { getTask, listTasks } from "../src/services/task-store.ts";
 
 const failures: string[] = [];
+const here = path.dirname(fileURLToPath(import.meta.url));
 let checks = 0;
 
 function expect(name: string, actual: unknown, want: unknown): void {
@@ -297,6 +308,47 @@ ok(
   instr.includes("不要重新调用解析、底稿生成、模板填列或底稿比对一类业务工具"),
 );
 ok("指令说明重跑会替换上一轮交付证据", instr.includes("已有工具结果与比对记录是上一轮的交付证据"));
+
+// 修订模式的工具黑名单：指令里嘱咐不算数，本轮会话里直接没有这些工具才算数
+expect("黑名单含底稿生成", isRevisionBlocked("generate_workpaper"), true);
+expect("黑名单含底稿比对", isRevisionBlocked("compare_workpapers"), true);
+expect("黑名单含模板填列", isRevisionBlocked("fill_land_vat_workpaper"), true);
+expect("黑名单含资料解析", isRevisionBlocked("parse_uploaded_files"), true);
+expect(
+  "黑名单含测算与核查",
+  isRevisionBlocked("calculate_rd_adjustment") && isRevisionBlocked("check_rd_expenses"),
+  true,
+);
+expect("检索工具不在黑名单（补出处要能联网核对）", isRevisionBlocked("web_search"), false);
+expect("读取原文工具不在黑名单", isRevisionBlocked("fetch_public_document"), false);
+expect("政策检索工具不在黑名单", isRevisionBlocked("search_rd_policy"), false);
+expect("白名单里的工具都不在黑名单", REVISION_ALLOWED_TOOLS.every((t) => !isRevisionBlocked(t)), true);
+expect("黑名单没有重复项", new Set(REVISION_BLOCKED_TOOLS).size, REVISION_BLOCKED_TOOLS.length);
+const toolset = [
+  { name: "generate_workpaper" },
+  { name: "compare_workpapers" },
+  { name: "web_search" },
+  { name: "fetch_public_document" },
+];
+expect(
+  "过滤后只剩检索与读取类工具",
+  revisionAllowedTools(toolset).map((t) => t.name),
+  ["web_search", "fetch_public_document"],
+);
+expect("被摘掉的工具名可用于留痕", revisionBlockedNames(toolset), ["generate_workpaper", "compare_workpapers"]);
+expect("过滤不改动原数组", toolset.length, 4);
+const runnerSrc = fs.readFileSync(path.resolve(here, "../src/services/agent-runner.ts"), "utf8");
+ok("运行时在修订模式下过滤任务工具", runnerSrc.includes("revisionAllowedTools(allTaskTools)"));
+ok("运行时在修订模式下过滤智能体自带工具", runnerSrc.includes("tools: revisionAllowedTools(agent0.tools)"));
+ok("修订模式在 run_started 事件里写明", runnerSrc.includes("修订模式：只改依据与引用"));
+const routesSrc = fs.readFileSync(path.resolve(here, "../src/routes/tasks.ts"), "utf8");
+ok(
+  "续跑接口接受 revisionOnly 并透传给运行时",
+  routesSrc.includes("const revisionOnly = body.revisionOnly === true") &&
+    routesSrc.includes("{ resume: true, revisionOnly }"),
+);
+const writebackSrc = fs.readFileSync(path.join(here, "writeback-evidence.ts"), "utf8");
+ok("写回脚本默认走修订模式", writebackSrc.includes("revisionOnly: true"));
 ok("指令含补文号出处段", instr.includes("【补文号出处】") && instr.includes("财税〔2015〕119号 → 《政策执行指引》 https://a.gov.cn/x.pdf"));
 ok("指令含替换弱证据段与原地址", instr.includes("【替换弱证据引用】") && instr.includes(WEAK_URL));
 ok("指令含未取得原文段", instr.includes("【标注未取得原文】") && instr.includes("国税发〔2006〕187号"));

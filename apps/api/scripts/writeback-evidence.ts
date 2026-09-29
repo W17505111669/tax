@@ -100,7 +100,8 @@ for (const p of plans) {
   const started = Date.now();
   console.log(`\n→ 续跑「${p.task.title}」（${p.task.id.slice(0, 8)}）…`);
   try {
-    await runTask(p.task.id, p.instruction, { resume: true });
+    // 修订模式：机制上摘掉会重写产物与比对记录的工具，不只靠指令里那句嘱咐
+    await runTask(p.task.id, p.instruction, { resume: true, revisionOnly: true });
   } catch (err) {
     console.log(`  失败：${err instanceof Error ? err.message : String(err)}`);
     continue;

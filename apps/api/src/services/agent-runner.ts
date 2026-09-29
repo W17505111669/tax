@@ -17,6 +17,7 @@ import {
   setTaskStatus,
 } from "./task-store.ts";
 import { pendingReviewIssues } from "./issues.ts";
+import { revisionAllowedTools, revisionBlockedNames } from "../../../web/src/revision-mode.ts";
 
 export const eventBus = new TaskEventBus();
 
@@ -31,16 +32,31 @@ function emit(taskId: string, kind: Parameters<typeof appendEvent>[1], message: 
  * 启动一次 Agent 运行。函数不阻塞 HTTP 请求，进度通过 SSE 推送。
  * 任务状态以真实执行事件与持久化状态为准，不依据模型文字判断。
  */
-export async function runTask(taskId: string, instruction: string, opts: { resume?: boolean } = {}): Promise<void> {
+export async function runTask(
+  taskId: string,
+  instruction: string,
+  opts: { resume?: boolean; revisionOnly?: boolean } = {},
+): Promise<void> {
   if (running.has(taskId)) return;
   const task = getTask(taskId);
   if (!task) throw new Error(`任务不存在: ${taskId}`);
 
   running.add(taskId);
   setTaskStatus(taskId, "processing");
-  emit(taskId, "run_started", opts.resume ? `续跑任务：${task.title}` : `开始执行任务：${task.title}`);
-
-  const agent = getAgent(task.agentId as AgentId);
+  const agent0 = getAgent(task.agentId as AgentId);
+  // 修订模式：把会重写产物、比对记录与测算结果的工具从本轮会话里摘掉，
+  // 只留检索与读取类工具。指令里也写了「不要重跑业务工具」，但机制比嘱咐可靠。
+  const blocked = opts.revisionOnly ? revisionBlockedNames(agent0.tools) : [];
+  const agent = opts.revisionOnly ? { ...agent0, tools: revisionAllowedTools(agent0.tools) } : agent0;
+  emit(
+    taskId,
+    "run_started",
+    opts.revisionOnly
+      ? `续跑任务（修订模式：只改依据与引用，本轮停用会重写产物与比对记录的工具）：${task.title}`
+      : opts.resume
+        ? `续跑任务：${task.title}`
+        : `开始执行任务：${task.title}`,
+  );
   const cfg = loadRuntimeConfig();
   cfg.extensionPaths = [...cfg.extensionPaths, ...resolveCommunityExtensions()];
   const taskCwd = path.join(dirs.uploads, taskId);
@@ -51,12 +67,19 @@ export async function runTask(taskId: string, instruction: string, opts: { resum
     latestToolResult: (toolName: string) => latestToolResult(taskId, toolName),
   };
   const kits = agent.taskToolKits ?? ["documents"];
-  const taskTools = [
+  const allTaskTools = [
     ...(kits.includes("documents") ? createTaskDocumentTools(docCtx) : []),
     ...(kits.includes("template") ? createTemplateTools(docCtx) : []),
     ...(kits.includes("extract") ? createExtractTools(docCtx) : []),
     ...(kits.includes("template") ? createDiagramTools(docCtx) : []),
   ];
+  const taskTools = opts.revisionOnly ? revisionAllowedTools(allTaskTools) : allTaskTools;
+  if (opts.revisionOnly) {
+    // 停用了哪些工具进服务端日志：界面上 run_started 事件已经写明本轮是修订模式，
+    // 这里留一份完整清单便于事后追查「为什么这一轮没有底稿产物」
+    const removed = [...blocked, ...revisionBlockedNames(allTaskTools)];
+    if (removed.length > 0) console.log(`[revision] ${taskId} 停用工具：${removed.join("、")}`);
+  }
 
   const pendingToolCalls = new Map<string, string>();
   let session: Awaited<ReturnType<typeof createTaxAgentSession>> | undefined;

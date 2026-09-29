@@ -125,6 +125,9 @@ function build(agent: TaxAgentConfig, extra: Array<{ name: string; label: string
   lines.push(
     `- 替代来源有两道门槛：域名是政府或税务机关站点只是必要条件，页面还不能是入口页与功能页（首页、栏目页、登录检索页，以及 App 下载页、工具页一类没有文件内容的页面，index_pc.html / downloadApp / tools.html 这些变体都算），并且要与原引用有共同主题词——中文按二字滑窗粗分词、英文数字取 3 字以上，先剔掉「国家 / 政务 / 服务 / 平台 / 百科 / 税务」这类两边都会出现的通用词，剩下没有交集就只给「候选待人工确认」，不判成「已找到官方原文」。实测这道门槛拦下了把「国家政务服务平台」换成同域名 App 下载页、把「12366 纳税服务平台」换成 tools.html 的替换；对库里已有的 19 条官方替代来源逐条回算，没有一条被误伤`,
   );
+  lines.push(
+    `- 修订模式是机制不是嘱咐：点「生成修订指令」再续跑时，本轮会话里直接没有 generate_workpaper、compare_workpapers、fill_land_vat_workpaper、parse_uploaded_files 与测算核查类工具（黑名单在 revision-mode.ts，任务工具与智能体自带工具一起过滤），只保留联网检索与原文读取，因此补引用出处不会顺手把上一轮的底稿与比对记录换掉；run_started 事件写明本轮是修订模式，被停用的工具清单进服务端日志可追查。这条是实测换来的：早期只在指令里写「不要重跑业务工具」，模型照样重新生成了底稿，把记录级比对从 2/3 变成 0/54`,
+  );
   lines.push("");
   lines.push(`## 四、核心流程`);
   lines.push("");
