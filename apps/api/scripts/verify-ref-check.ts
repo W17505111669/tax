@@ -29,7 +29,7 @@ import { traceDocRefs } from "../../web/src/policy-trace.ts";
 import { extractCitations } from "../../web/src/search-evidence.ts";
 import { gradeCitation } from "../../web/src/citation-grade.ts";
 import { topicHint } from "../../web/src/domain-keywords.ts";
-import { preservedNote, shouldOverwrite, unresolvedTargets } from "../../web/src/ref-check.ts";
+import { matchedStillValid, preservedNote, shouldOverwrite, unresolvedTargets } from "../../web/src/ref-check.ts";
 import { db } from "../src/db.ts";
 import {
   BATCH_REF_BUDGET,
@@ -40,6 +40,7 @@ import {
   pendingRefTargets,
   planBatchRefChecks,
   runRefChecks,
+  saveRefCheck,
   toTargets,
   type Searcher,
 } from "../src/services/ref-checks.ts";
@@ -498,7 +499,9 @@ for (const t of listTasks()) {
   const tr = traceDocRefs(text, parsed, rows.map((r) => r.tool_name));
   const recs = listRefChecks(t.id);
   // 已经找到公开出处的不再算「待复查」：与批量入口和看板口径保持一致
-  const pending = unresolvedTargets(refCheckTargets(tr), recs);
+  const stillOfficial = (c: { kind?: "docref" | "citation"; evidence: { url: string; title: string } | null }) =>
+    matchedStillValid(c.kind ?? "docref", c.evidence, gradeCitation);
+  const pending = unresolvedTargets(refCheckTargets(tr), recs, stillOfficial);
   pendingTotal += pending.length;
   if (pending.length > 0) tasksPending += 1;
   // 服务端独立算出的待复查清单必须与前端口径一致（批量入口不依赖前端传清单）
@@ -529,6 +532,7 @@ for (const t of listTasks()) {
       10,
     ),
     recs,
+    stillOfficial,
   );
   const gotCites = pendingCitationTargets(t.id);
   checks += 1;
@@ -625,10 +629,127 @@ expect(
   3,
 );
 expect("没有复查记录时全部保留", unresolvedTargets([{ key: "a" }], []).length, 1);
+expect(
+  "旧证据按新规则失效的 matched 重新算未解决（批量清单能自我修复）",
+  unresolvedTargets(
+    [{ key: "a" }, { key: "b" }],
+    [
+      {
+        key: "a",
+        verdict: "matched",
+        evidence: { url: "https://www.nda.gov.cn/sjj/index_pc.html", title: "国家数据局" },
+      },
+      {
+        key: "b",
+        verdict: "matched",
+        evidence: { url: "https://www.gov.cn/zhengce/content/2023-08/28/content_6900000.htm", title: "通知" },
+      },
+    ],
+    (c) => matchedStillValid(c.kind ?? "citation", c.evidence, gradeCitation),
+  ).map((t) => t.key),
+  ["a"],
+);
+expect(
+  "不传判定函数时按原样保护全部 matched",
+  unresolvedTargets([{ key: "a" }], [{ key: "a", verdict: "matched", evidence: null }]).length,
+  0,
+);
 expect("保留说明带上日期与判定", preservedNote("", "empty", "2026-09-29T03:00:00.000Z").includes("2026-09-29 03:00:00"), true);
 expect("保留说明接在旧 note 后面", preservedNote("旧说明", "empty", "2026-09-29T03:00:00.000Z").startsWith("旧说明；"), true);
 db.prepare(`DELETE FROM ref_checks WHERE task_id = ?`).run(TASK);
 expect("验证收尾清掉假任务的记录", listRefChecks(TASK).length, 0);
+
+// 9) 不降级护栏不能把误判锁死：分级规则收紧后，旧的 matched 要能被纠正
+expect("旧证据仍算官方原文时不覆盖", shouldOverwrite("matched", "empty", true), false);
+expect("旧证据已不算官方原文时允许覆盖", shouldOverwrite("matched", "empty", false), true);
+expect("默认参数保持保护", shouldOverwrite("matched", "empty"), false);
+expect("没有旧证据时不保护", matchedStillValid("docref", null, gradeCitation), false);
+expect("空地址不保护", matchedStillValid("docref", { url: "", title: "甲" }, gradeCitation), false);
+expect(
+  "引用替换：门户入口页证据不受保护",
+  matchedStillValid(
+    "citation",
+    { url: "https://www.nda.gov.cn/sjj/index_pc.html", title: "国家数据局" },
+    gradeCitation,
+  ),
+  false,
+);
+expect(
+  "引用替换：政策原文地址仍受保护",
+  matchedStillValid(
+    "citation",
+    { url: "https://www.gov.cn/zhengce/content/2023-08/28/content_6900000.htm", title: "关于某某的通知" },
+    gradeCitation,
+  ),
+  true,
+);
+expect(
+  "引用替换：专业来源不够（承诺的是官方原文）",
+  matchedStillValid(
+    "citation",
+    { url: "https://www.shui5.cn/article/ae/10559.html", title: "国税发〔2006〕187号" },
+    gradeCitation,
+  ),
+  false,
+);
+expect(
+  "文号复查：专业来源仍算出处（税务实务库）",
+  matchedStillValid(
+    "docref",
+    { url: "https://www.shui5.cn/article/ae/10559.html", title: "国税发〔2006〕187号" },
+    gradeCitation,
+  ),
+  true,
+);
+expect(
+  "文号复查：法规 PDF 仍算出处",
+  matchedStillValid(
+    "docref",
+    { url: "http://www.ohmi.net.cn/law/pdf/shuishou/guoshuifa200991.pdf", title: "国税发〔2009〕91号" },
+    gradeCitation,
+  ),
+  true,
+);
+expect(
+  "文号复查：门户首页不算出处",
+  matchedStillValid("docref", { url: "https://www.chinatax.gov.cn/", title: "国家税务总局" }, gradeCitation),
+  false,
+);
+const STALE_URL = "https://www.nda.gov.cn/sjj/index_pc.html";
+const staleKey = refKey("citation", STALE_URL);
+saveRefCheck(TASK, {
+  key: staleKey,
+  kind: "citation",
+  text: "国家数据局",
+  query: "国家数据局 统计数据",
+  verdict: "matched",
+  note: "旧规则下把门户入口页误判为官方原文",
+  evidence: { title: "国家数据局", url: STALE_URL, snippet: "", grade: "official", gradeReason: "" },
+  subjectUrl: "https://data.stats.gov.cn/",
+  attempts: [],
+  checkedAt: "2026-09-29T04:00:00.000Z",
+});
+expect("前置：误判记录已落库", listRefChecks(TASK)[0]?.verdict, "matched");
+saveRefCheck(TASK, {
+  key: staleKey,
+  kind: "citation",
+  text: "国家数据局",
+  query: "国家数据局 统计数据",
+  verdict: "candidate",
+  note: "本次只找到候选页，需人工确认",
+  evidence: null,
+  subjectUrl: "https://data.stats.gov.cn/",
+  attempts: [],
+  checkedAt: "2026-09-29T06:00:00.000Z",
+});
+const corrected = listRefChecks(TASK)[0];
+expect("误判的 matched 被纠正", corrected?.verdict, "candidate");
+expect("纠正后不再保留失效证据", corrected?.evidence, null);
+expect("纠正后 note 是本次说明", corrected?.note, "本次只找到候选页，需人工确认");
+expect("纠正后复查时间更新", corrected?.checkedAt, "2026-09-29T06:00:00.000Z");
+expect("纠正过程不新增记录", listRefChecks(TASK).length, 1);
+db.prepare(`DELETE FROM ref_checks WHERE task_id = ?`).run(TASK);
+expect("收尾清掉假任务记录", listRefChecks(TASK).length, 0);
 
 console.log(`[verify] 文号复查检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {

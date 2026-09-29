@@ -669,3 +669,17 @@ curl -L -o data/ocr-tessdata/eng.traineddata https://cdn.jsdelivr.net/gh/tessera
 修完重跑：14 处待复查文号全部跑完，12 处找到公开出处；6 条弱证据引用跑完，4 条找到官方替代来源。看板从「待复查 12 · 复查到出处 9 · 已找到替代 12 · 欠账任务 9」变成「待复查 2 · 复查到出处 19 · 已找到替代 19 · 欠账任务 5」。要说明的是「文号有出处 10/31」没有变——那一栏统计的是工具留痕里可直接溯源的文号，只有把复查到的出处写回结论（结果页的「生成修订指令」→ 续跑）才会增加；这 19 条属于「已找到公开出处、待人工写回」，看板与台账都如实这么标，不冒充已溯源。
 
 `pnpm verify:refcheck` 从 232 项扩到 270 项。落库演练自成一回合（先删假任务记录，避免受前面小节留下的状态影响）：先检索命中写入 `matched`，再用返回空结果的假检索器复查同一条，断言库里 verdict 仍是 `matched`、证据地址与分级没被抹掉、note 含「保留此前已找到的公开出处」与「再次检索为」、`attempts` 条数增加、`checkedAt` 不早于原来、记录数仍是 1；随后清空重跑「先未命中、后命中」，断言能正常升级。纯函数层补 7 条 `shouldOverwrite` 真值表、3 条 `unresolvedTargets`、2 条 `preservedNote`。真实任务走查里「服务端口径 vs 前端口径」的两处比对同步套上 `unresolvedTargets`，否则过滤后两边清单必然对不上；走查结果也从「12 处待复查」变成过滤后的真实待办数。
+
+## 门户入口页被当成官方原文，以及不降级护栏不能把误判锁死
+
+准备把 19 条已找到出处写回结论之前，先机械检查了一遍「生成修订指令」的实际输出，发现替代来源里赫然出现「国家数据 → 《国家数据局》 https://www.nda.gov.cn/sjj/index_pc.html」。项目自己的口径里门户首页算弱证据（检索相关度过滤专门拦它），却被当成官方原文写进了要交给 Agent 重写结论的指令。
+
+根因是入口页识别漏了变体：`ENTRY_LAST_SEGMENT` 只认 `index|main|home|default|login|logout|register|search` 加可选扩展名，`index_pc.html`、`index-m.asp`、`default.aspx`、`homepage.htm` 全都不算入口页；而引用类复审判 `matched` 的条件是「结果池里有 official 分级的页面」，于是政府域名下的门户入口页直接通过。修法是把这个正则在两处同步收紧（`apps/web/src/citation-grade.ts` 与 `packages/business-tools/src/web-search.ts`）——两边本来就各有一份实现，`verify:citegrade` 会对同一批真实地址逐条比对两边判定，只改一边就会当场红。
+
+紧接着暴露出与上一轮「不降级护栏」的相互作用：护栏让 `matched` 永不被覆盖，那么规则收紧之前误判的记录就被永久锁死，再也纠正不回来。因此护栏的判定不能只看旧 verdict，还要看旧证据按**当前**规则是否仍然成立，于是有了 `matchedStillValid(kind, evidence, gradeOf)`，而且门槛必须按复查类型分开：文号复查承诺的是「公开页面里出现了这个文号」，专业来源（税务实务库、法规 PDF）同样算出处，只有掉到「证据力弱」才失效；引用替换承诺的是「找到官方原文」，因此必须仍是官方站点。这一步是实测逼出来的——库里 19 条文号 `matched` 有 13 条证据分级是 `professional`（如 shui5.cn 的法规页、ohmi.net.cn 的法规 PDF），一刀切要求 `official` 会让它们全部失去保护、每次批量都重查一遍，白烧检索预算。
+
+批量清单也改成能自我修复：`unresolvedTargets` 接受 `stillValid` 回调，已 `matched` 但证据按新规则失效的目标重新进入待办。于是不需要写数据迁移脚本去清理历史误判，跑一次批量就纠正了——「国家数据」那条现在是 `candidate`（证据是一个图书馆页面，需人工确认），不再冒充官方原文。重跑后看板为「待复查 2 · 复查到出处 19 · 已找到替代 19 · 欠账任务 5」，与上一轮持平：这一轮纠正的是错误的 matched，不是新增证据。
+
+`verify:citegrade` 87 → 99 项（`index_pc.html`、`index-m.html`、`default.aspx`、`homepage.htm`、栏目下的 `index.shtml` 判为入口页且不再分级成官方；真实文件页、`search2024.html`、`index-cpi-report.htm` 不误判）。`verify:refcheck` 279 → 300 项：`shouldOverwrite` 三态（旧证据仍有效时保护、失效时放行、默认保护）、`matchedStillValid` 两种类型六种地址（含专业来源在文号口径下受保护、在引用口径下不受保护）、DB 级演练（把门户入口页证据的 `matched` 落库，再用 `candidate` 覆盖，断言被纠正、失效证据不保留、note 与 checkedAt 更新、不新增记录）、批量清单自我修复、以及不传判定函数时按原样保护全部 matched。
+
+遗留问题（下一步）：替代来源目前只校验「官方域名 + 非入口页」，不校验主题相关性，实测出现把「国家政务服务平台」替换成 app 下载页、把「12366 纳税服务平台」替换成 `tools.html` 的情况，都判成了 matched。应当在 `gradeRefCheck` 的引用分支加主题相关性门槛（原引用标题与命中页标题/摘要的分词重合），不达标的降为 `candidate` 交人工确认，而不是让 Agent 直接写回结论。

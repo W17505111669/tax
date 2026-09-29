@@ -42,6 +42,20 @@ expect("部委首页判为弱（入口页）", gradeCitation("https://www.mnr.go
 expect("门户栏目页判为弱（入口页）", gradeCitation("https://www.gov.cn/guoqing/").weak, "entry");
 expect("12366 首页判为弱（入口页）", gradeCitation("https://12366.chinatax.gov.cn/").weak, "entry");
 expect("登录页判为弱（入口页）", gradeCitation("https://etax.xinjiang.chinatax.gov.cn:8443/loginb/").weak, "entry");
+expect("index_pc.html 变体也是入口页", isEntryUrl("https://www.nda.gov.cn/sjj/index_pc.html"), true);
+expect("变体入口页不再被判成官方原文", gradeCitation("https://www.nda.gov.cn/sjj/index_pc.html").grade, "weak");
+expect("index-m.html 是入口页", isEntryUrl("https://www.gov.cn/index-m.html"), true);
+expect("default.aspx 是入口页", isEntryUrl("https://www.chinatax.gov.cn/default.aspx"), true);
+expect("homepage.htm 是入口页", isEntryUrl("https://www.mof.gov.cn/homepage.htm"), true);
+expect("栏目下的 index.shtml 是入口页", isEntryUrl("https://www.gov.cn/zhengce/index.shtml"), true);
+expect("真正的文件页不受影响", isEntryUrl("https://www.gov.cn/zhengce/content/2023-08/28/content_6900000.htm"), false);
+expect(
+  "多层路径的文件页不受影响",
+  isEntryUrl("https://www.chinatax.gov.cn/n810341/n810755/c101434/c5097638/content.html"),
+  false,
+);
+expect("search2024.html 不误判为入口页", isEntryUrl("https://www.gov.cn/search2024.html"), false);
+expect("政策文件名里带 index 字样不误判", isEntryUrl("https://www.gov.cn/zhengce/2024/index-cpi-report.htm"), false);
 expect("百科词条判为弱", gradeCitation("https://baike.baidu.com/item/%E5%9C%9F%E5%9C%B0/12005092").weak, "encyclopedia");
 expect("MBA 智库百科判为弱", gradeCitation("https://wiki.mbalib.com/wiki/%E7%A0%94%E5%8F%91").weak, "encyclopedia");
 expect("标题带百度百科也判为弱", gradeCitation("https://example.com/a/b.html", "研发（科学研究）_百度百科").weak, "encyclopedia");

@@ -232,7 +232,13 @@ export function isAuthoritativeUrl(raw: string): boolean {
   return host === null ? false : host.endsWith("gov.cn") || host.endsWith("gov.hk") || host.endsWith("chinatax.org");
 }
 
-const ENTRY_LAST_SEGMENT = /^(index|main|home|default|login|logout|register|search)(\.[a-z]{2,5})?$/i;
+/**
+ * 入口页文件名及其常见变体（index_pc.html、index-m.asp、default.aspx、homepage.htm 一类）。
+ * 与 apps/web/src/citation-grade.ts 里的同名常量必须保持一致，
+ * verify:citegrade 会对同一批真实地址逐条比对两边的判定。
+ */
+const ENTRY_LAST_SEGMENT =
+  /^(index|main|home|homepage|default|login|logout|register|search)([-_]?(pc|m|mobile|wap|app|cn|en|zh|\d{1,2}))?(\.[a-z]{2,5})?$/i;
 
 /**
  * 入口页：站点首页、单级栏目页、登录/检索页。

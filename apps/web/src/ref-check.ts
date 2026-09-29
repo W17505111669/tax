@@ -314,16 +314,51 @@ export function matchedKeys(checks: Array<{ key: string; verdict: RefCheckVerdic
  */
 export function unresolvedTargets<T extends { key: string }>(
   targets: T[],
-  checks: Array<{ key: string; verdict: RefCheckVerdict }>,
+  checks: Array<{
+    key: string;
+    kind?: RefCheckKind;
+    verdict: RefCheckVerdict;
+    evidence?: { url: string; title: string } | null;
+  }>,
+  stillValid: (check: {
+    kind?: RefCheckKind;
+    evidence: { url: string; title: string } | null;
+  }) => boolean = () => true,
 ): T[] {
-  const done = matchedKeys(checks);
+  const done = new Set(
+    checks
+      .filter((c) => c.verdict === "matched" && stillValid({ kind: c.kind, evidence: c.evidence ?? null }))
+      .map((c) => c.key),
+  );
   return targets.filter((t) => !done.has(t.key));
 }
 
 /** 新结果能不能顶掉旧结果：旧的已找到出处而新的没有时不顶，其余都顶（含 matched 升级） */
-export function shouldOverwrite(prev: RefCheckVerdict | null, next: RefCheckVerdict): boolean {
+export function shouldOverwrite(
+  prev: RefCheckVerdict | null,
+  next: RefCheckVerdict,
+  prevStillValid = true,
+): boolean {
   if (prev === null) return true;
-  return !(prev === "matched" && next !== "matched");
+  return !(prev === "matched" && prevStillValid && next !== "matched");
+}
+
+/**
+ * 旧的「已找到公开出处」现在还站得住吗：按复查类型用不同门槛重算证据分级。
+ * - 文号复查承诺的是「公开页面里出现了这个文号」，专业来源（税务实务库、法规 PDF）同样算出处，
+ *   只有掉到「证据力弱」（门户首页、百科词条）才算失效；
+ * - 引用替换承诺的是「找到官方原文」，因此必须仍是官方站点。
+ * 不这样做的话，分级规则一旦收紧（例如把 index_pc.html 也认成门户入口页），
+ * 上一轮误判的 matched 就会被不降级护栏永久锁死，再也纠正不回来。
+ */
+export function matchedStillValid(
+  kind: RefCheckKind,
+  evidence: { url: string; title: string } | null,
+  gradeOf: (url: string, title: string) => { grade: string },
+): boolean {
+  if (!evidence || evidence.url === "") return false;
+  const grade = gradeOf(evidence.url, evidence.title).grade;
+  return kind === "citation" ? grade === "official" : grade !== "weak";
 }
 
 /** 保留旧证据时写进 note 的说明：把这次重试如实记下来，不藏失败 */

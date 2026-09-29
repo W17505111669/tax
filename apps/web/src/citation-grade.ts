@@ -39,7 +39,13 @@ export function hostOf(raw: string): string | null {
   }
 }
 
-const ENTRY_LAST_SEGMENT = /^(index|main|home|default|login|logout|register|search)(\.[a-z]{2,5})?$/i;
+/**
+ * 入口页文件名及其常见变体：index_pc.html、index-m.asp、default.aspx、homepage.htm 一类。
+ * 漏掉变体的代价是实测踩到的——www.nda.gov.cn/sjj/index_pc.html 被判成官方原文，
+ * 「批量找替代来源」于是把门户首页当成政策原文写进了修订指令。
+ */
+const ENTRY_LAST_SEGMENT =
+  /^(index|main|home|homepage|default|login|logout|register|search)([-_]?(pc|m|mobile|wap|app|cn|en|zh|\d{1,2}))?(\.[a-z]{2,5})?$/i;
 
 /** 入口页：站点首页、单级栏目页、登录/检索页——没有具体文件内容，引用等于没有依据 */
 export function isEntryUrl(raw: string): boolean {

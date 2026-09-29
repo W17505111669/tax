@@ -12,6 +12,7 @@ import {
   buildRefQuery,
   citationTargets,
   gradeRefCheck,
+  matchedStillValid,
   preservedNote,
   refKey,
   refCheckTargets,
@@ -79,6 +80,7 @@ export function pendingRefTargets(taskId: string): RefCheckTarget[] {
   return unresolvedTargets(
     refCheckTargets(traceDocRefs(text, parsed, rows.map((r) => r.tool_name))),
     listRefChecks(taskId),
+    (c) => matchedStillValid(c.kind ?? "docref", c.evidence, gradeCitation),
   );
 }
 
@@ -100,7 +102,11 @@ export function pendingCitationTargets(taskId: string, limit: number = MAX_REF_C
     }
   });
   const cites = extractCitations(parsed).map((c) => ({ ...c, grade: gradeCitation(c.url, c.title).grade }));
-  return unresolvedTargets(citationTargets(cites, topicHint(getTask(taskId)?.result ?? "", 2), limit), listRefChecks(taskId));
+  return unresolvedTargets(
+    citationTargets(cites, topicHint(getTask(taskId)?.result ?? "", 2), limit),
+    listRefChecks(taskId),
+    (c) => matchedStillValid(c.kind ?? "citation", c.evidence, gradeCitation),
+  );
 }
 
 export type BatchPlanItem = { id: string; title: string; targets: RefCheckTarget[] };
@@ -231,11 +237,12 @@ export async function runRefChecks(
 export function saveRefCheck(taskId: string, rec: RefCheckRecord): void {
   const prev = db
     .prepare(
-      `SELECT verdict, note, evidence_title, evidence_url, evidence_grade, evidence_snippet, attempts
+      `SELECT kind, verdict, note, evidence_title, evidence_url, evidence_grade, evidence_snippet, attempts
          FROM ref_checks WHERE task_id = ? AND ref_key = ?`,
     )
     .get(taskId, rec.key) as
     | {
+        kind: string;
         verdict: string;
         note: string | null;
         evidence_title: string | null;
@@ -246,7 +253,13 @@ export function saveRefCheck(taskId: string, rec: RefCheckRecord): void {
       }
     | undefined;
   let out = rec;
-  if (prev && !shouldOverwrite(prev.verdict as RefCheckVerdict, rec.verdict)) {
+  // 旧证据按当前分级规则仍算官方原文才享受不降级保护；规则收紧后误判的 matched 可以被纠正
+  const prevStillValid = matchedStillValid(
+    (prev?.kind ?? rec.kind) as RefCheckKind,
+    { url: prev?.evidence_url ?? "", title: prev?.evidence_title ?? "" },
+    gradeCitation,
+  );
+  if (prev && !shouldOverwrite(prev.verdict as RefCheckVerdict, rec.verdict, prevStillValid)) {
     let prevAttempts: SearchAttempt[] = [];
     try {
       prevAttempts = JSON.parse(prev.attempts ?? "[]") as SearchAttempt[];
