@@ -6,6 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { LEDGER_COLUMNS } from "../../web/src/evidence-ledger.ts";
 import rdAuditAgent from "@tax/agent-rd-audit";
 import landVatAgent from "@tax/agent-land-vat";
 import type { TaxAgentConfig } from "@tax/agent-core";
@@ -56,7 +57,7 @@ function build(agent: TaxAgentConfig): string {
     `生成底稿/产物 ${stats.artifacts} 份`,
     stats.compareAccuracy !== null ? `与人工底稿记录级比对准确率 ${stats.compareAccuracy}%` : "比对准确率：待真实案例",
     `自动化验证 ${verifyCount} 项全部 PASS（见测试报告）`,
-    "全平台证据核对台账：每任务一行 15 列，欠账按倒序排列，可导出 MD/CSV 直接当整改清单",
+    `全平台证据核对台账：每任务一行 ${LEDGER_COLUMNS.length} 列，欠账按倒序排列，可导出 MD/CSV 直接当整改清单`,
   ], "数字全部来自平台数据库与验证脚本，可现场复算。", "KPI 大数字页");
   slide(10, "边界、合规与展望", ["不对接申报/ERP/银行接口，不出具法律效力鉴证意见", "客户资料脱敏与本地化处理，密钥仅存服务端", "导出件统一口径：CSV 前置 BOM、防公式注入（标题或单元格以等号一类起头时不会在 Excel 里变成可执行公式），自定义备注模板只存本机浏览器", "展望：真实案例回归库、OCR 云端引擎、多模板适配"], "收尾落在可落地性：今天演示的一切都在本机真实运行。", "合规清单 + 致谢");
   return L.join("\n");

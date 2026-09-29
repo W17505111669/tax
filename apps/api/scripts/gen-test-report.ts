@@ -8,6 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { db } from "../src/db.ts";
+import { LEDGER_COLUMNS } from "../../web/src/evidence-ledger.ts";
 import { computePlatformStats } from "../src/services/stats.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -143,7 +144,7 @@ const VERIFY_SCRIPTS: Array<{ name: string; cmd: string; scope: string }> = [
   {
     name: "verify:ledger",
     cmd: "pnpm verify:ledger",
-    scope: "全平台证据核对台账（缺口判断 / 排序与合计 / 15 列单元格 / CSV 与 Markdown 导出 / 与平台统计口径交叉核对）",
+    scope: `全平台证据核对台账（缺口判断 / 排序与合计 / ${LEDGER_COLUMNS.length} 列单元格 / CSV 与 Markdown 导出 / 与平台统计口径交叉核对）`,
   },
   {
     name: "verify:csv",

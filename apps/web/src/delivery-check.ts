@@ -138,29 +138,27 @@ export function deliveryCheck(i: CheckInput): CheckResult {
     items.push({ level: "ok", text: `上传资料 ${i.filesTotal} 份，全部解析成功` });
   }
 
-  // 已经联网复查到公开出处的文号不再算风险：只有确实还没出处的才提醒
-  const refsCovered =
-    i.docRefRecheck !== null &&
-    i.docRefPending === 0 &&
-    i.docRefRecheck.matched >= i.docRefUntraced + i.docRefUnverifiable;
+  // 复查判定 matched 的文号已经计入 docRefTraced，不会再落进 untraced / unverifiable，
+  // 所以这里剩下的都是确实还没有出处的，直接提醒即可。原先「已全部复查到出处」的降级分支
+  // 在新口径下不可能触发（docRefPending 就是两者之和，为 0 时两个计数必然都为 0），
+  // 留着会让人以为还存在第三种状态。
   if (i.docRefUntraced > 0) {
     items.push({
-      level: refsCovered ? "info" : "warn",
-      text: refsCovered
-        ? `${i.docRefUntraced} 处政策文号未在工具结果中找到出处，已全部联网复查到公开出处（证据链接见「政策文号溯源」节的复查表）`
-        : `${i.docRefUntraced} 处政策文号未在工具结果中找到出处，需人工确认依据后再交付`,
+      level: "warn",
+      text: `${i.docRefUntraced} 处政策文号未找到公开出处，需人工确认依据后再交付`,
     });
   }
   if (i.docRefUnverifiable > 0) {
     items.push({
       level: "info",
-      text: refsCovered
-        ? `${i.docRefUnverifiable} 处政策文号无法从留存数据核验（联网检索扩展只持久化查询元数据），已全部联网复查到公开出处，证据链接见「政策文号溯源」节的复查表`
-        : `${i.docRefUnverifiable} 处政策文号无法从留存数据核验（联网检索扩展只持久化查询元数据），建议改用政策快照检索、联网复查或附检索页面截图`,
+      text: `${i.docRefUnverifiable} 处政策文号无法从留存数据核验（联网检索扩展只持久化查询元数据），建议改用政策快照检索、联网复查或附检索页面截图`,
     });
   }
   if (i.docRefTotal > 0 && i.docRefUntraced === 0 && i.docRefUnverifiable === 0) {
-    items.push({ level: "ok", text: `政策文号 ${i.docRefTotal} 处均可溯源到工具结果` });
+    items.push({
+      level: "ok",
+      text: `政策文号 ${i.docRefTotal} 处均有公开出处（工具留存结果或联网复查记录）`,
+    });
   }
   if (i.docRefRecheck) {
     const r = i.docRefRecheck;

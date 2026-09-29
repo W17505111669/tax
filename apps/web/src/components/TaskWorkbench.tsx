@@ -1359,9 +1359,9 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     "",
     "## 政策文号溯源",
     "",
-    `- 结论中出现政策文号 ${refTrace.total} 处：工具结果可溯源 ${refTrace.traced} 处 · 无法从留存数据核验 ${
-      refTrace.unverifiable
-    } 处 · 待人工确认 ${refTrace.untraced.length} 处`,
+    `- 结论中出现政策文号 ${refTrace.total} 处：有公开出处 ${refTrace.traced} 处（其中联网复查取得 ${
+      refTrace.tracedByRecheck
+    } 处）· 无法从留存数据核验 ${refTrace.unverifiable} 处 · 待人工确认 ${refTrace.untraced.length} 处`,
     ...(refTrace.untraced.length > 0
       ? [
           "",

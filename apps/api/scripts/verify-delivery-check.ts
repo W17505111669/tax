@@ -210,28 +210,39 @@ const recheck = (over: Partial<NonNullable<CheckInput["docRefRecheck"]>> = {}) =
   checkedAt: "2026-09-29T02:00:00.000Z",
   ...over,
 });
+// 复查判定 matched 的文号已计入 docRefTraced，不会再出现在 untraced / unverifiable 里，
+// 因此「待复查为 0 却仍有未溯源文号」这个状态不存在，旧的降级分支随之删除。
 expect(
-  "复查到出处后待确认降为说明",
+  "复查到出处的文号算已有出处 → 可交付",
   deliveryCheck({
     ...base,
     docRefTotal: 3,
-    docRefTraced: 1,
-    docRefUntraced: 2,
-    docRefRecheck: recheck(),
+    docRefTraced: 3,
+    docRefUntraced: 0,
+    docRefRecheck: recheck({ total: 3, matched: 3 }),
     docRefPending: 0,
   }).verdict,
   "可交付",
 );
 expect(
-  "降级后的文案说明已复查到出处",
+  "全部有出处时写明出处含联网复查",
+  deliveryCheck({
+    ...base,
+    docRefTotal: 3,
+    docRefTraced: 3,
+    docRefRecheck: recheck({ total: 3, matched: 3 }),
+  }).items.some((x) => x.level === "ok" && x.text.includes("联网复查")),
+  true,
+);
+expect(
+  "仍未溯源的文号保持提醒",
   deliveryCheck({
     ...base,
     docRefTotal: 3,
     docRefTraced: 1,
     docRefUntraced: 2,
-    docRefRecheck: recheck(),
-    docRefPending: 0,
-  }).items.some((x) => x.level === "info" && x.text.includes("已全部联网复查到公开出处")),
+    docRefPending: 2,
+  }).items.some((x) => x.level === "warn" && x.text.includes("未找到公开出处")),
   true,
 );
 expect(
@@ -288,16 +299,16 @@ expect(
   "可交付",
 );
 expect(
-  "全部复查到出处后不再建议改用快照",
+  "复查到出处后不再算无法核验，也不再建议改用快照",
   deliveryCheck({
     ...base,
     docRefTotal: 3,
-    docRefTraced: 0,
-    docRefUnverifiable: 3,
+    docRefTraced: 3,
+    docRefUnverifiable: 0,
     docRefRecheck: recheck({ total: 3, matched: 3 }),
     docRefPending: 0,
-  }).items.some((x) => x.level === "info" && x.text.includes("已全部联网复查到公开出处")),
-  true,
+  }).items.some((x) => x.text.includes("建议改用政策快照检索")),
+  false,
 );
 expect(
   "未复查时仍建议改用快照或联网复查",
