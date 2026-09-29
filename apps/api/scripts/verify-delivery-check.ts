@@ -44,6 +44,7 @@ const base: CheckInput = {
   docRefRecheck: null,
   docRefPending: 0,
   citationRecheck: null,
+  revision: null,
 };
 
 expect("全部达标 → 可交付", deliveryCheck(base).verdict, "可交付");
@@ -346,6 +347,65 @@ expect(
 expect(
   "没有弱证据时不产生替代来源条目",
   deliveryCheck({ ...base, citationRecheck: crecheck() }).items.some((x) => x.text.includes("替代")),
+  false,
+);
+
+// 本次修订对证据的影响：改坏了要在交付前拦住
+const rev = (over: Partial<NonNullable<CheckInput["revision"]>> = {}) => ({
+  citations: 0,
+  official: 1,
+  weak: -2,
+  docRefs: 0,
+  improved: true,
+  regressed: false,
+  ...over,
+});
+expect(
+  "修订改善给出正向条目",
+  deliveryCheck({ ...base, revision: rev() }).items.some(
+    (x) => x.level === "ok" && x.text.includes("本次修订改善了证据质量"),
+  ),
+  true,
+);
+expect(
+  "修订改善不降级",
+  deliveryCheck({ ...base, revision: rev() }).verdict,
+  "可交付",
+);
+expect(
+  "修订退步 → 提醒",
+  deliveryCheck({ ...base, revision: rev({ official: -1, weak: 2, improved: false, regressed: true }) }).verdict,
+  "谨慎交付",
+);
+expect(
+  "退步提示含带符号差值",
+  deliveryCheck({ ...base, revision: rev({ official: -1, weak: 2, improved: false, regressed: true }) }).items.some(
+    (x) => x.level === "warn" && x.text.includes("弱证据引用 +2") && x.text.includes("官方原文 -1"),
+  ),
+  true,
+);
+expect(
+  "有增有减只作说明不降级",
+  deliveryCheck({ ...base, revision: rev({ official: -1, weak: -1, improved: true, regressed: true }) }).verdict,
+  "可交付",
+);
+expect(
+  "有增有减的说明文案",
+  deliveryCheck({ ...base, revision: rev({ official: -1, weak: -1, improved: true, regressed: true }) }).items.some(
+    (x) => x.level === "info" && x.text.includes("有增有减"),
+  ),
+  true,
+);
+expect(
+  "质量持平时不产生修订条目",
+  deliveryCheck({ ...base, revision: rev({ official: 0, weak: 0, improved: false, regressed: false }) }).items.some(
+    (x) => x.text.includes("本次修订"),
+  ),
+  false,
+);
+expect(
+  "没有可对比结论时不产生修订条目",
+  deliveryCheck(base).items.some((x) => x.text.includes("本次修订")),
   false,
 );
 expect("多项阻断同时存在", deliveryCheck({ ...base, status: "processing", resultChars: 0 }).blocks, 2);

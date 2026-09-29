@@ -46,7 +46,7 @@ import { buildManifest } from "../manifest.ts";
 import { traceDocRefs } from "../policy-trace.ts";
 import { gradeCitation, GRADE_HINT, GRADE_TEXT, summarizeGrades } from "../citation-grade.ts";
 import { topDomainWords, topicHint } from "../domain-keywords.ts";
-import { deltaText, evidenceDelta, evidenceSnapshot } from "../revision-impact.ts";
+import { deltaText, deltaVerdict, evidenceDelta, evidenceSnapshot } from "../revision-impact.ts";
 import {
   buildRevisionInstruction,
   citationTargets,
@@ -1087,6 +1087,16 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     docRefRecheck: refSummary.total > 0 ? refSummary : null,
     docRefPending: refPending,
     citationRecheck: citationSummary.total > 0 ? citationSummary : null,
+    revision: revImpact
+      ? {
+          citations: revImpact.citations,
+          official: revImpact.official,
+          weak: revImpact.weak,
+          docRefs: revImpact.docRefs,
+          improved: revImpact.improved,
+          regressed: revImpact.regressed,
+        }
+      : null,
   });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const delivery = useMemo(
@@ -1112,6 +1122,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       refSummary,
       refPending,
       citationSummary,
+      revImpact,
     ],
   );
 
@@ -1394,6 +1405,9 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       searches: searches.calls > 0 ? searches : null,
       refChecks: refSummary.total > 0 ? refSummary : null,
       citationChecks: citationSummary.total > 0 ? citationSummary : null,
+      revision: revImpact
+        ? { before: revImpact.before, after: revImpact.after, verdict: deltaVerdict(revImpact) }
+        : null,
       linkCheck: { summary: linkCheckedAt ? linkSummary : null, checkedAt: linkCheckedAt },
       amounts: {
         total: amountTrace.total,

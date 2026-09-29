@@ -105,6 +105,31 @@ export function listEvents(taskId: string): AgentEvent[] {
   }));
 }
 
+/**
+ * 按运行重组每次的完整结论。
+ *
+ * 事件表里 `agent_text` 存的是过程播报（「我先解析上传资料…」一类），真正的结论正文
+ * 在 `agent_text_delta` 里分片存放；重组规则与前端 useTaskEvents 一致：
+ * delta 累积，遇到 agent_text 收口。跨运行对比（修订前后证据影响、按次导出）都要用它，
+ * 直接读 agent_text.message 会拿到过程播报而不是结论。
+ */
+export function listConclusions(taskId: string): string[] {
+  const rows = db
+    .prepare(`SELECT kind, message FROM events WHERE task_id = ? ORDER BY seq ASC`)
+    .all(taskId) as unknown as Array<{ kind: string; message: string | null }>;
+  const out: string[] = [];
+  let buf = "";
+  for (const r of rows) {
+    if (r.kind === "agent_text_delta") buf += r.message ?? "";
+    else if (r.kind === "agent_text") {
+      if (buf.trim() !== "") out.push(buf);
+      buf = "";
+    }
+  }
+  if (buf.trim() !== "") out.push(buf);
+  return out;
+}
+
 export function insertFile(
   input: Omit<BusinessFile, "parseStatus" | "createdAt"> & {
     parseStatus?: BusinessFile["parseStatus"];

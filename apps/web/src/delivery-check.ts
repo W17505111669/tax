@@ -58,6 +58,15 @@ export type CheckInput = {
     error: number;
     checkedAt: string | null;
   } | null;
+  /** 本次修订（最近一次续跑）对证据的影响；null 表示没有可对比的上一轮结论 */
+  revision: {
+    citations: number;
+    official: number;
+    weak: number;
+    docRefs: number;
+    improved: boolean;
+    regressed: boolean;
+  } | null;
 };
 
 /** info 只作说明，不影响交付判定（例如反爬导致的「拒绝自动访问」） */
@@ -238,6 +247,20 @@ export function deliveryCheck(i: CheckInput): CheckResult {
           text: `${i.citationRecheck.total} 条弱证据引用没有检索到可替换的官方原文，请在结论中说明依据来源或改用政策快照`,
         });
       }
+    }
+  }
+
+  // 本次修订把证据改坏了就不能当作没事：退步给提醒，有增有减给说明，改善给正向条目
+  if (i.revision) {
+    const r = i.revision;
+    const sgn = (n: number) => (n > 0 ? `+${n}` : String(n));
+    const detail = `弱证据引用 ${sgn(r.weak)} · 官方原文 ${sgn(r.official)}`;
+    if (r.regressed && !r.improved) {
+      items.push({ level: "warn", text: `本次修订让证据质量退步（${detail}），请核对修订内容后再交付` });
+    } else if (r.improved && r.regressed) {
+      items.push({ level: "info", text: `本次修订对证据质量有增有减（${detail}），请核对修订内容` });
+    } else if (r.improved) {
+      items.push({ level: "ok", text: `本次修订改善了证据质量（${detail}）` });
     }
   }
 

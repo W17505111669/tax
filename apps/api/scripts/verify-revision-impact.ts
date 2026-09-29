@@ -10,8 +10,7 @@ import {
   evidenceSnapshot,
   signed,
 } from "../../web/src/revision-impact.ts";
-import { db } from "../src/db.ts";
-import { getTask, listTasks } from "../src/services/task-store.ts";
+import { getTask, listConclusions, listTasks } from "../src/services/task-store.ts";
 
 const failures: string[] = [];
 let checks = 0;
@@ -103,31 +102,13 @@ expect("正数带加号", signed(3), "+3");
 expect("负数原样", signed(-2), "-2");
 expect("零不加符号", signed(0), "0");
 
-// 4) 真实任务走查：按前端同一方式从事件流重组每次运行的结论
-/** agent_text_delta 累积、遇到 agent_text 收口，与 useTaskEvents 的流式合并规则一致 */
-function conclusionsOf(taskId: string): string[] {
-  const rows = db
-    .prepare(`SELECT kind, message FROM events WHERE task_id = ? ORDER BY seq ASC`)
-    .all(taskId) as unknown as Array<{ kind: string; message: string }>;
-  const out: string[] = [];
-  let buf = "";
-  for (const r of rows) {
-    if (r.kind === "agent_text_delta") buf += r.message ?? "";
-    else if (r.kind === "agent_text") {
-      if (buf.trim() !== "") out.push(buf);
-      buf = "";
-    }
-  }
-  if (buf.trim() !== "") out.push(buf);
-  return out;
-}
-
+// 4) 真实任务走查：结论按运行重组（listConclusions 与前端 useTaskEvents 同一规则）
 let compared = 0;
 let improved = 0;
 let regressed = 0;
 let unchanged = 0;
 for (const t of listTasks()) {
-  const list = conclusionsOf(t.id);
+  const list = listConclusions(t.id);
   if (list.length < 2) continue;
   const before = evidenceSnapshot(list[list.length - 2]!);
   const after = evidenceSnapshot(list[list.length - 1]!);

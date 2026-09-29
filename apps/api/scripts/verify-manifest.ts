@@ -20,12 +20,13 @@ import {
   searchEvidence,
 } from "../../web/src/search-evidence.ts";
 import { pendingAfterRecheck, summarizeRefChecks } from "../../web/src/ref-check.ts";
+import { deltaVerdict, evidenceDelta, evidenceSnapshot } from "../../web/src/revision-impact.ts";
 import { db } from "../src/db.ts";
 import { dirs } from "../src/config.ts";
 import { listAmountChecks } from "../src/services/amount-checks.ts";
 import { listRefChecks } from "../src/services/ref-checks.ts";
 import { extractIssues, listReviews, pendingReviewIssues } from "../src/services/issues.ts";
-import { getTask, listFiles, listTasks } from "../src/services/task-store.ts";
+import { getTask, listConclusions, listFiles, listTasks } from "../src/services/task-store.ts";
 
 const failures: string[] = [];
 let checks = 0;
@@ -80,6 +81,7 @@ const delivery = deliveryCheck({
   docRefRecheck: null,
   docRefPending: 1,
   citationRecheck: null,
+  revision: null,
 });
 
 const base: ManifestInput = {
@@ -164,6 +166,11 @@ const base: ManifestInput = {
     empty: 1,
     error: 0,
     checkedAt: "2026-09-29T03:00:00.000Z",
+  },
+  revision: {
+    before: { citations: 3, official: 1, professional: 1, weak: 1, docRefs: 2 },
+    after: { citations: 3, official: 2, professional: 1, weak: 0, docRefs: 2 },
+    verdict: "证据质量改善",
   },
   amounts: { total: 10, traced: 8, fromInput: 1, pending: 1, acked: 0 },
   review: { issues: 3, done: 3, pending: 0, notRequired: 0 },
@@ -286,6 +293,32 @@ expect(
   false,
 );
 expect(
+  "修订影响判断与数值不符会发现",
+  manifestIssues({ ...m, revision: { ...m.revision!, verdict: "证据质量退步，请核对本次修订" } }).some((s) =>
+    s.includes("修订影响判断"),
+  ),
+  true,
+);
+expect(
+  "修订前快照不自洽会发现",
+  manifestIssues({ ...m, revision: { ...m.revision!, before: { ...m.revision!.before, citations: 9 } } }).some((s) =>
+    s.includes("修订前快照分级之和"),
+  ),
+  true,
+);
+expect(
+  "快照计数为负会发现",
+  manifestIssues({ ...m, revision: { ...m.revision!, after: { ...m.revision!.after, weak: -1, citations: 2 } } }).some(
+    (s) => s.includes("计数出现负数"),
+  ),
+  true,
+);
+expect(
+  "没有可对比结论时 revision 为 null 不算问题",
+  manifestIssues({ ...m, revision: null }).some((s) => s.includes("修订")),
+  false,
+);
+expect(
   "无引用时分级汇总为 null 不算分级问题",
   manifestIssues({
     ...m,
@@ -357,6 +390,21 @@ for (const t of listTasks()) {
   const refRecs = listRefChecks(t.id);
   const refSum = summarizeRefChecks(refRecs.filter((r) => r.kind === "docref"));
   const citeCheckSum = summarizeRefChecks(refRecs.filter((r) => r.kind === "citation"));
+  // 修订影响：结论按运行重组后取最后两轮对比（与结果页同一口径）
+  const conclusions = listConclusions(t.id);
+  const rev =
+    conclusions.length >= 2
+      ? (() => {
+          const before = evidenceSnapshot(conclusions[conclusions.length - 2]!);
+          const after = evidenceSnapshot(conclusions[conclusions.length - 1]!);
+          const delta = evidenceDelta(before, after);
+          return { before, after, delta, verdict: deltaVerdict(delta) };
+        })()
+      : null;
+  checks += 1;
+  if (rev && rev.verdict !== deltaVerdict(evidenceDelta(rev.before, rev.after))) {
+    failures.push(`${t.id.slice(0, 8)} 修订影响判断与前后快照不符`);
+  }
   const refPending = pendingAfterRecheck(refs.untraced.length + refs.unverifiable, refSum);
   checks += 1;
   if (refSum.total !== refSum.matched + refSum.candidate + refSum.empty + refSum.error) {
@@ -426,6 +474,16 @@ for (const t of listTasks()) {
       docRefRecheck: refSum.total > 0 ? refSum : null,
       docRefPending: refPending,
       citationRecheck: citeCheckSum.total > 0 ? citeCheckSum : null,
+      revision: rev
+        ? {
+            citations: rev.delta.citations,
+            official: rev.delta.official,
+            weak: rev.delta.weak,
+            docRefs: rev.delta.docRefs,
+            improved: rev.delta.improved,
+            regressed: rev.delta.regressed,
+          }
+        : null,
     }),
     files: listFiles(t.id).map((f) => ({
       name: f.fileName,
@@ -460,6 +518,7 @@ for (const t of listTasks()) {
     searches: searches.calls > 0 ? searches : null,
     refChecks: refSum.total > 0 ? refSum : null,
     citationChecks: citeCheckSum.total > 0 ? citeCheckSum : null,
+    revision: rev ? { before: rev.before, after: rev.after, verdict: rev.verdict } : null,
     linkCheck: { summary: null, checkedAt: null },
     amounts: {
       total: amounts.total,

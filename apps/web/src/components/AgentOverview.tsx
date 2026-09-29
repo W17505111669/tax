@@ -1,6 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import type { AgentInfo, PlatformStats } from "../types.ts";
 import { IconBuilding, IconCheck, IconExternal, IconFile, IconFlask, IconTool } from "./Icons.tsx";
+import {
+  baselineKey,
+  deltas,
+  recordSnapshot,
+  trend,
+  trendText,
+  trendTitle,
+  type DailySnapshot,
+} from "../metric-trend.ts";
+
+/** 每日指标快照的本地存储键（保留最近 60 天，由 recordSnapshot 裁剪） */
+const SNAPSHOT_KEY = "taxai-stats-snapshots";
 
 /** 大数字 odometer：每位数字独立滚轮到目标值，对齐参考片数据页质感。 */
 const DESC_KEYWORDS = ["整数分", "行级", "记录级", "OCR", "mermaid", "联网"];
@@ -159,6 +171,8 @@ export function AgentOverview({
   const [toolSort, setToolSort] = useState(false);
   const [capsOpen, setCapsOpen] = useState(false);
   const [weekDeltas, setWeekDeltas] = useState<Record<string, number>>({});
+  // 环比基线是哪一天的快照，用于提示文案
+  const [baseDay, setBaseDay] = useState<string | null>(null);
   // 批量「转为待复核」的两步确认：armed / busy 记的是范围标签（全平台或某个作品）
   const [batchArmed, setBatchArmed] = useState<string | null>(null);
   const [batchBusy, setBatchBusy] = useState("");
@@ -212,34 +226,31 @@ export function AgentOverview({
       .finally(() => setRefBatchBusy(""));
   };
 
-  // 平台指标周环比：每日快照入 localStorage，与 7 天前（或最近可得）快照对比
+  // 平台指标周环比：每日快照入 localStorage，与 7 天前（或最近可得）快照对比。
+  // 快照、基线与差值口径统一走 metric-trend.ts，KPI 与证据类指标共用一套实现。
   useEffect(() => {
     if (!p) return;
     const today = new Date().toISOString().slice(0, 10);
     try {
-      const snap = JSON.parse(localStorage.getItem("taxai-stats-snapshots") ?? "{}") as Record<
-        string,
-        { tasks: number; completed: number; artifacts: number }
-      >;
-      snap[today] = { tasks: p.tasks, completed: p.completed, artifacts: p.artifacts };
-      const keys = Object.keys(snap).sort();
-      if (keys.length > 60) for (const k of keys.slice(0, keys.length - 60)) delete snap[k];
-      localStorage.setItem("taxai-stats-snapshots", JSON.stringify(snap));
-      const d = new Date();
-      d.setDate(d.getDate() - 7);
-      const target = d.toISOString().slice(0, 10);
-      const prevKey = snap[target] ? target : [...Object.keys(snap).filter((k) => k <= target)].sort().pop();
-      const prev = prevKey ? snap[prevKey] : undefined;
-      setWeekDeltas(
-        prev
-          ? { tasks: p.tasks - prev.tasks, completed: p.completed - prev.completed, artifacts: p.artifacts - prev.artifacts }
-          : {},
-      );
+      const snap = JSON.parse(localStorage.getItem(SNAPSHOT_KEY) ?? "{}") as DailySnapshot;
+      const values: Record<string, number> = {
+        tasks: p.tasks,
+        completed: p.completed,
+        artifacts: p.artifacts,
+        weakCitations: p.evidence?.weakCitations ?? 0,
+        officialCitations: p.evidence?.officialCitations ?? 0,
+        docRefPending: p.evidence?.docRefPending ?? 0,
+      };
+      const next = recordSnapshot(snap, today, values);
+      localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(next));
+      const base = baselineKey(next, today, 7);
+      setBaseDay(base);
+      setWeekDeltas(deltas(values, base ? next[base] : undefined, Object.keys(values)));
     } catch {
       /* 忽略存储不可用 */
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p?.tasks, p?.completed, p?.artifacts]);
+  }, [p?.tasks, p?.completed, p?.artifacts, p?.evidence]);
 
   const deltaBadge = (k: string) => {
     const v = weekDeltas[k];
@@ -247,6 +258,21 @@ export function AgentOverview({
     return (
       <span className={`ml-1 text-[10px] ${v > 0 ? "text-jade-400" : "text-rose-300"}`} title="较 7 天前快照">
         {v > 0 ? `▲${v}` : `▼${Math.abs(v)}`}
+      </span>
+    );
+  };
+  /** 证据类趋势：弱证据引用与待复查文号越低越好，官方原文越高越好（颜色按方向而非按正负） */
+  const evidenceTrend = (k: string, lowerIsBetter: boolean) => {
+    const v = weekDeltas[k];
+    const text = trendText(v);
+    if (text === "") return null;
+    const dir = trend(v, lowerIsBetter);
+    return (
+      <span
+        className={`text-[10px] ${dir === "better" ? "text-jade-400" : "text-amber-300"}`}
+        title={trendTitle(baseDay, lowerIsBetter)}
+      >
+        {text}
       </span>
     );
   };
@@ -770,14 +796,17 @@ export function AgentOverview({
                     <span className="font-medium">全平台证据缺口</span>
                     <span className="text-[11.5px] text-sky-200/85">
                       联网引用 {p.evidence.citations} 条（工具留存 {p.evidence.citationsFromTools} · 结论正文{" "}
-                      {p.evidence.citationsFromConclusion}，其中官方原文 {p.evidence.officialCitations} 条）·
-                      {p.evidence.gaps.length} 个任务有弱证据引用或待复查文号：证据力弱 {p.evidence.weakCitations} 条 ·
+                      {p.evidence.citationsFromConclusion}，其中官方原文 {p.evidence.officialCitations} 条{" "}
+                      {evidenceTrend("officialCitations", false)}）·
+                      {p.evidence.gaps.length} 个任务有弱证据引用或待复查文号：证据力弱 {p.evidence.weakCitations} 条{" "}
+                      {evidenceTrend("weakCitations", true)} ·
                       {p.evidence.weakWithReplacement > 0 && (
                         <span className="text-jade-300">
                           其中 {p.evidence.weakWithReplacement} 条已找到官方替代来源、待人工写回结论 ·
                         </span>
                       )}
-                      政策文号待复查 {p.evidence.docRefPending} 处（已复查到公开出处 {p.evidence.docRefMatched} 处）·
+                      政策文号待复查 {p.evidence.docRefPending} 处 {evidenceTrend("docRefPending", true)}（已复查到公开出处{" "}
+                      {p.evidence.docRefMatched} 处）·
                       联网检索拦下 {p.evidence.searchDropped + p.evidence.searchDroppedReplay} 条无关结果与门户首页
                       {p.evidence.searchDropped === 0 && p.evidence.searchDroppedReplay > 0
                         ? "（历史记录按现行相关度规则回算）"

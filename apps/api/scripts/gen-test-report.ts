@@ -126,6 +126,11 @@ const VERIFY_SCRIPTS: Array<{ name: string; cmd: string; scope: string }> = [
     scope: "修订前后证据对比（快照口径 / 差值与总体判断 / 按事件流重组结论的真实续跑走查）",
   },
   {
+    name: "verify:trend",
+    cmd: "pnpm verify:trend",
+    scope: "指标趋势（每日快照记录与裁剪 / 基线日选择 / 环比差值 / 越高越好与越低越好的方向判断）",
+  },
+  {
     name: "verify:upload",
     cmd: "pnpm verify:upload",
     scope: "上传预检规则（扩展名 / 大小 / 空文件 / 批量分组 / 提示文案）",

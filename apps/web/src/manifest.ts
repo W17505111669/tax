@@ -5,6 +5,7 @@
  */
 import type { CheckResult } from "./delivery-check.ts";
 import type { LinkSummary } from "./link-check.ts";
+import { deltaVerdict, evidenceDelta, type EvidenceSnapshot } from "./revision-impact.ts";
 
 export const MANIFEST_SCHEMA = "tax-agent-delivery-manifest";
 export const MANIFEST_VERSION = 1;
@@ -80,6 +81,8 @@ export type ManifestInput = {
     error: number;
     checkedAt: string | null;
   } | null;
+  /** 本次修订对证据的影响（前后快照与总体判断）；没有可对比的上一轮结论时为 null */
+  revision: { before: EvidenceSnapshot; after: EvidenceSnapshot; verdict: string } | null;
   amounts: { total: number; traced: number; fromInput: number; pending: number; acked: number };
   review: { issues: number; done: number; pending: number; notRequired: number };
   generatedAt?: string;
@@ -172,6 +175,21 @@ export function manifestIssues(m: BundleManifest): string[] {
       out.push("弱证据引用检索四类之和不等于总数");
     }
     if (cc.total > 0 && cc.checkedAt === null) out.push("有弱证据引用检索记录却没有时间");
+  }
+
+  // 修订影响的判断必须能由前后快照重新推出来，否则交付包里就是两句互相矛盾的话
+  const rv = m.revision;
+  if (rv) {
+    const want = deltaVerdict(evidenceDelta(rv.before, rv.after));
+    if (rv.verdict !== want) out.push(`修订影响判断「${rv.verdict}」与前后数值推得的「${want}」不符`);
+    const snaps: Array<[string, EvidenceSnapshot]> = [
+      ["修订前", rv.before],
+      ["修订后", rv.after],
+    ];
+    for (const [label, s] of snaps) {
+      if (s.official + s.professional + s.weak !== s.citations) out.push(`${label}快照分级之和不等于引用数`);
+      if (s.citations < 0 || s.docRefs < 0 || s.weak < 0 || s.official < 0) out.push(`${label}快照计数出现负数`);
+    }
   }
 
   for (const f of m.files) {
