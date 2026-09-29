@@ -91,7 +91,7 @@ export function evidenceSheetRows(i: SheetInput): SheetRow[] {
   const c = i.citations;
   rows.push({
     item: "联网引用证据力",
-    value: c.total === 0 ? "无联网引用" : `官方原文 ${c.official}/${c.total}`,
+    value: c.total === 0 ? "无联网引用" : `官方来源 ${c.official}/${c.total}`,
     note:
       c.total === 0
         ? "结论未引用联网来源，涉及政策依据请确认是否已完成在线核验"

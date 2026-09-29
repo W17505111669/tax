@@ -61,7 +61,7 @@ expect("改善文案", deltaVerdict(d), "证据质量改善");
 ok("对比文本含前后值与差值", deltaText(d).includes("弱证据引用 2 → 1（-1）"), deltaText(d));
 ok("对比文本以判断开头", deltaText(d).startsWith("证据质量改善："), deltaText(d).slice(0, 20));
 
-expect("同一文本对比为质量持平", deltaVerdict(evidenceDelta(s, s)), "证据质量持平（弱证据与官方原文条数未变）");
+expect("同一文本对比为质量持平", deltaVerdict(evidenceDelta(s, s)), "证据质量持平（弱证据与官方来源条数未变）");
 expect(
   "只换地址不换标题仍判弱证据",
   evidenceSnapshot(
@@ -80,7 +80,7 @@ expect(
       evidenceSnapshot("见 https://www.shui5.cn/article/a/b.html 与 https://www.shui5.cn/article/c/d.html"),
     ),
   ),
-  "证据质量持平（弱证据与官方原文条数未变）",
+  "证据质量持平（弱证据与官方来源条数未变）",
 );
 expect("无变化时四项差值都是 0", (() => {
   const x = evidenceDelta(s, s);

@@ -391,7 +391,7 @@ expect(
 expect(
   "退步提示含带符号差值",
   deliveryCheck({ ...base, revision: rev({ official: -1, weak: 2, improved: false, regressed: true }) }).items.some(
-    (x) => x.level === "warn" && x.text.includes("弱证据引用 +2") && x.text.includes("官方原文 -1"),
+    (x) => x.level === "warn" && x.text.includes("弱证据引用 +2") && x.text.includes("官方来源 -1"),
   ),
   true,
 );

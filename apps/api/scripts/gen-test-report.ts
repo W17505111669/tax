@@ -109,7 +109,7 @@ const VERIFY_SCRIPTS: Array<{ name: string; cmd: string; scope: string }> = [
   {
     name: "verify:citegrade",
     cmd: "pnpm verify:citegrade",
-    scope: "联网引用证据力分级（官方原文 / 专业来源 / 首页百科检索页 + 两套实现口径交叉核对）",
+    scope: "联网引用证据力分级（官方来源 / 专业来源 / 首页百科检索页 + 两套实现口径交叉核对）",
   },
   {
     name: "verify:searchev",

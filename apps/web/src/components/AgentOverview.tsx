@@ -800,7 +800,7 @@ export function AgentOverview({
                     <span className="font-medium">全平台证据缺口</span>
                     <span className="text-[11.5px] text-sky-200/85">
                       联网引用 {p.evidence.citations} 条（工具留存 {p.evidence.citationsFromTools} · 结论正文{" "}
-                      {p.evidence.citationsFromConclusion}，其中官方原文 {p.evidence.officialCitations} 条{" "}
+                      {p.evidence.citationsFromConclusion}，其中官方来源 {p.evidence.officialCitations} 条{" "}
                       {evidenceTrend("officialCitations", false)}）·
                       {p.evidence.gaps.length} 个任务有弱证据引用或待复查文号：证据力弱 {p.evidence.weakCitations} 条{" "}
                       {evidenceTrend("weakCitations", true)} ·

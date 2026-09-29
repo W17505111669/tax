@@ -44,7 +44,7 @@ export type ManifestInput = {
     url: string;
     verdict: string;
     status: number | null;
-    /** 证据力分级：official 官方原文 / professional 专业来源 / weak 门户首页、百科或检索页 */
+    /** 证据力分级：official 官方来源（含官方解读页）/ professional 专业来源 / weak 门户首页、百科或检索页 */
     grade: string;
     gradeReason: string;
     /** 留下这条来源的工具名 */

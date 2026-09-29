@@ -147,7 +147,7 @@ interface Citation {
   url: string;
   /** 留下这条来源的工具名（search_public_cases / fetch_content / fetch_public_document） */
   via: string;
-  /** 证据力分级：官方原文 / 专业来源 / 证据力弱（门户首页、百科词条、检索页） */
+  /** 证据力分级：官方来源（含官方解读页）/ 专业来源 / 证据力弱（门户首页、百科词条、检索页） */
   grade: import("../citation-grade.ts").CitationGrade;
   gradeReason: string;
 }
@@ -1277,7 +1277,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       : []),
     ...(citations.length > 0
       ? [
-          `- 证据力分级：官方原文 ${citationGrades.official} 条 · 专业来源 ${citationGrades.professional} 条 · 证据力弱 ${citationGrades.weak} 条`,
+          `- 证据力分级：官方来源 ${citationGrades.official} 条 · 专业来源 ${citationGrades.professional} 条 · 证据力弱 ${citationGrades.weak} 条`,
           ...(citationGrades.weak > 0
             ? ["- 证据力弱的引用指向门户首页、百科词条或检索结果页，不能替代政策原文，交付前请替换为具体文件页"]
             : []),
@@ -3825,7 +3825,7 @@ function ResultView({
             </button>
           </div>
           <p className="mt-1.5 text-[11px] text-mist-600">
-            证据力：官方原文 {grades.official} · 专业来源 {grades.professional}
+            证据力：官方来源 {grades.official} · 专业来源 {grades.professional}
             {grades.weak > 0 ? (
               <span className="text-amber-300" title={GRADE_HINT.weak}>
                 {" "}

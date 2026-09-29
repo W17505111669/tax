@@ -93,7 +93,7 @@ ok("每项都有结论与说明", rows.every((r) => r.item !== "" && r.value !==
 expect("文号溯源结论", rows[0]?.value, "有出处 10/31");
 ok("文号溯源说明含三类计数", (rows[0]?.note ?? "").includes("无法从留存数据核验 21") && (rows[0]?.note ?? "").includes("复查后仍无出处 12"), rows[0]?.note ?? "");
 expect("文号复查结论", rows[1]?.value, "找到公开出处 9/9");
-expect("引用证据力结论", rows[2]?.value, "官方原文 32/40");
+expect("引用证据力结论", rows[2]?.value, "官方来源 32/40");
 ok(
   "引用说明含来源拆分与替代进度",
   (rows[2]?.note ?? "").includes("工具留存 30 / 结论正文 10") && (rows[2]?.note ?? "").includes("1 条已找到官方替代来源"),

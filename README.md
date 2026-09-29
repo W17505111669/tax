@@ -30,7 +30,7 @@ pnpm verify:compare  # 底稿比对：记录级/地址级逐格差异与准确�
 pnpm verify:ocr      # OCR 适配器：中文+数字识别验证
 pnpm verify:extract  # 合同/发票字段确定性抽取验证
 pnpm verify:websearch # 联网检索可信度：相关度门槛 / 入口页过滤 / 验证页识别 / 历史数据回放
-pnpm verify:citegrade # 联网引用证据力分级：官方原文 / 专业来源 / 首页百科检索页
+pnpm verify:citegrade # 联网引用证据力分级：官方来源 / 专业来源 / 首页百科检索页
 pnpm verify:searchev # 联网检索留痕：区分「留下来源」与「只留查询元数据」，引用提取口径统一
 pnpm verify:refcheck # 政策文号联网复查：检索词构造 / 四级判定 / 落库往返与覆盖
 pnpm verify:revimpact # 修订前后证据对比：快照口径 / 差值与判断 / 真实续跑走查

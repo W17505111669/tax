@@ -25,7 +25,7 @@ export type LedgerRow = {
   docRefMatched: number;
   /** docRefTraced 里靠联网复查取得出处的条数（工具留存结果里没有该文号），已含在 docRefTraced 内 */
   docRefTracedByRecheck: number;
-  /** 联网引用：总数 / 官方原文 / 证据力弱 / 弱证据中已找到替代来源 */
+  /** 联网引用：总数 / 官方来源（含官方解读页）/ 证据力弱 / 弱证据中已找到替代来源 */
   citations: number;
   official: number;
   weak: number;
@@ -131,7 +131,7 @@ export const LEDGER_COLUMNS = [
   "待复查",
   "复查到出处",
   "引用数",
-  "官方原文",
+  "官方来源",
   "证据力弱",
   "替代来源就绪",
   "检索次数",
@@ -204,7 +204,7 @@ export function ledgerMarkdown(
     ...(generatedAt === "" ? [] : [`- 生成时间：${generatedAt}`]),
     `- 任务数：${t.tasks}　仍有证据欠账的任务：${t.withGaps}`,
     `- 政策文号：${t.docRefTotal} 处（有出处 ${t.docRefTraced}，其中复查取得 ${t.docRefTracedByRecheck} · 仍无出处 ${t.docRefPending} · 复查判定 matched ${t.docRefMatched}）`,
-    `- 联网引用：${t.citations} 条（官方原文 ${t.official} · 证据力弱 ${t.weak}，其中 ${t.replaced} 条已找到替代来源待写回结论）`,
+    `- 联网引用：${t.citations} 条（官方来源 ${t.official} · 证据力弱 ${t.weak}，其中 ${t.replaced} 条已找到替代来源待写回结论）`,
     `- 联网检索：${t.searchCalls} 次（只留查询元数据 ${t.searchMetadataOnly} 次）· 拦下无关结果与门户首页 ${t.searchDropped} 条`,
     `- 结论金额：${t.amountTotal} 处，待人工确认 ${t.amountPending} 处`,
     `- 修订影响：${t.revisionCompared} 个任务有可对比的两轮结论，其中 ${t.revisionImproved} 个改善`,

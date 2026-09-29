@@ -13,13 +13,16 @@ export type CitationGrade = "official" | "professional" | "weak";
 export type WeakReason = "entry" | "encyclopedia" | "search" | "unparsable";
 
 export const GRADE_TEXT: Record<CitationGrade, string> = {
-  official: "官方原文",
+  // 叫「官方来源」而不是「官方原文」：这一档含税务机关官方发布的政策解读页，它不是文件原文。
+  // 实测有过一条《关于〈…归集范围有关问题的公告〉的解读》落在这一档，标签写「原文」会比事实强。
+  // 具体是原文页还是解读页由 gradeCitation 的 reason 逐条说明，会进 manifest 与界面提示。
+  official: "官方来源",
   professional: "专业来源",
   weak: "证据力弱",
 };
 
 export const GRADE_HINT: Record<CitationGrade, string> = {
-  official: "政府或税务机关站点上的具体文件页，可直接作为政策依据引用",
+  official: "政府或税务机关站点上的具体页面，可直接作为政策依据引用；其中税务机关的解读页不是文件原文，逐条理由会写明",
   professional: "专业机构、媒体或社区的具体文章页，可作参考依据；关键口径请再核对官方原文",
   weak: "不能替代政策原文，交付前请替换为具体文件页",
 };

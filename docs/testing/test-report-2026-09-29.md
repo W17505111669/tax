@@ -40,7 +40,7 @@
 | `pnpm verify:stats` | 平台统计口径（比对准确率双口径 / 工具 / 任务 / 产物计数） | PASS |
 | `pnpm verify:policytrace` | 政策文号溯源（提取 / 归一化 / 有出处-无法核验-待确认三级口径） | PASS |
 | `pnpm verify:websearch` | 联网检索可信度（词元切分 / 相关度门槛 / 入口页过滤 / 验证页识别 / 历史数据回放） | PASS |
-| `pnpm verify:citegrade` | 联网引用证据力分级（官方原文 / 专业来源 / 首页百科检索页 + 两套实现口径交叉核对） | PASS |
+| `pnpm verify:citegrade` | 联网引用证据力分级（官方来源 / 专业来源 / 首页百科检索页 + 两套实现口径交叉核对） | PASS |
 | `pnpm verify:searchev` | 联网检索留痕与引用提取（各工具结果形状 / 去重上限 / 只留元数据时如实说明 / 真实任务走查） | PASS |
 | `pnpm verify:refcheck` | 政策文号联网复查（发文机关前缀与检索词构造 / 四级判定 / 落库往返与覆盖 / 真实任务走查） | PASS |
 | `pnpm verify:revimpact` | 修订前后证据对比（快照口径 / 差值与总体判断 / 按事件流重组结论的真实续跑走查） | PASS |

@@ -252,7 +252,7 @@ export function deliveryCheck(i: CheckInput): CheckResult {
   if (i.revision) {
     const r = i.revision;
     const sgn = (n: number) => (n > 0 ? `+${n}` : String(n));
-    const detail = `弱证据引用 ${sgn(r.weak)} · 官方原文 ${sgn(r.official)}`;
+    const detail = `弱证据引用 ${sgn(r.weak)} · 官方来源 ${sgn(r.official)}`;
     if (r.regressed && !r.improved) {
       items.push({ level: "warn", text: `本次修订让证据质量退步（${detail}），请核对修订内容后再交付` });
     } else if (r.improved && r.regressed) {

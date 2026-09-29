@@ -80,7 +80,7 @@ export function signed(n: number): string {
 export function deltaVerdict(d: EvidenceDelta): string {
   if (d.improved && !d.regressed) return "证据质量改善";
   if (d.regressed && !d.improved) return "证据质量退步，请核对本次修订";
-  if (d.unchanged) return "证据质量持平（弱证据与官方原文条数未变）";
+  if (d.unchanged) return "证据质量持平（弱证据与官方来源条数未变）";
   return "证据质量有增有减，请核对本次修订";
 }
 
@@ -88,7 +88,7 @@ export function deltaVerdict(d: EvidenceDelta): string {
 export function deltaDetail(d: EvidenceDelta): string {
   return [
     `弱证据引用 ${d.before.weak} → ${d.after.weak}（${signed(d.weak)}）`,
-    `官方原文 ${d.before.official} → ${d.after.official}（${signed(d.official)}）`,
+    `官方来源 ${d.before.official} → ${d.after.official}（${signed(d.official)}）`,
     `引用合计 ${d.before.citations} → ${d.after.citations}（${signed(d.citations)}）`,
     `政策文号 ${d.before.docRefs} → ${d.after.docRefs}（${signed(d.docRefs)}）`,
   ].join(" · ");
