@@ -216,6 +216,10 @@ export function verifiedOfficialDocs(): Map<string, VerifiedOfficialDoc> {
  * 批量入口因此不依赖前端传清单。
  */
 export function pendingCitationTargets(taskId: string, limit: number = MAX_REF_CHECKS): RefCheckTarget[] {
+  // 没有结论的任务不进清单：替代来源必须与这份结论谈同一件事，没有结论就没有主题可比，
+  // 跑出来的只能是永久 candidate，白占批量预算（实测失败任务 060b4eea 结论为空，
+  // 却贡献了 3 条永远无法判定的待办）。文号侧 pendingRefTargets 早有同一道守卫。
+  if (String(getTask(taskId)?.result ?? "").trim() === "") return [];
   const rows = db
     .prepare(`SELECT tool_name, result FROM tool_calls WHERE task_id = ?`)
     .all(taskId) as unknown as Array<{ tool_name: string; result: string | null }>;

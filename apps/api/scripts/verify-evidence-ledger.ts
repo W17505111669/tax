@@ -15,6 +15,7 @@ import {
   type LedgerRow,
 } from "../../web/src/evidence-ledger.ts";
 import { computePlatformStats } from "../src/services/stats.ts";
+import { getTask } from "../src/services/task-store.ts";
 import { db } from "../src/db.ts";
 import { CSV_EOL } from "../../web/src/csv.ts";
 
@@ -192,6 +193,25 @@ expect("复查取得出处合计与看板一致", sum((r) => r.docRefTracedByRec
 expect("检索调用合计与看板一致", sum((r) => r.searchCalls), ev.searchCalls);
 expect("仅元数据检索合计与看板一致", sum((r) => r.searchMetadataOnly), ev.searchMetadataOnly);
 expect("欠账任务数与缺口清单一致", ledgerTotals(led).withGaps, ev.gaps.length);
+// 没有结论就没有可交付物，也就没有证据欠账。实测失败任务「映射模式填列验证」（结论为空）
+// 曾带着 5 条引用、4 条弱证据进台账与缺口清单——引用是从工具留存结果提取的，失败任务照样有；
+// 但它们从未进入任何结论，替代来源也因为「没有结论就没有主题」而永远判不出 matched。
+const noConclusion = led.filter((r) => String(getTask(r.taskId)?.result ?? "").trim() === "");
+expect(
+  "无结论的任务不计引用与弱证据",
+  noConclusion.every((r) => r.citations === 0 && r.weak === 0 && r.replaced === 0),
+  true,
+);
+expect(
+  "无结论的任务不进缺口清单",
+  noConclusion.every((r) => !ev.gaps.some((g) => g.id === r.taskId)),
+  true,
+);
+ok(
+  "无结论不等于没有检索活动：这类任务的检索次数照实保留",
+  noConclusion.length === 0 || noConclusion.some((r) => r.searchCalls > 0),
+);
+console.log(`[verify] 台账中无结论的任务 ${noConclusion.length} 个（不计证据欠账，检索活动照实计入）`);
 expect(
   "欠账任务的缺口构成一致",
   ev.gaps.every((g) => {

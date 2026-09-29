@@ -260,27 +260,35 @@ export function computePlatformStats(): PlatformStats {
       rcRows.filter((r) => r.kind === "citation" && r.verdict === "matched").map((r) => r.ref_key),
     );
     // 待复查就是「仍然没有出处」的那些：复查到出处的已经计入 traced，不再从这里扣一遍
+    // 没有结论就没有可交付物。结论里的文号与金额本来就都是 0，但引用是从工具留存结果提取的，
+    // 失败任务照样会算出一堆「弱证据引用」（实测 060b4eea「映射模式填列验证」status=failed、
+    // result 为空，却带着 5 条引用、4 条弱证据进了台账与缺口清单）。这些引用从未进入任何结论，
+    // 既不该算证据欠账，也不该占批量复查预算——没有结论就没有主题，替代来源永远判不出 matched。
+    // 检索活动本身照实计入：那是真实发生过的调用，与有没有结论无关。
+    const hasConclusion = String(task.result ?? "").trim() !== "";
     const docRefPending = tr.untraced.length + tr.unverifiable;
     evidence.searchCalls += se.calls;
     evidence.searchMetadataOnly += se.metadataOnly;
     evidence.searchWithUrls += se.withUrls;
     evidence.searchKept += sf.kept;
     evidence.searchDropped += sf.dropped;
-    evidence.citations += grades.total;
-    evidence.officialCitations += grades.official;
-    evidence.weakCitations += grades.weak;
-    evidence.citationsFromTools += cites.filter((c) => c.via !== "conclusion").length;
-    evidence.citationsFromConclusion += cites.filter((c) => c.via === "conclusion").length;
+    if (hasConclusion) {
+      evidence.citations += grades.total;
+      evidence.officialCitations += grades.official;
+      evidence.weakCitations += grades.weak;
+      evidence.citationsFromTools += cites.filter((c) => c.via !== "conclusion").length;
+      evidence.citationsFromConclusion += cites.filter((c) => c.via === "conclusion").length;
+    }
     const replacedCount = cites.filter(
       (c) => gradeCitation(c.url, c.title).grade === "weak" && replaced.has(refKey("citation", c.url)),
     ).length;
-    evidence.weakWithReplacement += replacedCount;
+    evidence.weakWithReplacement += hasConclusion ? replacedCount : 0;
     evidence.docRefs += tr.total;
     evidence.docRefTraced += tr.traced;
     evidence.docRefTracedByRecheck += tr.tracedByRecheck;
     evidence.docRefPending += docRefPending;
     evidence.docRefMatched += rc.matched;
-    if (grades.weak > 0 || docRefPending > 0) {
+    if (hasConclusion && (grades.weak > 0 || docRefPending > 0)) {
       evidence.gaps.push({
         id: task.id,
         title: String(task.title ?? task.id),
@@ -318,10 +326,12 @@ export function computePlatformStats(): PlatformStats {
       docRefPending,
       docRefMatched: rc.matched,
       docRefTracedByRecheck: tr.tracedByRecheck,
-      citations: grades.total,
-      official: grades.official,
-      weak: grades.weak,
-      replaced: replacedCount,
+      // 与上面的累加同一口径：没有结论的任务不计引用，台账欠账（弱证据 + 待复查）因此为 0，
+      // 不会和缺口清单相互矛盾（两者的一致性是 verify:ledger 的断言项）
+      citations: hasConclusion ? grades.total : 0,
+      official: hasConclusion ? grades.official : 0,
+      weak: hasConclusion ? grades.weak : 0,
+      replaced: hasConclusion ? replacedCount : 0,
       searchCalls: se.calls,
       searchMetadataOnly: se.metadataOnly,
       searchDropped: sf.dropped,
