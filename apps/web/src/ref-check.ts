@@ -9,7 +9,7 @@
  * 检索本身通过参数注入，便于离线校验。
  */
 
-import { gradeCitation } from "./citation-grade.ts";
+import { gradeCitation, isOfficialChannelPage } from "./citation-grade.ts";
 import { normalizeRef } from "./policy-trace.ts";
 import type { RefTraceResult } from "./policy-trace.ts";
 
@@ -318,9 +318,13 @@ export function gradeRefCheck(t: RefCheckTarget, outcome: RefSearchOutcome): Ref
     if (pool.length === 0) {
       return { verdict: "empty", evidence: null, note: "只检索到这条引用本身，没有找到可替换的来源" };
     }
-    // 官方域名只是必要条件：还要与原引用谈的是同一件事，否则会把同域名下的
-    // App 下载页、工具页当成政策原文写进修订指令
-    const isOfficial = (h: RefSearchHit) => gradeCitation(h.url, h.title).grade === "official";
+    // 官方域名只是必要条件，还要过两关：
+    // 一是与原引用谈的是同一件事，否则会把同域名下的 App 下载页、工具页当成政策原文写进修订指令；
+    // 二是不能是税务机关主站的解读/新闻频道页——它由官方发布、分级也是 official，但它是「讲这份文件的」
+    //    而不是文件本身，拿来替换弱证据引用与「找到官方原文」的承诺不符。
+    // 不限定为政策法规库：科技部一类的官方文件页（most.gov.cn 上的指引 PDF）同样是合格的原文。
+    const isOfficial = (h: RefSearchHit) =>
+      gradeCitation(h.url, h.title).grade === "official" && !isOfficialChannelPage(h.url);
     const official = pool.find((h) => isOfficial(h) && topicOverlap(t.text, h.title, h.snippet ?? "").length > 0);
     if (official) {
       return {

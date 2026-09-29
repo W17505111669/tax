@@ -966,6 +966,42 @@ ok(
   appDownload.note,
 );
 
+// 税务机关主站的解读/新闻频道页：官方发布、分级也是 official，但它是「讲这份文件的」而不是文件本身
+const interpretation = gradeRefCheck(
+  { key: "citation:i", kind: "citation", text: "研发费用加计扣除", excludeUrl: "https://baike.baidu.com/x" },
+  outcome([
+    hit(
+      "关于《研发费用税前加计扣除归集范围有关问题的公告》的解读",
+      "https://www.chinatax.gov.cn/chinatax/n810341/n810760/c2922282/content.html",
+      "研发费用加计扣除归集范围",
+    ),
+  ]),
+);
+expect("解读页即使主题相关也不判为找到官方原文", interpretation.verdict, "candidate");
+ok("解读页只作候选并要求人工确认", (interpretation.note ?? "").includes("人工确认"), interpretation.note);
+// 反向护栏：收紧的只是税务主站频道页，其他官方站点的文件页与政策法规库原文页都还要能过
+const otherGov = gradeRefCheck(
+  { key: "citation:g", kind: "citation", text: "研发费用加计扣除", excludeUrl: "https://baike.baidu.com/x" },
+  outcome([
+    hit(
+      "研发费用加计扣除政策执行指引",
+      "https://www.most.gov.cn/xxgk/2023/t20230101_1.pdf",
+      "研发费用加计扣除",
+    ),
+  ]),
+);
+expect("其他政府站点的文件页仍算官方原文", otherGov.verdict, "matched");
+const libraryPage = gradeRefCheck(
+  { key: "citation:l", kind: "citation", text: "研发费用加计扣除", excludeUrl: "https://baike.baidu.com/x" },
+  outcome([
+    hit(
+      "关于完善研究开发费用税前加计扣除政策的通知",
+      "http://fgk.chinatax.gov.cn/zcfgk/c102416/c5203882/content.html",
+      "研发费用加计扣除",
+    ),
+  ]),
+);
+expect("政策法规库原文页仍算官方原文", libraryPage.verdict, "matched");
 // 10) 官方政策法规库定向检索：按发文字号精确命中，未命中如实退回通用检索
 // 通用搜索引擎对中文长查询已退化（Bing 忽略 site:、只命中「国家」二字返回百科词条，百度安全验证），
 // 政策文号改走官方库，命中门槛是发文字号归一化后全等。
