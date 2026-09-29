@@ -19,6 +19,7 @@ import {
 } from "../evidence-ledger.ts";
 import { downloadBlob, downloadText } from "../download.ts";
 import { asSnapshotRecord, KEYS, readJson, writeJson } from "../local-store.ts";
+import { needsUnitSpace, percentFrom, percentOf, percentText, percentValue } from "../format.ts";
 
 /** 大数字 odometer：每位数字独立滚轮到目标值，对齐参考片数据页质感。 */
 const DESC_KEYWORDS = ["整数分", "行级", "记录级", "OCR", "mermaid", "联网"];
@@ -298,18 +299,17 @@ export function AgentOverview({
       downloadBlob(new Blob([JSON.stringify(p, null, 2)], { type: "application/json" }), `platform-stats-${stamp}.json`);
       return;
     }
-    const rate = p.toolCalls > 0 ? Math.round((p.toolOk / p.toolCalls) * 10000) / 100 : "—";
     const lines = [
       "# 平台应用效果快照",
       "",
       `- 日期：${stamp}`,
       `- 累计任务：${p.tasks}（已完成 ${p.completed}）`,
-      `- 工具调用：${p.toolCalls} 次 · 成功 ${p.toolOk} · 成功率 ${rate}%`,
+      `- 工具调用：${p.toolCalls} 次 · 成功 ${p.toolOk} · 成功率 ${percentText(p.toolOk, p.toolCalls)}`,
       `- 底稿产物：${p.artifacts} 份`,
-      `- 记录级比对准确率：最近一次 ${p.compareAccuracy ?? "—"}%（共 ${p.compareRuns} 次，按调用时间取最新）· 累计 ${
-        p.compareAccuracyOverall ?? "—"
-      }%（一致 ${p.compareMatched} / 比对 ${p.compareCompared}）`,
-      `- OCR 平均置信度：${p.ocrAvgConfidence ?? "—"}%（${p.ocrRuns} 次）`,
+      `- 记录级比对准确率：最近一次 ${percentFrom(p.compareAccuracy)}（共 ${p.compareRuns} 次，按调用时间取最新）· 累计 ${percentFrom(
+        p.compareAccuracyOverall,
+      )}（一致 ${p.compareMatched} / 比对 ${p.compareCompared}）`,
+      `- OCR 平均置信度：${percentFrom(p.ocrAvgConfidence)}（${p.ocrRuns} 次）`,
       `- 复核闭环：待复核问题合计 ${p.reviewPendingIssues} 项；已完成但仍有未复核问题的任务 ${p.reviewBacklog.length} 个`,
       ...(p.reviewBacklog.length > 0
         ? [
@@ -344,7 +344,7 @@ export function AgentOverview({
       "| 智能体 | 任务 | 已完成 | 完成率 |",
       "| --- | --- | --- | --- |",
       ...(p?.perAgent ?? []).map((pa) => {
-        const rate = pa.tasks > 0 ? Math.round((pa.completed / pa.tasks) * 100) : 0;
+        const rate = percentOf(pa.completed, pa.tasks, 0) ?? 0;
         return `| ${pa.agentId} | ${pa.tasks} | ${pa.completed} | ${rate}% |`;
       }),
       "",
@@ -392,18 +392,17 @@ export function AgentOverview({
   // 核心指标复制为 TSV，便于粘贴进表格软件
   const copyTsv = () => {
     if (!p) return;
-    const rate = p.toolCalls > 0 ? Math.round((p.toolOk / p.toolCalls) * 10000) / 100 : "—";
     const lines = [
       "指标\t数值",
       `累计任务\t${p.tasks}`,
       `已完成\t${p.completed}`,
-      `工具成功率\t${rate}%`,
+      `工具成功率\t${percentText(p.toolOk, p.toolCalls)}`,
       `底稿产物\t${p.artifacts}`,
-      `记录级比对准确率（最近一次）\t${p.compareAccuracy ?? "—"}%`,
-      `记录级比对准确率（累计）\t${p.compareAccuracyOverall ?? "—"}%`,
+      `记录级比对准确率（最近一次）\t${percentFrom(p.compareAccuracy)}`,
+      `记录级比对准确率（累计）\t${percentFrom(p.compareAccuracyOverall)}`,
       `记录级比对项合计\t${p.compareCompared}`,
       `记录级比对一致项\t${p.compareMatched}`,
-      `OCR 平均置信度\t${p.ocrAvgConfidence ?? "—"}%`,
+      `OCR 平均置信度\t${percentFrom(p.ocrAvgConfidence)}`,
       `待复核问题合计\t${p.reviewPendingIssues}`,
       `完成但未复核任务\t${p.reviewBacklog.length}`,
     ];
@@ -428,7 +427,7 @@ export function AgentOverview({
     {
       label:
         p && p.toolCalls > 0
-          ? `工具成功率 ${String(Math.round((p.toolOk / p.toolCalls) * 10000) / 100)}%`
+          ? `工具成功率 ${percentText(p.toolOk, p.toolCalls)}`
           : `业务工具 ${agent.tools.length} 个`,
     },
     { label: p ? `底稿产物 ${p.artifacts} 份` : `核心能力 ${agent.capabilities.length} 项` },
@@ -667,10 +666,7 @@ export function AgentOverview({
                 {
                   label: "工具成功率",
                   desc: "tool_calls 中 ok=1 的占比",
-                  value:
-                    stats.platform.toolCalls > 0
-                      ? String(Math.round((stats.platform.toolOk / stats.platform.toolCalls) * 10000) / 100)
-                      : "—",
+                  value: percentValue(stats.platform.toolOk, stats.platform.toolCalls),
                   unit: "%",
                 },
                 { label: "底稿产物", key: "artifacts", value: stats.platform.artifacts.toLocaleString("zh-CN"), unit: "份", desc: "各任务 outputs 目录文件计数" },
@@ -692,7 +688,7 @@ export function AgentOverview({
                   desc: "parse_uploaded_files 各文档 tesseract 置信度均值",
                   value:
                     stats.platform.ocrAvgConfidence !== null ? String(stats.platform.ocrAvgConfidence) : "—",
-                  unit: stats.platform.ocrRuns > 0 ? `%·${stats.platform.ocrRuns}次` : "%",
+                  unit: stats.platform.ocrRuns > 0 ? `% · ${stats.platform.ocrRuns} 次` : "%",
                 },
               ].map((kpi) => (
                 <div key={kpi.label} className="glow-card px-4 py-3" title={kpi.desc}>
@@ -700,7 +696,10 @@ export function AgentOverview({
                   <div className="mt-1 flex items-baseline gap-1">
                     <span className="text-[22px] font-semibold tracking-tight text-jade-400">{kpi.value}</span>
                     {kpi.key ? deltaBadge(kpi.key) : null}
-                    <span className="text-[11px] text-mist-600">{kpi.unit}</span>
+                    {/* % 一类符号单位紧贴数字：负边距抵掉 flex 的 gap-1，中文单位仍留一格 */}
+                    <span className={`text-[11px] text-mist-600${needsUnitSpace(kpi.unit) ? "" : " -ml-1"}`}>
+                      {kpi.unit}
+                    </span>
                   </div>
                 </div>
               ))}
@@ -1000,7 +999,7 @@ export function AgentOverview({
             {stats.platform.perAgent.length > 0 && (
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {stats.platform.perAgent.map((pa) => {
-                  const rate = pa.tasks > 0 ? Math.round((pa.completed / pa.tasks) * 100) : 0;
+                  const rate = percentOf(pa.completed, pa.tasks, 0) ?? 0;
                   const info = agents.find((a) => a.id === pa.agentId);
                   return (
                     <div key={pa.agentId} className="glow-card flex items-center gap-3 px-3 py-2">
@@ -1071,7 +1070,7 @@ export function AgentOverview({
             <div className="space-y-0.5 text-[11px] text-mist-500">
               <div>
                 工具调用 <span className="font-mono text-mist-300">{p.toolCalls}</span> 次 · 成功率{" "}
-                <span className="font-mono text-jade-400">{Math.round((p.toolOk / p.toolCalls) * 1000) / 10}%</span>
+                <span className="font-mono text-jade-400">{percentText(p.toolOk, p.toolCalls)}</span>
               </div>
               <div>
                 成功 <span className="font-mono text-jade-400">{p.toolOk}</span> · 失败{" "}

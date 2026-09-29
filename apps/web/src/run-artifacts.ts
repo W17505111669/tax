@@ -4,6 +4,8 @@
  * 纯函数，便于 apps/api/scripts/verify-run-artifacts.ts 直接校验。
  */
 
+import { trimZeros } from "./format.ts";
+
 export type ArtifactLike = { name: string; byteSize: number; updatedAt: string };
 
 /** end 为 null 表示区间开放：任务仍在执行，或历史数据缺结束事件 */
@@ -44,12 +46,12 @@ export function unattributedArtifacts(artifacts: ArtifactLike[], windows: RunWin
   );
 }
 
-/** 字节数格式化：导出表格与角标 tooltip 共用 */
+/** 字节数格式化：导出表格与角标 tooltip 共用；整数不带小数（25 MB 而不是 25.00 MB） */
 export function fmtBytes(n: number): string {
   if (!Number.isFinite(n) || n < 0) return "—";
   if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(2)} MB`;
+  if (n < 1024 * 1024) return `${trimZeros((n / 1024).toFixed(1))} KB`;
+  return `${trimZeros((n / 1024 / 1024).toFixed(2))} MB`;
 }
 
 /** 产物清单的 Markdown 表格；空清单给出明确说明，避免看起来像漏了内容 */

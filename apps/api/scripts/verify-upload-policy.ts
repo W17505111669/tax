@@ -72,18 +72,18 @@ expect("无策略时不给提示", policyHint(null), "");
 expect(
   "类型过多时折叠计数",
   policyHint({ allowedExtensions: [".pdf", ".xlsx", ".xls", ".csv", ".docx", ".doc", ".txt"], maxUploadBytes: 1024 }),
-  "支持 .pdf .xlsx .xls .csv .docx .doc 等 7 类 · 单文件 ≤ 1.0 KB",
+  "支持 .pdf .xlsx .xls .csv .docx .doc 等 7 类 · 单文件 ≤ 1 KB",
 );
 expect(
   "类型不多时全部列出",
   policyHint({ allowedExtensions: ["xlsx", "pdf"], maxUploadBytes: 2048 }),
-  "支持 .xlsx .pdf · 单文件 ≤ 2.0 KB",
+  "支持 .xlsx .pdf · 单文件 ≤ 2 KB",
 );
 expect(
   "服务端真实配置的提示含类数与上限",
   [
     policyHint({ allowedExtensions, maxUploadBytes }).includes(`等 ${allowedExtensions.length} 类`),
-    policyHint({ allowedExtensions, maxUploadBytes }).includes("25.00 MB"),
+    policyHint({ allowedExtensions, maxUploadBytes }).includes("25 MB"),
   ],
   [true, true],
 );

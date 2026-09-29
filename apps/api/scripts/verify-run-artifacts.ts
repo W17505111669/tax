@@ -70,7 +70,7 @@ expect("字节格式化", [fmtBytes(0), fmtBytes(1023), fmtBytes(7010), fmtBytes
   "1023 B",
   "6.8 KB",
   "12.2 KB",
-  "3.00 MB",
+  "3 MB",
 ]);
 
 console.log(`[verify] 运行产物归属检查项=${checks} 失败=${failures.length}`);

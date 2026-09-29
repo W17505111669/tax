@@ -615,3 +615,15 @@ curl -L -o data/ocr-tessdata/eng.traineddata https://cdn.jsdelivr.net/gh/tessera
 跨组件共享的键给了领域访问器而不是裸读写：`readStarred`/`writeStarred`/`isStarred`/`toggleStarred`/`clearStarred` 与 `readTaskOrder`/`writeTaskOrder`（空清单用 remove 而不是写空数组，不留空壳）。工作台的状态改成 `setStarred(toggleStarred(task.id))`，以存储为准，不再出现「界面亮着、存储里没有」。`tags.ts`、`usePaperTheme.ts`、`Sidebar`、`SideReader`、`TaskWorkbench`、`AgentOverview`、`CompareView`、`ReviewView` 全部改为走这个入口，键名沿用原值，用户既有数据不作废。
 
 `pnpm verify:localstore` 70 项：原始读写与删除、六个形状校验器（字符串数组剔除非字符串、字典拒绝数组与 null、排序方向只认 1/-1、快照剔除非有限数）、`readJson` 五种回落（缺失/空串/坏 JSON/形状不对/只留合规部分）、循环引用写入不抛错、`readEnum` 白名单、收藏的去重与两次翻转回到原状、脏数据与旧格式（对象）下收藏回落为空集合而不是抛错、排序空清单删键、标签往返与脏数据回落、键登记（值两两不同、都带 tax 前缀、四个沿用旧键名）。最后一段是静态走查：递归扫 `apps/web/src` 全部 46 个 `.ts`/`.tsx`，除 `local-store.ts` 外任何文件出现 `localStorage.` 或 `localStorage[` 即失败，`"taxai-starred"` 与 `"taxai-tags"` 的字面量也只准出现在入口文件里——新增组件想绕过就会当场红。`qa:all` 现 39 项 verify。
+
+## 数字与单位的排版口径统一
+
+这一轮先在浏览器里把平台总览整页读了一遍渲染结果，发现的问题都不是功能缺失而是口径不一致：同一张 KPI 卡里「50 %」带空格而「累计 60%」不带；同一个「工具成功率」在 hero 芯片是 94.64%、在作品卡是 94.6%（两处 `Math.round` 的精度不同）；上传提示写「单文件 ≤ 25.00 MB」；OCR 那格是「93 %·1次」，分隔点两侧没有空格；导出的快照 MD 与 TSV 在没有比对记录时会写出「—%」。
+
+根因有两类。一是百分比各处自己算：`AgentOverview.tsx` 里有 6 处 `Math.round(... * 10000) / 100` 与 `Math.round(... * 1000) / 10`，精度不同、兜底也不同（`?? "—"` 后面又拼了个 `%`）。二是 KPI 卡把数值与单位放在两个 `span` 里、容器用 `gap-1`，这个 4px 对「24 个」是对的，对「50%」就多了个空格。
+
+新增 `apps/web/src/format.ts` 收口：`percentOf(part, total, digits)` 返回数值，分母为 0、非有限数、分子为负时如实返回 `null`（不返回 0——「成功率 0%」与「没有调用」是两件事）；`percentValue` 给不带百分号的数值文案、`percentText` 给完整文案，两者在算不出来时都返回「—」而不是「—%」；`percentFrom` 处理后端已经算好的数值；`trimZeros` 去掉小数末尾多余的零且不动整数（`100` 不会被削成 `1`），`fmtBytes` 改用它，于是 25 MB 不再写成 25.00 MB；`needsUnitSpace(unit)` 判断数字与单位之间要不要留空隙，中文单位留、`%` 与 `％` 紧贴，KPI 卡据此给单位 span 加 `-ml-1` 抵消容器的 `gap-1`（实测计算样式为 `-4px`，「个」仍是 `0px`）。6 处自算百分比全部改为调用这套函数，OCR 单位补上分隔空格。
+
+`pnpm verify:format` 61 项：去零 9 项（含 `100`、`0.00`、负数、空串）、百分比取值 13 项（两位/一位/整数精度、`0/5` 是 0、分母为 0 与负分子与 NaN 与 Infinity 都给 null、与文档里旧公式逐值相等）、百分比文案 12 项（「—」不带百分号、百分号紧贴数字）、单位空隙 8 项、字节数 11 项（含上传提示里不出现 `25.00`）、静态走查 8 项（组件不再自己 `* 10000) / 100`、KPI 单位按 `needsUnitSpace` 决定空隙、不再拼出「—%」）。
+
+改完在浏览器里复核了渲染结果：上传提示为「单文件 ≤ 25 MB」，hero 为「工具成功率 94.64%」，三张百分比 KPI 的单位分别是「%」「% · 累计 60%」「% · 1 次」，`-ml-1` 的计算值为 `-4px`，与容器 `gap: 4px` 正好抵消；「累计任务」的单位「个」保持 `0px` 不留负边距。`qa:all` 现 40 项 verify。
