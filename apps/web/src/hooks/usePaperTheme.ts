@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { KEYS, readEnum, writeRaw } from "../local-store.ts";
 
 export type PaperTheme = "classic" | "minimal" | "mono" | "modern";
 
@@ -9,15 +10,10 @@ export const PAPER_THEMES: Array<{ id: PaperTheme; label: string }> = [
   { id: "modern", label: "现代蓝紫" },
 ];
 
-const KEY = "tax-paper-theme";
+const THEME_IDS = PAPER_THEMES.map((t) => t.id);
 
-let current: PaperTheme = "classic";
-try {
-  const stored = localStorage.getItem(KEY) as PaperTheme | null;
-  if (stored && PAPER_THEMES.some((t) => t.id === stored)) current = stored;
-} catch {
-  // 忽略存储不可用
-}
+// 旧版本或脏值不在白名单里时回落经典固实，不把非法值塞进 body[data-paper-theme]
+let current: PaperTheme = readEnum(KEYS.paperTheme, THEME_IDS, "classic");
 
 const listeners = new Set<() => void>();
 
@@ -32,11 +28,7 @@ export function getPaperTheme(): PaperTheme {
 
 export function setPaperTheme(theme: PaperTheme): void {
   current = theme;
-  try {
-    localStorage.setItem(KEY, theme);
-  } catch {
-    // 忽略存储不可用
-  }
+  writeRaw(KEYS.paperTheme, theme);
   apply();
   listeners.forEach((l) => l());
 }

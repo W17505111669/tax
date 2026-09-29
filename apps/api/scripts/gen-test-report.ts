@@ -156,6 +156,11 @@ const VERIFY_SCRIPTS: Array<{ name: string; cmd: string; scope: string }> = [
     scope: "mermaid 图导出（图类型识别 / 文件名不互相覆盖 / 导出配置指令 / SVG 尺寸解析 / 交付件脱敏 / 真实比赛材料走查）",
   },
   {
+    name: "verify:localstore",
+    cmd: "pnpm verify:localstore",
+    scope: "本地存储统一入口（读写与内存降级 / 形状校验 / 脏数据回落不抛错 / 收藏与排序等跨组件共享键 / 键登记 / 前端不再绕过入口的静态走查）",
+  },
+  {
     name: "verify:upload",
     cmd: "pnpm verify:upload",
     scope: "上传预检规则（扩展名 / 大小 / 空文件 / 批量分组 / 提示文案）",

@@ -18,9 +18,7 @@ import {
   LEDGER_COLUMNS,
 } from "../evidence-ledger.ts";
 import { downloadBlob, downloadText } from "../download.ts";
-
-/** 每日指标快照的本地存储键（保留最近 60 天，由 recordSnapshot 裁剪） */
-const SNAPSHOT_KEY = "taxai-stats-snapshots";
+import { asSnapshotRecord, KEYS, readJson, writeJson } from "../local-store.ts";
 
 /** 大数字 odometer：每位数字独立滚轮到目标值，对齐参考片数据页质感。 */
 const DESC_KEYWORDS = ["整数分", "行级", "记录级", "OCR", "mermaid", "联网"];
@@ -240,7 +238,7 @@ export function AgentOverview({
     if (!p) return;
     const today = new Date().toISOString().slice(0, 10);
     try {
-      const snap = JSON.parse(localStorage.getItem(SNAPSHOT_KEY) ?? "{}") as DailySnapshot;
+      const snap = readJson<DailySnapshot>(KEYS.snapshots, asSnapshotRecord, {});
       const values: Record<string, number> = {
         tasks: p.tasks,
         completed: p.completed,
@@ -250,7 +248,7 @@ export function AgentOverview({
         docRefPending: p.evidence?.docRefPending ?? 0,
       };
       const next = recordSnapshot(snap, today, values);
-      localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(next));
+      writeJson(KEYS.snapshots, next);
       const base = baselineKey(next, today, 7);
       setBaseDay(base);
       setWeekDeltas(deltas(values, base ? next[base] : undefined, Object.keys(values)));

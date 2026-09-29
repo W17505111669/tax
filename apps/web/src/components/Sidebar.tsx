@@ -2,6 +2,17 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentInfo, TaskInfo } from "../types.ts";
 import { downloadCsv } from "../download.ts";
 import {
+  asBoolRecord,
+  asStringArray,
+  clearStarred,
+  KEYS,
+  readJson,
+  readStarred,
+  toggleStarred,
+  writeJson,
+  writeTaskOrder,
+} from "../local-store.ts";
+import {
   IconBuilding,
   IconCopy,
   IconExternal,
@@ -213,16 +224,12 @@ export function Sidebar({
     });
   };
   const [sortTools, setSortTools] = useState(false);
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
-    try {
-      return JSON.parse(localStorage.getItem("taxai-sidebar-groups") ?? "{}") as Record<string, boolean>;
-    } catch {
-      return {};
-    }
-  });
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() =>
+    readJson(KEYS.sidebarGroups, asBoolRecord, {}),
+  );
 
   useEffect(() => {
-    localStorage.setItem("taxai-sidebar-groups", JSON.stringify(collapsed));
+    writeJson(KEYS.sidebarGroups, collapsed);
   }, [collapsed]);
 
   // 「查看全部」时展开所有分组
@@ -255,22 +262,10 @@ export function Sidebar({
 
   // 收藏集合（与工作台星标共享 localStorage）
   const [starNonce, setStarNonce] = useState(0);
-  const starred = useMemo(() => {
-    try {
-      return new Set(JSON.parse(localStorage.getItem("taxai-starred") ?? "[]") as string[]);
-    } catch {
-      return new Set<string>();
-    }
-  }, [tasks, starNonce]);
+  const starred = useMemo(() => readStarred(), [tasks, starNonce]);
 
   // 手动排序（拖拽置顶），localStorage 持久化
-  const [order, setOrder] = useState<string[]>(() => {
-    try {
-      return JSON.parse(localStorage.getItem("taxai-task-order") ?? "[]") as string[];
-    } catch {
-      return [];
-    }
-  });
+  const [order, setOrder] = useState<string[]>(() => readJson(KEYS.taskOrder, asStringArray, []));
   const dragIdRef = useRef<string | null>(null);
   const sortByOrder = (list: TaskInfo[]) => {
     const idx = (id: string) => {
@@ -313,7 +308,7 @@ export function Sidebar({
     const at = next.indexOf(targetId);
     next.splice(at === -1 ? next.length : at, 0, from);
     setOrder(next);
-    localStorage.setItem("taxai-task-order", JSON.stringify(next));
+    writeTaskOrder(next);
   };
 
   // 标签芯片拖到任务行即打标签
@@ -328,15 +323,8 @@ export function Sidebar({
   };
 
   const toggleStarTask = (id: string) => {
-    try {
-      const list = new Set(JSON.parse(localStorage.getItem("taxai-starred") ?? "[]") as string[]);
-      if (list.has(id)) list.delete(id);
-      else list.add(id);
-      localStorage.setItem("taxai-starred", JSON.stringify([...list]));
-      setStarNonce((n) => n + 1);
-    } catch {
-      /* 忽略存储不可用 */
-    }
+    toggleStarred(id);
+    setStarNonce((n) => n + 1);
   };
 
   const renderTaskRow = (task: TaskInfo) => {
@@ -904,7 +892,7 @@ export function Sidebar({
                   type="button"
                   title="清空收藏"
                   onClick={() => {
-                    localStorage.setItem("taxai-starred", "[]");
+                    clearStarred();
                     setStarNonce((n) => n + 1);
                   }}
                   className="rounded px-1.5 py-0.5 text-[10px] text-mist-600 opacity-0 transition-opacity hover:text-rose-300 group-hover:opacity-100"
@@ -975,7 +963,7 @@ export function Sidebar({
             title="清除手动排序，恢复时间倒序"
             onClick={() => {
               setOrder([]);
-              localStorage.removeItem("taxai-task-order");
+              writeTaskOrder([]);
             }}
           >
             复位排序

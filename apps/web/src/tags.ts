@@ -1,12 +1,10 @@
-/** 任务自定义标签：localStorage 持久化，工作台编辑、侧栏过滤。 */
+/** 任务自定义标签：工作台编辑、侧栏过滤。存储口径统一走 local-store.ts */
+import { asStringArrayRecord, KEYS, readJson, writeJson } from "./local-store.ts";
+
 export function loadTags(): Record<string, string[]> {
-  try {
-    return JSON.parse(localStorage.getItem("taxai-tags") ?? "{}") as Record<string, string[]>;
-  } catch {
-    return {};
-  }
+  return readJson(KEYS.tags, asStringArrayRecord, {});
 }
 
 export function saveTags(map: Record<string, string[]>): void {
-  localStorage.setItem("taxai-tags", JSON.stringify(map));
+  writeJson(KEYS.tags, map);
 }

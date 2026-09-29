@@ -605,3 +605,13 @@ curl -L -o data/ocr-tessdata/eng.traineddata https://cdn.jsdelivr.net/gh/tessera
 拆成两个模块沿用 CSV 那次的做法：`diagram-export.ts` 是不碰 DOM 的纯逻辑（`diagramKind` / `diagramFilename` / `withExportInit` / `svgSize` / `sanitizeSvgForExport` / `svgToDataUrl` 与两个常量），`diagram-download.ts` 只装栅格化与下载，`apps/api` 没有 DOM lib 也能验证纯逻辑那半。
 
 `pnpm verify:diaexport` 77 项：15 种图类型识别（含 `stateDiagram-v2`、`xychart-beta`、`sankey-beta` 这类带后缀的）、认不出来只叫「图表」不猜、大写关键字不硬认、带 init 指令与 frontmatter 仍能识别；文件名序号与兜底（负数、NaN、小数取整）、三张图两两不同名、不含路径分隔符；导出指令是合法 JSON、重复调用不叠加；`svgSize` 从 viewBox 取尺寸（负偏移、逗号分隔、小数）、百分比宽度且无 viewBox 时如实返回 null 而不是猜一个数；脱敏 12 项（去脚本与事件、保留样式与文字、脱敏后尺寸仍可解析）；data URL 不含裸尖括号与井号。最后用 `docs/competition/*.md` 里的 4 个真实 mermaid 块走查：全部认得出类型、加导出指令后类型不变、文件名互不相同。`qa:all` 现 38 项 verify。
+
+## 本地存储收口：32 处直接读写变一个入口
+
+数了一遍，`apps/web/src` 里有 32 处直接读写 `localStorage`，散在 8 个文件、13 个键上。两个真问题：一是 `taxai-starred`（收藏）被侧栏与工作台各写一遍，两边各自 `JSON.parse` + `new Set` + 序列化，任何一边改了写法另一边就会把对方的数据抹掉；二是多数读取只做 `try/catch` 兜住解析异常，形状却直接用 `as` 断言过去——存进去一个旧版本或别的结构，界面拿到的就不是数组而是对象，后面 `.includes`/`.filter` 会在 render 里抛错，整页白屏。答辩现场最怕这种：不是功能没做，是打开就白。
+
+新增 `apps/web/src/local-store.ts` 作为唯一入口：13 个键集中登记在 `KEYS`（备注模板那个键直接引用 `amount-note.ts` 的 `CUSTOM_NOTE_STORE_KEY`，不另写一份字符串）；`readJson(key, revive, fallback)` 一律带形状校验，解析失败或形状不对都回落，绝不把异常抛给调用方；`readEnum` 只接受白名单值，旧值与大小写不符一律回落（字号、比对筛选、阅读器分组、版式主题都用它）；`writeJson`/`writeRaw` 内部吞掉配额与隐私模式异常，并同步写一份内存镜像，存储不可用时本次会话行为仍然一致。`backing()` 走 `globalThis` 且只声明三个方法的结构化接口，不引 DOM 的 `Storage` 类型，因此 `apps/api`（tsconfig 无 DOM lib）能直接 import 验证——Node 里没有 `localStorage`，正好把降级路径一起测了。
+
+跨组件共享的键给了领域访问器而不是裸读写：`readStarred`/`writeStarred`/`isStarred`/`toggleStarred`/`clearStarred` 与 `readTaskOrder`/`writeTaskOrder`（空清单用 remove 而不是写空数组，不留空壳）。工作台的状态改成 `setStarred(toggleStarred(task.id))`，以存储为准，不再出现「界面亮着、存储里没有」。`tags.ts`、`usePaperTheme.ts`、`Sidebar`、`SideReader`、`TaskWorkbench`、`AgentOverview`、`CompareView`、`ReviewView` 全部改为走这个入口，键名沿用原值，用户既有数据不作废。
+
+`pnpm verify:localstore` 70 项：原始读写与删除、六个形状校验器（字符串数组剔除非字符串、字典拒绝数组与 null、排序方向只认 1/-1、快照剔除非有限数）、`readJson` 五种回落（缺失/空串/坏 JSON/形状不对/只留合规部分）、循环引用写入不抛错、`readEnum` 白名单、收藏的去重与两次翻转回到原状、脏数据与旧格式（对象）下收藏回落为空集合而不是抛错、排序空清单删键、标签往返与脏数据回落、键登记（值两两不同、都带 tax 前缀、四个沿用旧键名）。最后一段是静态走查：递归扫 `apps/web/src` 全部 46 个 `.ts`/`.tsx`，除 `local-store.ts` 外任何文件出现 `localStorage.` 或 `localStorage[` 即失败，`"taxai-starred"` 与 `"taxai-tags"` 的字面量也只准出现在入口文件里——新增组件想绕过就会当场红。`qa:all` 现 39 项 verify。

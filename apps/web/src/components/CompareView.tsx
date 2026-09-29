@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import type { CompareDiff, CompareRecord, CompareRef } from "../types.ts";
 import { IconAlert, IconCheck, IconCopy, IconDownload } from "./Icons.tsx";
 import { downloadCsv, downloadText } from "../download.ts";
+import { KEYS, readEnum, writeRaw } from "../local-store.ts";
+
+const COMPARE_KINDS = ["all", "mismatch", "only_a", "only_b"] as const;
+type CompareKind = (typeof COMPARE_KINDS)[number];
 
 const KIND_META = {
   mismatch: { label: "差异", cls: "border-rose-400/40 bg-rose-400/10 text-rose-300" },
@@ -25,10 +29,7 @@ interface Props {
 
 export function CompareView({ compares, onOpenTarget, onOpenPair }: Props) {
   const [sel, setSel] = useState<number | null>(null);
-  const [kindFilter, setKindFilter] = useState<"all" | "mismatch" | "only_a" | "only_b">(() => {
-    const v = localStorage.getItem("taxai-compare-kind");
-    return v === "mismatch" || v === "only_a" || v === "only_b" ? v : "all";
-  });
+  const [kindFilter, setKindFilter] = useState<CompareKind>(() => readEnum(KEYS.compareKind, COMPARE_KINDS, "all"));
   const [trendHover, setTrendHover] = useState<number | null>(null);
   const [addrQuery, setAddrQuery] = useState("");
 
@@ -37,7 +38,7 @@ export function CompareView({ compares, onOpenTarget, onOpenPair }: Props) {
     (addrQuery.trim() === "" || d.address.toLowerCase().includes(addrQuery.trim().toLowerCase()));
 
   useEffect(() => {
-    localStorage.setItem("taxai-compare-kind", kindFilter);
+    writeRaw(KEYS.compareKind, kindFilter);
   }, [kindFilter]);
 
   const [onlyLatest, setOnlyLatest] = useState(false);

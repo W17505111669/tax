@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { marked } from "marked";
 import { api } from "../api.ts";
 import { downloadBlob, downloadText } from "../download.ts";
+import { isStarred, KEYS, readEnum, toggleStarred, writeRaw } from "../local-store.ts";
 import type {
   AgentInfo,
   ArtifactInfo,
@@ -201,14 +202,13 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   const pinnedRef = useRef(true);
   const [showJump, setShowJump] = useState(false);
   const [scrollPct, setScrollPct] = useState(0);
-  const [fs, setFs] = useState<"sm" | "md" | "lg">(() => {
-    const v = localStorage.getItem("taxai-result-fs");
-    return v === "sm" || v === "lg" ? v : "md";
-  });
+  const [fs, setFs] = useState<"sm" | "md" | "lg">(() =>
+    readEnum(KEYS.resultFontSize, ["sm", "md", "lg"] as const, "md"),
+  );
   const [autoFollow, setAutoFollow] = useState(true);
 
   useEffect(() => {
-    localStorage.setItem("taxai-result-fs", fs);
+    writeRaw(KEYS.resultFontSize, fs);
   }, [fs]);
   const [copied, setCopied] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
@@ -223,13 +223,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     else map[task.id] = next;
     saveTags(map);
   };
-  const [starred, setStarred] = useState<boolean>(() => {
-    try {
-      return (JSON.parse(localStorage.getItem("taxai-starred") ?? "[]") as string[]).includes(task.id);
-    } catch {
-      return false;
-    }
-  });
+  const [starred, setStarred] = useState<boolean>(() => isStarred(task.id));
   const lastFocusRef = useRef<HTMLElement | null>(null);
 
   const liveStatus = status === "created" ? task.status : status;
@@ -277,18 +271,9 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     }
   };
 
-  const toggleStar = () => {
-    const next = !starred;
-    setStarred(next);
-    try {
-      const list = new Set(JSON.parse(localStorage.getItem("taxai-starred") ?? "[]") as string[]);
-      if (next) list.add(task.id);
-      else list.delete(task.id);
-      localStorage.setItem("taxai-starred", JSON.stringify([...list]));
-    } catch {
-      /* 忽略存储不可用 */
-    }
-  };
+  // 收藏状态以存储为准：侧栏与工作台共用同一个键，翻转后直接拿返回值 setState，
+  // 免得两边各算一遍出现「界面亮着、存储里没有」的不一致
+  const toggleStar = () => setStarred(toggleStarred(task.id));
 
   // 执行中每秒 tick，驱动头部实时计时
   useEffect(() => {

@@ -6,6 +6,16 @@ import { ThemeSwitch } from "./ThemeSwitch.tsx";
 import { usePaperTheme } from "../hooks/usePaperTheme.ts";
 import { IconAlert, IconDownload, IconExternal, IconFile, IconRefresh, IconSpinner, IconX } from "./Icons.tsx";
 import { currentHitRow, locateSheet, sheetLocate } from "../sheet-locate.ts";
+import {
+  asSortRecord,
+  asStringRecord,
+  KEYS,
+  readEnum,
+  readJson,
+  readText,
+  writeJson,
+  writeRaw,
+} from "../local-store.ts";
 
 export type ReaderTarget =
   | { kind: "url"; url: string }
@@ -405,10 +415,10 @@ export function SideReader({
   const [rot, setRot] = useState(0);
   const [fitWidth, setFitWidth] = useState(true);
   const [showRowNum, setShowRowNum] = useState(false);
-  const [freezeFirst, setFreezeFirst] = useState(() => localStorage.getItem("taxai-reader-freeze") === "1");
+  const [freezeFirst, setFreezeFirst] = useState(() => readText(KEYS.readerFreeze) === "1");
 
   useEffect(() => {
-    localStorage.setItem("taxai-reader-freeze", freezeFirst ? "1" : "0");
+    writeRaw(KEYS.readerFreeze, freezeFirst ? "1" : "0");
   }, [freezeFirst]);
   const [pinned, setPinned] = useState<Set<string>>(new Set());
   const [armedKey, setArmedKey] = useState<string | null>(null);
@@ -419,28 +429,20 @@ export function SideReader({
   const [syncScroll, setSyncScroll] = useState(false);
   const miniRef = useRef<HTMLDivElement>(null);
   const [showLines, setShowLines] = useState(false);
-  const [aliases, setAliases] = useState<Record<string, string>>(() => {
-    try {
-      return JSON.parse(localStorage.getItem("taxai-reader-aliases") ?? "{}") as Record<string, string>;
-    } catch {
-      return {};
-    }
-  });
+  const [aliases, setAliases] = useState<Record<string, string>>(() =>
+    readJson(KEYS.readerAliases, asStringRecord, {}),
+  );
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [findQuery, setFindQuery] = useState("");
   const [findIdx, setFindIdx] = useState(0);
   const [matchCounts, setMatchCounts] = useState<Record<string, number>>({});
-  const [sort, setSort] = useState<Record<string, { col: string; dir: 1 | -1 }>>(() => {
-    try {
-      return JSON.parse(localStorage.getItem("taxai-reader-sort") ?? "{}") as Record<string, { col: string; dir: 1 | -1 }>;
-    } catch {
-      return {};
-    }
-  });
+  const [sort, setSort] = useState<Record<string, { col: string; dir: 1 | -1 }>>(() =>
+    readJson(KEYS.readerSort, asSortRecord, {}),
+  );
 
   useEffect(() => {
-    localStorage.setItem("taxai-reader-sort", JSON.stringify(sort));
+    writeJson(KEYS.readerSort, sort);
   }, [sort]);
 
   const commitAlias = (key: string) => {
@@ -449,7 +451,7 @@ export function SideReader({
       const next = { ...prev };
       if (v) next[key] = v;
       else delete next[key];
-      localStorage.setItem("taxai-reader-aliases", JSON.stringify(next));
+      writeJson(KEYS.readerAliases, next);
       return next;
     });
     setEditingKey(null);
@@ -589,11 +591,11 @@ export function SideReader({
     setMatchCounts((prev) => ({ ...prev, [activeKey]: matchCount }));
   }, [matchCount, activeKey]);
   const [group, setGroup] = useState<"refs" | "gens">(() =>
-    localStorage.getItem("taxai-reader-group") === "gens" ? "gens" : "refs",
+    readEnum(KEYS.readerGroup, ["refs", "gens"] as const, "refs"),
   );
   const chooseGroup = (g: "refs" | "gens") => {
     setGroup(g);
-    localStorage.setItem("taxai-reader-group", g);
+    writeRaw(KEYS.readerGroup, g);
   };
   const indexed = tabs.map((t, i) => ({ t, i }));
   const refs = indexed.filter((x) => x.t.kind !== "artifact");

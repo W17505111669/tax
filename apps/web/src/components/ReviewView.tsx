@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { ReviewRecord, TaskIssue } from "../types.ts";
 import { IconAlert, IconCheck, IconPlus, IconX } from "./Icons.tsx";
 import { downloadText } from "../download.ts";
+import { readRaw, removeRaw, writeRaw } from "../local-store.ts";
 import {
   LABEL_MAX,
   MAX_CUSTOM_TEMPLATES,
@@ -17,9 +18,8 @@ import {
   type TemplateStorage,
 } from "../amount-note.ts";
 
-/** 自定义模板存本机：存储不可用时降级为只在本次会话有效，不影响内置模板 */
-const templateStorage: TemplateStorage | undefined =
-  typeof localStorage === "undefined" ? undefined : localStorage;
+/** 自定义模板存本机：读写走 local-store，脏数据与存储不可用都由它兜住 */
+const templateStorage: TemplateStorage = { getItem: readRaw, setItem: writeRaw, removeItem: removeRaw };
 
 interface Props {
   issues: TaskIssue[];
