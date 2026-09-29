@@ -16,10 +16,17 @@ const root = path.resolve(here, "..", "..", "..");
 const outDir = path.join(root, "docs", "competition");
 fs.mkdirSync(outDir, { recursive: true });
 
+// 验证项数从 qa:all 里数出来：写死的数字迟早与测试报告对不上（这一页原先写着「7 项」，实际已 37 项）
+const rootPkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")) as {
+  scripts?: Record<string, string>;
+};
+const verifyCount = (rootPkg.scripts?.["qa:all"] ?? "").split("pnpm verify:").length - 1;
+
 function build(agent: TaxAgentConfig): string {
   const stats = statsFor(agent.id);
   const okRate = stats.toolCalls > 0 ? Math.round((stats.toolOk / stats.toolCalls) * 10000) / 100 : 0;
   const demos = recentTaskLinks(agent.id, 3);
+  const innov = INNOVATIONS[agent.id] ?? [];
   const L: string[] = [];
   const slide = (n: number, title: string, bullets: string[], notes: string, visual: string) => {
     L.push(`## 第 ${n} 页 · ${title}`);
@@ -41,16 +48,17 @@ function build(agent: TaxAgentConfig): string {
   slide(4, "技术架构", ["Agent Runtime：Pi Agent SDK 0.87.1（嵌入式会话）", "联网检索：pi-web-access 社区扩展 + 自建抓取兜底", "前后端：React + Vite + Tailwind / Fastify + SSE + SQLite", "确定性层：TypeScript 工具负责全部金额计算与表格写入"], "讲清分工：模型负责理解与规划，工具负责计算与写盘。", "架构 mermaid 图");
   slide(5, "核心流程", ["见下图，从资料上传到专业成果交付全闭环"], "逐步走流程，重点停在复核判断菱形：差异不认定、先复核。", "```mermaid\n" + (FLOWS[agent.id] ?? "") + "\n```");
   slide(6, "工具清单", agent.tools.slice(0, 6).map((t) => `${t.name}：${t.label}`), "挑 3 个工具展开讲输入输出，其余一页带过。", "工具卡片墙");
-  slide(7, "创新点", INNOVATIONS[agent.id] ?? [], "每条创新点对应一个现场可演示的动作，不讲空概念。", "四条创新点 + 对应演示幕号");
+  slide(7, "创新点", innov, "每条创新点对应一个现场可演示的动作，不讲空概念；最后一条落到可签字的交付件。", `${innov.length} 条创新点 + 对应演示幕号`);
   slide(8, "现场演示", demos.map((d, i) => `演示 ${i + 1}：${d.title}（${d.status}）深链 ${d.link}`), "用深链直达任务页签；执行类镜头现场重新执行展示 SSE 实时事件。", "工作台实录（时间线/结论/比对）");
   slide(9, "应用效果", [
     `累计任务 ${stats.tasks} 个、已完成 ${stats.completed} 个`,
     `工具调用 ${stats.toolCalls} 次、成功率 ${okRate}%`,
     `生成底稿/产物 ${stats.artifacts} 份`,
     stats.compareAccuracy !== null ? `与人工底稿记录级比对准确率 ${stats.compareAccuracy}%` : "比对准确率：待真实案例",
-    "自动化验证 7 项全部 PASS（见测试报告）",
+    `自动化验证 ${verifyCount} 项全部 PASS（见测试报告）`,
+    "全平台证据核对台账：每任务一行 15 列，欠账按倒序排列，可导出 MD/CSV 直接当整改清单",
   ], "数字全部来自平台数据库与验证脚本，可现场复算。", "KPI 大数字页");
-  slide(10, "边界、合规与展望", ["不对接申报/ERP/银行接口，不出具法律效力鉴证意见", "客户资料脱敏与本地化处理，密钥仅存服务端", "展望：真实案例回归库、OCR 云端引擎、多模板适配"], "收尾落在可落地性：今天演示的一切都在本机真实运行。", "合规清单 + 致谢");
+  slide(10, "边界、合规与展望", ["不对接申报/ERP/银行接口，不出具法律效力鉴证意见", "客户资料脱敏与本地化处理，密钥仅存服务端", "导出件统一口径：CSV 前置 BOM、防公式注入（标题或单元格以等号一类起头时不会在 Excel 里变成可执行公式），自定义备注模板只存本机浏览器", "展望：真实案例回归库、OCR 云端引擎、多模板适配"], "收尾落在可落地性：今天演示的一切都在本机真实运行。", "合规清单 + 致谢");
   return L.join("\n");
 }
 
