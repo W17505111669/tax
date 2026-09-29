@@ -3,6 +3,25 @@ import fs from "node:fs";
 import path from "node:path";
 import { db } from "../src/db.ts";
 import { dirs } from "../src/config.ts";
+import { computePlatformStats } from "../src/services/stats.ts";
+
+/**
+ * 作品说明里引用的那串全平台实测数字，直接取自 computePlatformStats。
+ *
+ * 原先这些数字写死在散文里（「检索 31 次…文号 31 处（可溯源 10 · 待复查 18）」），
+ * 而同一句话承诺的恰恰是「看板与交付材料不会对不上」——平台口径一改，交付材料就成了反例。
+ * 生成时取数，文档才可能永远与看板同源。
+ */
+export function evidenceSnapshotText(): string {
+  const ev = computePlatformStats().evidence;
+  return [
+    `检索 ${ev.searchCalls} 次（留来源 ${ev.searchWithUrls} / 仅元数据 ${ev.searchMetadataOnly}）`,
+    `引用 ${ev.citations} 条（官方 ${ev.officialCitations} · 弱 ${ev.weakCitations}）`,
+    `拦下 ${ev.searchDropped + ev.searchDroppedReplay} 条`,
+    `文号 ${ev.docRefs} 处（有出处 ${ev.docRefTraced}，其中复查取得 ${ev.docRefTracedByRecheck} · 待复查 ${ev.docRefPending} · 复查判定 matched ${ev.docRefMatched}）`,
+    `缺口任务 ${ev.gaps.length} 个`,
+  ].join("、");
+}
 
 export const BACKGROUND: Record<string, string> = {
   "rd-audit":

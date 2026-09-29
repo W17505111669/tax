@@ -57,7 +57,7 @@ export interface EvidenceStats {
   citationsFromConclusion: number;
   /** 弱证据引用中已经检索到官方替代来源、只等人工写回结论的条数 */
   weakWithReplacement: number;
-  /** 政策文号：总数 / 工具结果可溯源 / 复查后仍无出处 / 已复查到公开出处 */
+  /** 政策文号：总数 / 有出处（工具留存或联网复查）/ 仍无出处 / 复查判定 matched */
   docRefs: number;
   docRefTraced: number;
   /** 有出处的文号里，靠联网复查取得出处的条数（看板据此说明两个来源各占多少） */
