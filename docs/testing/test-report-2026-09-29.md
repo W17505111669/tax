@@ -49,6 +49,7 @@
 | `pnpm verify:amtnote` | 金额核对备注模板（模板可用性 / 追加分段与去重 / 撤销最近一段 / 留痕有效性判断 / 自定义模板按作品存取、脏数据丢弃、新增校验与合并去重） | PASS |
 | `pnpm verify:ledger` | 全平台证据核对台账（缺口判断 / 排序与合计 / 15 列单元格 / CSV 与 Markdown 导出 / 与平台统计口径交叉核对） | PASS |
 | `pnpm verify:csv` | CSV 与文件下载统一口径（转义 / 公式注入防护 / CRLF 与 BOM / RFC 往返解析 / 组件里不再手写 createObjectURL） | PASS |
+| `pnpm verify:diaexport` | mermaid 图导出（图类型识别 / 文件名不互相覆盖 / 导出配置指令 / SVG 尺寸解析 / 交付件脱敏 / 真实比赛材料走查） | PASS |
 | `pnpm verify:upload` | 上传预检规则（扩展名 / 大小 / 空文件 / 批量分组 / 提示文案） | PASS |
 
 ## 三、真实任务台账

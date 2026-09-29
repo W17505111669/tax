@@ -480,6 +480,7 @@ button.md-annot {
 .mermaid-tools {
   display: flex;
   justify-content: flex-end;
+  gap: 6px;
   width: 100%;
   margin-top: 6px;
 }

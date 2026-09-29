@@ -2,6 +2,8 @@ import { useEffect, useRef, type MouseEvent } from "react";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { downloadText } from "../download.ts";
+import { downloadDiagramPng } from "../diagram-download.ts";
+import { diagramFilename, sanitizeSvgForExport, withExportInit } from "../diagram-export.ts";
 
 type MermaidApi = typeof import("mermaid").default;
 
@@ -55,34 +57,59 @@ function renderMarkdown(el: HTMLElement, text: string, live: boolean): void {
   if (live) return;
   const nodes = Array.from(el.querySelectorAll<HTMLElement>("[data-mermaid]"));
   if (nodes.length === 0) return;
-  for (const node of nodes) {
-    const code = fences[Number(node.getAttribute("data-mermaid"))] ?? "";
+  // 原文要留着：导出 PNG 时重新渲一份纯 text 标签的图，文件名也要靠它认图类型
+  const codes = nodes.map((node) => fences[Number(node.getAttribute("data-mermaid"))] ?? "");
+  nodes.forEach((node, i) => {
     node.removeAttribute("data-mermaid");
     node.classList.add("mermaid");
-    node.textContent = code;
-  }
+    node.textContent = codes[i] ?? "";
+  });
   void loadMermaid()
     .then((mermaid) =>
       mermaid.run({ nodes, suppressErrors: true }).then(() => {
-        // 渲染完成后为每张图注入「下载 SVG」工具条
-        for (const node of nodes) {
+        // 渲染完成后为每张图注入「下载 PNG / 下载 SVG」工具条
+        nodes.forEach((node, i) => {
           const svg = node.querySelector("svg");
-          if (!svg || node.querySelector(".mermaid-tools")) continue;
+          if (!svg || node.querySelector(".mermaid-tools")) return;
+          const code = codes[i] ?? "";
           const bar = document.createElement("div");
           bar.className = "mermaid-tools";
-          const btn = document.createElement("button");
-          btn.type = "button";
-          btn.className = "action-btn";
-          btn.title = "下载 SVG";
-          btn.textContent = "下载 SVG";
-          btn.addEventListener("click", () => {
+          const mkBtn = (label: string, title: string, run: (btn: HTMLButtonElement) => void) => {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "action-btn";
+            btn.title = title;
+            btn.textContent = label;
+            btn.addEventListener("click", () => run(btn));
+            bar.appendChild(btn);
+          };
+          const flash = (btn: HTMLButtonElement, label: string, msg: string) => {
+            btn.textContent = msg;
+            window.setTimeout(() => {
+              btn.textContent = label;
+            }, 3000);
+          };
+          mkBtn("下载 PNG", "导出 2 倍分辨率 PNG（带背景色，Office 与 WPS 直接插得进）", (btn) => {
+            void (async () => {
+              try {
+                const mm = await loadMermaid();
+                const rendered = await mm.render(`dia-export-${i}-${Date.now()}`, withExportInit(code));
+                await downloadDiagramPng(
+                  diagramFilename(code, i, "png"),
+                  sanitizeSvgForExport(rendered.svg),
+                );
+              } catch {
+                flash(btn, "下载 PNG", "PNG 导出失败，请改用 SVG");
+              }
+            })();
+          });
+          mkBtn("下载 SVG", "导出矢量图（放大不糊，需要较新的 Office 或浏览器打开）", () => {
             const clone = svg.cloneNode(true) as SVGSVGElement;
             clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-            downloadText("diagram.svg", clone.outerHTML, "image/svg+xml");
+            downloadText(diagramFilename(code, i, "svg"), sanitizeSvgForExport(clone.outerHTML), "image/svg+xml");
           });
-          bar.appendChild(btn);
           node.appendChild(bar);
-        }
+        });
       }),
     )
     .catch(() => {

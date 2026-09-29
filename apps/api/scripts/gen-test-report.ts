@@ -151,6 +151,11 @@ const VERIFY_SCRIPTS: Array<{ name: string; cmd: string; scope: string }> = [
     scope: "CSV 与文件下载统一口径（转义 / 公式注入防护 / CRLF 与 BOM / RFC 往返解析 / 组件里不再手写 createObjectURL）",
   },
   {
+    name: "verify:diaexport",
+    cmd: "pnpm verify:diaexport",
+    scope: "mermaid 图导出（图类型识别 / 文件名不互相覆盖 / 导出配置指令 / SVG 尺寸解析 / 交付件脱敏 / 真实比赛材料走查）",
+  },
+  {
     name: "verify:upload",
     cmd: "pnpm verify:upload",
     scope: "上传预检规则（扩展名 / 大小 / 空文件 / 批量分组 / 提示文案）",

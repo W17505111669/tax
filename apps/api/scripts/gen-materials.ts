@@ -168,7 +168,7 @@ function build(agent: TaxAgentConfig, extra: Array<{ name: string; label: string
   lines.push("");
   lines.push(`- [ ] 启动平台并选择本智能体（首页 KPI 与工具清单）`);
   lines.push(`- [ ] 示例任务一键执行：执行时间线 + 工具折叠行 + 联网检索 chips`);
-  lines.push(`- [ ] 审查结论：Markdown 报告 + mermaid 图 + 引用 chips + 交付卡片`);
+  lines.push(`- [ ] 审查结论：Markdown 报告 + mermaid 图（每张图可导出 PNG 与 SVG，文件名按序号与图类型区分）+ 引用 chips + 交付卡片`);
   lines.push(`- [ ] 侧边阅读器：外链阅读模式 / Excel 工作表预览 / PDF 预览`);
   lines.push(agent.id === "land-vat" ? `- [ ] 模板保留式填列：已填列模板产物预览（公式列未触碰）` : `- [ ] 政策依据：search_rd_policy 比例与文号 + 联网核验`);
   lines.push(`- [ ] 人工复核：waiting_review → 逐项确认 → completed；完成态遗留问题可重新打开复核`);

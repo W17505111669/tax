@@ -595,3 +595,13 @@ curl -L -o data/ocr-tessdata/eng.traineddata https://cdn.jsdelivr.net/gh/tessera
 检查 PPT 大纲时发现第 9 页写着「自动化验证 7 项全部 PASS（见测试报告）」，而测试报告里实际是 37 项——答辩时评委对着两份材料就能看出矛盾。改成生成时从根 `package.json` 的 `qa:all` 里数 `pnpm verify:` 出现次数，数字随质量门自动走，不再需要人记得回来改。第 7 页画面注记同样写死「四条创新点」，改为按 `INNOVATIONS` 实际条数生成。
 
 `materials-lib.ts` 的 `INNOVATIONS` 每个作品补第 5 条「交付可签字」：结果页一页证据核对表（九项口径 + 交付前待办 + 签字行），平台层一张全平台证据核对台账并可导出 MD/CSV，欠账逐项列明不填占位数字。这份常量同时被作品说明与 PPT 大纲使用，两处口径一次对齐。第 10 页「边界、合规与展望」补一条导出件合规：CSV 前置 BOM、防公式注入（标题或单元格以等号一类起头时不会在 Excel 里变成可执行公式），自定义备注模板只存本机浏览器。第 9 页另加一条台账要点，作为可现场复算的效果证据。
+
+## 图表导出：补 PNG，文件名不再互相覆盖
+
+结论里的 mermaid 图原先只有一个「下载 SVG」按钮，两个问题：一是文件名写死 `diagram.svg`，一段结论里有三张图就连下三次同名文件、互相覆盖；二是 SVG 在不少 Office/WPS 版本里插不进去，评委要拿图进答辩材料时没有退路。
+
+现在每张图给「下载 PNG」和「下载 SVG」两个入口，文件名按序号与图类型生成（`图1-流程图.png`、`图2-时序图.svg`）。PNG 这条路不是把页面上的 SVG 直接画进 canvas：页面渲染开着 `htmlLabels`，标签是 `foreignObject` 里的 HTML，栅格化时不继承页面样式，容易掉字号甚至不显示。导出时用 `%%{init: {"flowchart":{"htmlLabels":false},"sequence":{"useMaxWidth":false}}}%%` 重新渲一份纯 `text` 标签的图，按 viewBox 的自然尺寸放大 2 倍画进 canvas，先铺 `#04070d` 背景（暗色主题放白底会看不见文字）再画图；原文已经带 init 指令时不覆盖，尊重作者写的配置。导出的 SVG 会离开平台进客户 PPT，因此统一过一遍脱敏：去掉 `script` 标签、`on*` 事件属性与 `javascript:` 链接，保留 `xmlns`、`viewBox`、样式与 `data-*` 属性。失败不静默——栅格化任何一步出错都在按钮上就地显示「PNG 导出失败，请改用 SVG」，3 秒后恢复，不让人以为下载成功了却没文件。
+
+拆成两个模块沿用 CSV 那次的做法：`diagram-export.ts` 是不碰 DOM 的纯逻辑（`diagramKind` / `diagramFilename` / `withExportInit` / `svgSize` / `sanitizeSvgForExport` / `svgToDataUrl` 与两个常量），`diagram-download.ts` 只装栅格化与下载，`apps/api` 没有 DOM lib 也能验证纯逻辑那半。
+
+`pnpm verify:diaexport` 77 项：15 种图类型识别（含 `stateDiagram-v2`、`xychart-beta`、`sankey-beta` 这类带后缀的）、认不出来只叫「图表」不猜、大写关键字不硬认、带 init 指令与 frontmatter 仍能识别；文件名序号与兜底（负数、NaN、小数取整）、三张图两两不同名、不含路径分隔符；导出指令是合法 JSON、重复调用不叠加；`svgSize` 从 viewBox 取尺寸（负偏移、逗号分隔、小数）、百分比宽度且无 viewBox 时如实返回 null 而不是猜一个数；脱敏 12 项（去脚本与事件、保留样式与文字、脱敏后尺寸仍可解析）；data URL 不含裸尖括号与井号。最后用 `docs/competition/*.md` 里的 4 个真实 mermaid 块走查：全部认得出类型、加导出指令后类型不变、文件名互不相同。`qa:all` 现 38 项 verify。

@@ -35,6 +35,7 @@
     "verify:amtnote": "tsx scripts/verify-amount-note.ts",
     "verify:ledger": "tsx scripts/verify-evidence-ledger.ts",
     "verify:csv": "tsx scripts/verify-csv.ts",
+    "verify:diaexport": "tsx scripts/verify-diaexport.ts",
     "verify:upload": "tsx scripts/verify-upload-policy.ts",
     "case:run": "tsx scripts/run-case.ts"
   },
