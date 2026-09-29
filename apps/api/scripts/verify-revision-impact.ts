@@ -11,6 +11,7 @@ import {
   signed,
 } from "../../web/src/revision-impact.ts";
 import { getTask, listConclusions, listTasks } from "../src/services/task-store.ts";
+import { db } from "../src/db.ts";
 
 const failures: string[] = [];
 let checks = 0;
@@ -101,6 +102,57 @@ expect("有增有减的判断文案", deltaVerdict(mixed), "证据质量有增�
 expect("正数带加号", signed(3), "+3");
 expect("负数原样", signed(-2), "-2");
 expect("零不加符号", signed(0), "0");
+
+// 3.1 政策文号出处的增减也算质量变化：写回结论这条链路补的正是文号出处
+const moreRefs = evidenceDelta(
+  evidenceSnapshot("依据 财税〔2015〕119号"),
+  evidenceSnapshot("依据 财税〔2015〕119号 与 国家税务总局公告2017年第40号"),
+);
+expect("文号出处增加判为改善", [moreRefs.improved, moreRefs.regressed], [true, false]);
+expect("文号出处增加的文案", deltaVerdict(moreRefs), "证据质量改善");
+const fewerRefs = evidenceDelta(moreRefs.after, moreRefs.before);
+expect("文号出处减少判为退步", [fewerRefs.improved, fewerRefs.regressed], [false, true]);
+expect("文号出处减少的文案", deltaVerdict(fewerRefs), "证据质量退步，请核对本次修订");
+const mixedRefs = evidenceDelta(
+  evidenceSnapshot(
+    "见 https://www.most.gov.cn/a/b.pdf，依据 财税〔2015〕119号 与 国家税务总局公告2017年第40号",
+  ),
+  evidenceSnapshot("见 https://www.most.gov.cn/a/b.pdf 与 https://www.gov.cn/x/y.htm，依据 财税〔2015〕119号"),
+);
+expect("官方原文增加但文号减少 → 有增有减", [mixedRefs.improved, mixedRefs.regressed], [true, true]);
+expect("有增有减的文案", deltaVerdict(mixedRefs), "证据质量有增有减，请核对本次修订");
+expect("官方原文确实增加了", mixedRefs.official > 0, true);
+expect("文号确实减少了", mixedRefs.docRefs < 0, true);
+
+// 3.2 结论按运行分组：一次运行里的过程播报不能被当成「上一轮结论」（那会让比对基线是空快照）
+let grouped = 0;
+for (const t of listTasks()) {
+  const row = db
+    .prepare(`SELECT COUNT(*) AS n FROM events WHERE task_id = ? AND kind = 'run_started'`)
+    .get(t.id) as { n: number };
+  const list = listConclusions(t.id);
+  grouped += 1;
+  checks += 1;
+  if (list.length > Math.max(1, row.n)) {
+    failures.push(`${t.id.slice(0, 8)} 结论条数 ${list.length} 超过运行次数 ${row.n}（说明按段而不是按运行分组）`);
+  }
+  const result = (getTask(t.id)?.result ?? "").trim();
+  if (result !== "" && list.length > 0) {
+    checks += 1;
+    if (list[list.length - 1]!.trim() !== result) {
+      failures.push(`${t.id.slice(0, 8)} 最后一条重组结论与 tasks.result 不一致`);
+    }
+  }
+  if (list.length >= 2) {
+    checks += 1;
+    // 上一轮结论必须自己就有证据内容，否则「持平」是拿空快照比出来的假象
+    const prev = evidenceSnapshot(list[list.length - 2]!);
+    if (prev.citations === 0 && prev.docRefs === 0 && evidenceSnapshot(list[list.length - 1]!).citations > 0) {
+      failures.push(`${t.id.slice(0, 8)} 上一轮结论是空快照，修订影响的比对基线不可信`);
+    }
+  }
+}
+ok("确实走查了真实任务的运行分组", grouped > 0, String(grouped));
 
 // 4) 真实任务走查：结论按运行重组（listConclusions 与前端 useTaskEvents 同一规则）
 let compared = 0;

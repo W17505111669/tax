@@ -41,6 +41,7 @@
     "verify:reltime": "tsx scripts/verify-reltime.ts",
     "verify:textfind": "tsx scripts/verify-textfind.ts",
     "verify:upload": "tsx scripts/verify-upload-policy.ts",
+    "writeback:evidence": "tsx scripts/writeback-evidence.ts",
     "case:run": "tsx scripts/run-case.ts"
   },
   "dependencies": {

@@ -128,7 +128,12 @@ const matchedSql = db
   )
   .get() as { n: number };
 expect("复查到出处的处数与 SQL 一致", ev.docRefMatched, matchedSql.n);
-expect("复查到出处的不超过无出处文号数", ev.docRefMatched <= ev.docRefs - ev.docRefTraced, true);
+// 「复查到出处」是复查记录里判为 matched 的条数：写回结论之后那些文号会变成可溯源、
+// 不再计入无出处，但复查记录还在，所以它可以大于当前无出处文号数（实测 19 > 16）。
+// 真正成立的不变量是待复查不超过无出处总数（待复查 = 无出处 − 已复查到出处，逐任务不小于 0）。
+expect("待复查不超过无出处文号数", ev.docRefPending <= ev.docRefs - ev.docRefTraced, true);
+expect("复查到出处为非负数", ev.docRefMatched >= 0, true);
+expect("可溯源文号不超过文号总数", ev.docRefTraced <= ev.docRefs, true);
 expect("缺口任务都有弱引用或待复查文号", ev.gaps.every((g) => g.weakCitations > 0 || g.docRefPending > 0), true);
 expect(
   "缺口任务按缺口大小倒序",

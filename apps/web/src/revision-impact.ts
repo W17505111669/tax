@@ -39,11 +39,11 @@ export type EvidenceDelta = {
   official: number;
   weak: number;
   docRefs: number;
-  /** 至少一项改善：弱证据减少或官方原文增加 */
+  /** 至少一项改善：弱证据减少、官方原文增加或政策文号出处增加 */
   improved: boolean;
-  /** 出现退步：弱证据增加或官方原文减少 */
+  /** 出现退步：弱证据增加、官方原文减少或政策文号出处减少 */
   regressed: boolean;
-  /** 证据质量持平：弱证据与官方原文条数都没变（引用合计与文号数的变化仍会在明细里给出） */
+  /** 证据质量持平：三项都没变（引用合计的变化仍会在明细里给出） */
   unchanged: boolean;
 };
 
@@ -53,9 +53,11 @@ export function evidenceDelta(before: EvidenceSnapshot, after: EvidenceSnapshot)
   const official = after.official - before.official;
   const weak = after.weak - before.weak;
   const docRefs = after.docRefs - before.docRefs;
-  // 判断只看证据质量（弱证据与官方原文），否则「引用条数变了但质量没变」会落进三种判断都不成立的空档
-  const improved = weak < 0 || official > 0;
-  const regressed = weak > 0 || official < 0;
+  // 判断看证据质量与可溯源性：弱证据减少、官方原文增加、政策文号出处增加都算改善；
+  // 反过来弱证据增加、官方原文减少、文号出处减少都算退步。引用总条数本身不计入——
+  // 「多引了几条同样强度的来源」不是质量变化，计入反而会让三种判断出现都不成立的空档。
+  const improved = weak < 0 || official > 0 || docRefs > 0;
+  const regressed = weak > 0 || official < 0 || docRefs < 0;
   return {
     before,
     after,

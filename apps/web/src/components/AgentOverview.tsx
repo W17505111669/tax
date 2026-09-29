@@ -802,8 +802,8 @@ export function AgentOverview({
                           其中 {p.evidence.weakWithReplacement} 条已找到官方替代来源、待人工写回结论 ·
                         </span>
                       )}
-                      政策文号待复查 {p.evidence.docRefPending} 处 {evidenceTrend("docRefPending", true)}（已复查到公开出处{" "}
-                      {p.evidence.docRefMatched} 处）·
+                      政策文号待复查 {p.evidence.docRefPending} 处 {evidenceTrend("docRefPending", true)}（累计复查到公开出处{" "}
+                      {p.evidence.docRefMatched} 处，含已写回结论、现已可直接溯源的）·
                       联网检索拦下 {p.evidence.searchDropped + p.evidence.searchDroppedReplay} 条无关结果与门户首页
                       {p.evidence.searchDropped === 0 && p.evidence.searchDroppedReplay > 0
                         ? "（历史记录按现行相关度规则回算）"

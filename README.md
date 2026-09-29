@@ -46,6 +46,7 @@ pnpm verify:reltime  # 时间显示口径：相对时间分档 / 坏数据兜底
 pnpm verify:textfind # 阅读器查找：命中区间 / 计数与旧口径一致 / 分段保真 / 环形序号
 pnpm report:test     # 生成测试报告（实时跑验证矩阵 + 汇总真实任务台账与准确率）
 pnpm gen:materials   # 生成两个作品的比赛说明文档（docs/competition/，含真实运行统计）
+pnpm writeback:evidence # 把「已找到公开出处」的复查结果写回结论：默认只列计划，--print 看指令，--task <id前缀> --run 才真跑
 pnpm gen:ppt         # 生成答辩 PPT 大纲（每作品 10 页，含讲稿要点与画面元素）
 pnpm demo:script     # 生成录屏分镜表（docs/competition/录屏分镜表.md，含每幕深链与建议时长）
 pnpm case:run <id>   # 案例回归：上传→执行→与人工参考底稿比对→案例报告（data/cases/）

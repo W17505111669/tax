@@ -112,21 +112,34 @@ export function listEvents(taskId: string): AgentEvent[] {
  * 在 `agent_text_delta` 里分片存放；重组规则与前端 useTaskEvents 一致：
  * delta 累积，遇到 agent_text 收口。跨运行对比（修订前后证据影响、按次导出）都要用它，
  * 直接读 agent_text.message 会拿到过程播报而不是结论。
+ *
+ * 返回值是「每次运行一条结论」：一次运行里往往有多段 agent_text（过程播报 + 最终结论），
+ * 只有该运行最后一段才是结论。不按运行分组就会把同一次运行里的过程播报当成「上一轮结论」，
+ * 实测因此把「官方引用 3 → 0」判成了「证据质量持平」——比对基线是空快照，怎么比都是持平。
  */
 export function listConclusions(taskId: string): string[] {
   const rows = db
     .prepare(`SELECT kind, message FROM events WHERE task_id = ? ORDER BY seq ASC`)
     .all(taskId) as unknown as Array<{ kind: string; message: string | null }>;
   const out: string[] = [];
+  let segments: string[] = [];
   let buf = "";
+  const closeSegment = (): void => {
+    if (buf.trim() !== "") segments.push(buf);
+    buf = "";
+  };
+  const flushRun = (): void => {
+    closeSegment();
+    const last = segments[segments.length - 1];
+    if (last !== undefined) out.push(last);
+    segments = [];
+  };
   for (const r of rows) {
-    if (r.kind === "agent_text_delta") buf += r.message ?? "";
-    else if (r.kind === "agent_text") {
-      if (buf.trim() !== "") out.push(buf);
-      buf = "";
-    }
+    if (r.kind === "run_started") flushRun();
+    else if (r.kind === "agent_text_delta") buf += r.message ?? "";
+    else if (r.kind === "agent_text") closeSegment();
   }
-  if (buf.trim() !== "") out.push(buf);
+  flushRun();
   return out;
 }
 

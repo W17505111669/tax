@@ -53,6 +53,7 @@
     "verify:localstore": "pnpm --filter @tax/api verify:localstore",
     "verify:format": "pnpm --filter @tax/api verify:format",
     "verify:reltime": "pnpm --filter @tax/api verify:reltime",
+    "writeback:evidence": "pnpm --filter @tax/api writeback:evidence",
     "verify:textfind": "pnpm --filter @tax/api verify:textfind",
     "verify:fresh": "pnpm --filter @tax/api verify:fresh",
     "verify:manifest": "pnpm --filter @tax/api verify:manifest",
