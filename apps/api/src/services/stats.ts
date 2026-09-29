@@ -4,6 +4,7 @@ import { db } from "../db.ts";
 import { dirs } from "../config.ts";
 import { pendingReviewCount } from "./issues.ts";
 import { filterSearchResults, minRelevanceScore, type WebSearchResult } from "@tax/business-tools";
+import { compareRates } from "@tax/document-tools";
 // 证据口径必须与界面完全一致，因此直接复用前端那套纯函数，不在服务端另写一份
 import {
   extractCitations,
@@ -21,6 +22,11 @@ import { deltaVerdict, evidenceDelta, evidenceSnapshot } from "../../../web/src/
 import { ledgerSort, type LedgerRow } from "../../../web/src/evidence-ledger.ts";
 import { listAmountChecks } from "./amount-checks.ts";
 import { listConclusions } from "./task-store.ts";
+
+/** 落库记录里的计数可能缺字段（比率拆分上线前的旧记录），一律按 0 处理，不让 undefined 参与运算 */
+function numOf(v: unknown): number {
+  return typeof v === "number" && Number.isFinite(v) ? v : 0;
+}
 
 export interface AgentStats {
   agentId: string;
@@ -82,6 +88,17 @@ export interface PlatformStats {
   compareMatched: number;
   compareCompared: number;
   compareAccuracyOverall: number | null;
+  /** 累计口径的构成：填错与「只有一侧有」分开摆，免得一个准确率把两类问题互相掩盖 */
+  compareMismatched: number;
+  compareOnlyA: number;
+  compareOnlyB: number;
+  /** 累计一致率 = 一致 /（一致 + 填错）：只看两边都有的项，回答「填得对不对」 */
+  compareMatchRateOverall: number | null;
+  /** 累计覆盖率 = 一致 /（一致 + 仅人工底稿有）：回答「人工底稿有的项自动填到了多少」 */
+  compareCoverageOverall: number | null;
+  /** 最近一次记录级比对的一致率与覆盖率（旧记录没有这两个字段时按现行规则回算） */
+  compareMatchRate: number | null;
+  compareCoverage: number | null;
   /** 「最近一次」的判定依据：记录级比对的最晚开始时间 */
   compareLatestAt: string;
   ocrRuns: number;
@@ -117,6 +134,11 @@ export function computePlatformStats(): PlatformStats {
   let compareLatestAt = "";
   let compareMatched = 0;
   let compareCompared = 0;
+  let compareMismatched = 0;
+  let compareOnlyA = 0;
+  let compareOnlyB = 0;
+  let compareMatchRate: number | null = null;
+  let compareCoverage: number | null = null;
   let ocrConfSum = 0;
   let ocrRuns = 0;
   let reviewPendingIssues = 0;
@@ -172,6 +194,9 @@ export function computePlatformStats(): PlatformStats {
     let taskCompareFound = false;
     let taskCompared = 0;
     let taskMatched = 0;
+    let taskMismatched = 0;
+    let taskOnlyA = 0;
+    let taskOnlyB = 0;
     for (const call of calls) {
       let bucket = perToolMap.get(call.tool_name);
       if (!bucket) {
@@ -358,7 +383,14 @@ export function computePlatformStats(): PlatformStats {
       try {
         const parsed = JSON.parse(call.result) as {
           sheets?: Array<{ mode?: string }>;
-          totals?: { accuracyPercent?: number; compared?: number; matched?: number };
+          totals?: {
+            accuracyPercent?: number;
+            compared?: number;
+            matched?: number;
+            mismatched?: number;
+            onlyA?: number;
+            onlyB?: number;
+          };
         };
         if (parsed.sheets?.[0]?.mode === "record" && parsed.totals?.accuracyPercent !== undefined) {
           compareRuns += 1;
@@ -367,12 +399,20 @@ export function computePlatformStats(): PlatformStats {
           if (at >= compareLatestAt) {
             compareLatestAt = at;
             compareAccuracy = parsed.totals.accuracyPercent;
+            // 比率一律用原始计数现算，不读记录里的字段：旧记录没有这两个字段，
+            // 而「过滤规则上线前的历史记录按现行规则回算」是本看板既定的口径
+            const latest = compareRates(numOf(parsed.totals.matched), numOf(parsed.totals.mismatched), numOf(parsed.totals.onlyA));
+            compareMatchRate = latest.matchRatePercent;
+            compareCoverage = latest.coveragePercent;
           }
           if (!taskCompareFound || at >= taskCompareAt) {
             taskCompareFound = true;
             taskCompareAt = at;
             taskCompared = typeof parsed.totals.compared === "number" ? parsed.totals.compared : 0;
             taskMatched = typeof parsed.totals.matched === "number" ? parsed.totals.matched : 0;
+            taskMismatched = numOf(parsed.totals.mismatched);
+            taskOnlyA = numOf(parsed.totals.onlyA);
+            taskOnlyB = numOf(parsed.totals.onlyB);
           }
         }
       } catch {
@@ -382,9 +422,13 @@ export function computePlatformStats(): PlatformStats {
     if (taskCompareFound) {
       compareCompared += taskCompared;
       compareMatched += taskMatched;
+      compareMismatched += taskMismatched;
+      compareOnlyA += taskOnlyA;
+      compareOnlyB += taskOnlyB;
     }
   }
 
+  const overallRates = compareRates(compareMatched, compareMismatched, compareOnlyA);
   return {
     tasks: tasks.length,
     completed: tasks.filter((t) => t.status === "completed").length,
@@ -397,6 +441,13 @@ export function computePlatformStats(): PlatformStats {
     compareCompared,
     compareAccuracyOverall:
       compareCompared > 0 ? Math.round((compareMatched / compareCompared) * 10000) / 100 : null,
+    compareMismatched,
+    compareOnlyA,
+    compareOnlyB,
+    compareMatchRateOverall: overallRates.matchRatePercent,
+    compareCoverageOverall: overallRates.coveragePercent,
+    compareMatchRate,
+    compareCoverage,
     compareLatestAt,
     ocrRuns,
     ocrAvgConfidence: ocrRuns > 0 ? Math.round((ocrConfSum / ocrRuns) * 100) / 100 : null,

@@ -23,6 +23,10 @@ export interface SheetCompare {
   onlyB: number;
   skippedFormulas: number;
   accuracyPercent: number;
+  /** 一致率：两边都有的格子里填对的比例，回答「填得对不对」；无可比对项时为 null */
+  matchRatePercent: number | null;
+  /** 覆盖率：人工底稿有的格子里自动填到了多少，回答「填得全不全」；无可比对项时为 null */
+  coveragePercent: number | null;
   diffs: CellDiff[];
 }
 
@@ -39,7 +43,36 @@ export interface CompareResult {
     onlyA: number;
     onlyB: number;
     accuracyPercent: number;
+    matchRatePercent: number | null;
+    coveragePercent: number | null;
   };
+}
+
+/**
+ * 把「准确率」拆成两个不会互相掩盖的比率。
+ *
+ * `accuracyPercent = matched / compared`，而 compared 同时含「填错」与「只有一侧有」两类完全不同的问题。
+ * 实测两次记录级比对 accuracyPercent 分别是 0% 与 25%，`mismatched` 却都是 0——48 项与 12 项全是
+ * 人工底稿有、自动底稿没有的范围差异。单一比率会把「一个格子都没填错、只是范围没对上」显示成
+ * 「准确率 0%」，看板上根本分不清问题在填列逻辑还是在两份底稿的口径范围。
+ *
+ * 分母为 0 时返回 null：没有可比对的格子就无从谈比率，不拿 100 充数。
+ */
+export function compareRates(
+  matched: number,
+  mismatched: number,
+  onlyA: number,
+): { matchRatePercent: number | null; coveragePercent: number | null } {
+  const pct = (n: number, d: number): number | null => (d === 0 ? null : Math.round((n / d) * 10000) / 100);
+  return {
+    matchRatePercent: pct(matched, matched + mismatched),
+    coveragePercent: pct(matched, matched + onlyA),
+  };
+}
+
+/** 比率为 null 时如实说没有分母，不写成 0% 也不写成 100% */
+export function rateText(v: number | null): string {
+  return v === null ? "无可比对项" : `${v}%`;
 }
 
 function isFormulaValue(value: unknown): value is { formula: string; result?: unknown } {
@@ -189,6 +222,7 @@ function compareRecords(a: SheetRecords, b: SheetRecords, toleranceCents: number
     onlyB,
     skippedFormulas: a.skipped + b.skipped,
     accuracyPercent: compared === 0 ? 100 : Math.round((matched / compared) * 10000) / 100,
+    ...compareRates(matched, mismatched, onlyA),
     diffs,
   };
 }
@@ -249,6 +283,7 @@ function compareAddress(
     onlyB,
     skippedFormulas: a.skipped + b.skipped,
     accuracyPercent: compared === 0 ? 100 : Math.round((matched / compared) * 10000) / 100,
+    ...compareRates(matched, mismatched, onlyA),
     diffs,
   };
 }
@@ -299,7 +334,7 @@ export async function compareWorkbooks(
     sheets.push({ sheetA: na, sheetB: nb, mode, ...body });
   }
 
-  const totals = sheets.reduce(
+  const totals = sheets.reduce<CompareResult["totals"]>(
     (acc, s) => ({
       compared: acc.compared + s.compared,
       matched: acc.matched + s.matched,
@@ -307,11 +342,23 @@ export async function compareWorkbooks(
       onlyA: acc.onlyA + s.onlyA,
       onlyB: acc.onlyB + s.onlyB,
       accuracyPercent: 0,
+      matchRatePercent: null,
+      coveragePercent: null,
     }),
-    { compared: 0, matched: 0, mismatched: 0, onlyA: 0, onlyB: 0, accuracyPercent: 0 },
+    {
+      compared: 0,
+      matched: 0,
+      mismatched: 0,
+      onlyA: 0,
+      onlyB: 0,
+      accuracyPercent: 0,
+      matchRatePercent: null,
+      coveragePercent: null,
+    },
   );
   totals.accuracyPercent =
     totals.compared === 0 ? 100 : Math.round((totals.matched / totals.compared) * 10000) / 100;
+  Object.assign(totals, compareRates(totals.matched, totals.mismatched, totals.onlyA));
 
   return {
     sheets,
@@ -362,10 +409,10 @@ export function createCompareTools(ctx: TaskDocumentContext): ToolDefinition[] {
         align: params.align,
       });
       const lines = [
-        `底稿比对结果（${result.sheets[0]?.mode ?? "record"} 模式）：总准确率 ${result.totals.accuracyPercent}%（比对 ${result.totals.compared} 项：一致 ${result.totals.matched}、差异 ${result.totals.mismatched}、仅A ${result.totals.onlyA}、仅B ${result.totals.onlyB}）`,
+        `底稿比对结果（${result.sheets[0]?.mode ?? "record"} 模式）：比对 ${result.totals.compared} 项 = 一致 ${result.totals.matched} + 填错 ${result.totals.mismatched} + 仅A ${result.totals.onlyA} + 仅B ${result.totals.onlyB}；一致率 ${rateText(result.totals.matchRatePercent)}（只看两边都有的项）、覆盖率 ${rateText(result.totals.coveragePercent)}（人工底稿有的项里自动填到多少）、总准确率 ${result.totals.accuracyPercent}%`,
         ...result.sheets.map(
           (s) =>
-            `- 工作表「${s.sheetA}」：准确率 ${s.accuracyPercent}%（一致 ${s.matched}/比对 ${s.compared}；差异 ${s.mismatched}；仅A ${s.onlyA}；仅B ${s.onlyB}）`,
+            `- 工作表「${s.sheetA}」：一致 ${s.matched}/比对 ${s.compared}，填错 ${s.mismatched}、仅A ${s.onlyA}、仅B ${s.onlyB}；一致率 ${rateText(s.matchRatePercent)}、覆盖率 ${rateText(s.coveragePercent)}、总准确率 ${s.accuracyPercent}%`,
         ),
         ...result.sheets.flatMap((s) =>
           s.diffs.slice(0, 20).map((d) => `    ${d.kind === "mismatch" ? "差异" : d.kind === "only_a" ? "仅A" : "仅B"} ${d.address}：A=${d.a ?? "∅"} B=${d.b ?? "∅"}`),

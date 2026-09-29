@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { computePlatformStats } from "../src/services/stats.ts";
 import { db } from "../src/db.ts";
 import { dirs } from "../src/config.ts";
+import { compareRates } from "@tax/document-tools";
 import { docRefSnapshotText, evidenceSnapshotText } from "./materials-lib.ts";
 
 const failures: string[] = [];
@@ -35,17 +36,34 @@ const calls = db
 let runs = 0;
 let matched = 0;
 let compared = 0;
+let mismatched = 0;
+let onlyA = 0;
+let onlyB = 0;
 let matchedAll = 0;
 let comparedAll = 0;
 // 累计口径按「每个任务最近一次记录级比对」合计：同任务反复比对时只有最近一次代表当前状态
-const perTask = new Map<string, { at: string; matched: number; compared: number }>();
+const perTask = new Map<
+  string,
+  { at: string; matched: number; compared: number; mismatched: number; onlyA: number; onlyB: number }
+>();
 let latestAt = "";
 let latestAcc: number | null = null;
+let latestRates: { matchRatePercent: number | null; coveragePercent: number | null } = {
+  matchRatePercent: null,
+  coveragePercent: null,
+};
 for (const c of calls) {
   try {
     const p = JSON.parse(c.result ?? "") as {
       sheets?: Array<{ mode?: string }>;
-      totals?: { accuracyPercent?: number; compared?: number; matched?: number };
+      totals?: {
+        accuracyPercent?: number;
+        compared?: number;
+        matched?: number;
+        mismatched?: number;
+        onlyA?: number;
+        onlyB?: number;
+      };
     };
     if (p.sheets?.[0]?.mode !== "record" || p.totals?.accuracyPercent === undefined) continue;
     runs += 1;
@@ -54,11 +72,20 @@ for (const c of calls) {
     matchedAll += p.totals.matched ?? 0;
     const prev = perTask.get(c.task_id);
     if (!prev || at >= prev.at) {
-      perTask.set(c.task_id, { at, matched: p.totals.matched ?? 0, compared: p.totals.compared ?? 0 });
+      perTask.set(c.task_id, {
+        at,
+        matched: p.totals.matched ?? 0,
+        compared: p.totals.compared ?? 0,
+        mismatched: p.totals.mismatched ?? 0,
+        onlyA: p.totals.onlyA ?? 0,
+        onlyB: p.totals.onlyB ?? 0,
+      });
     }
     if (at >= latestAt) {
       latestAt = at;
       latestAcc = p.totals.accuracyPercent;
+      // 比率按原始计数现算，不读记录里的字段：拆分上线前的旧记录没有这两个字段
+      latestRates = compareRates(p.totals.matched ?? 0, p.totals.mismatched ?? 0, p.totals.onlyA ?? 0);
     }
   } catch {
     // 忽略坏记录
@@ -67,6 +94,9 @@ for (const c of calls) {
 for (const v of perTask.values()) {
   matched += v.matched;
   compared += v.compared;
+  mismatched += v.mismatched;
+  onlyA += v.onlyA;
+  onlyB += v.onlyB;
 }
 expect("记录级比对次数一致", s.compareRuns, runs);
 expect("最近一次准确率按调用时间取值", s.compareAccuracy, latestAcc);
@@ -74,6 +104,21 @@ expect("最近一次时间戳一致", s.compareLatestAt, latestAt);
 expect("累计一致项一致", s.compareMatched, matched);
 expect("累计比对项一致", s.compareCompared, compared);
 expect("累计准确率一致", s.compareAccuracyOverall, compared > 0 ? Math.round((matched / compared) * 10000) / 100 : null);
+// 构成与两个拆分比率：一致率只看两边都有的项（填得对不对），覆盖率看人工底稿有的项自动填到多少（填得全不全）
+const overallRates = compareRates(matched, mismatched, onlyA);
+expect("构成相加等于累计比对项", matched + mismatched + onlyA + onlyB, compared);
+expect("累计填错项一致", s.compareMismatched, mismatched);
+expect("累计仅人工底稿有项一致", s.compareOnlyA, onlyA);
+expect("累计仅自动底稿有项一致", s.compareOnlyB, onlyB);
+expect("累计一致率一致", s.compareMatchRateOverall, overallRates.matchRatePercent);
+expect("累计覆盖率一致", s.compareCoverageOverall, overallRates.coveragePercent);
+expect("最近一次一致率一致", s.compareMatchRate, latestRates.matchRatePercent);
+expect("最近一次覆盖率一致", s.compareCoverage, latestRates.coveragePercent);
+console.log(
+  `[verify] 记录级比对构成：一致 ${matched} · 填错 ${mismatched} · 仅人工底稿有 ${onlyA} · 仅自动底稿有 ${onlyB}；一致率 ${
+    overallRates.matchRatePercent ?? "无可比对项"
+  }% · 覆盖率 ${overallRates.coveragePercent ?? "无可比对项"}% · 总准确率 ${s.compareAccuracyOverall ?? "—"}%`,
+);
 expect("累计口径的任务数不超过比对次数", perTask.size <= runs, true);
 if (perTask.size < runs) {
   // 有任务比对过不止一次：累计必须只算最近一次，否则一次失败的重复比对会永久拉低准确率

@@ -208,6 +208,17 @@ export interface PlatformStats {
   compareMatched: number;
   compareCompared: number;
   compareAccuracyOverall: number | null;
+  /** 累计口径的构成：填错与「只有一侧有」分开摆，免得一个准确率把两类问题互相掩盖 */
+  compareMismatched: number;
+  compareOnlyA: number;
+  compareOnlyB: number;
+  /** 累计一致率 = 一致 /（一致 + 填错）：只看两边都有的项，回答「填得对不对」 */
+  compareMatchRateOverall: number | null;
+  /** 累计覆盖率 = 一致 /（一致 + 仅人工底稿有）：回答「填得全不全」 */
+  compareCoverageOverall: number | null;
+  /** 最近一次记录级比对的一致率与覆盖率（旧记录按现行规则回算） */
+  compareMatchRate: number | null;
+  compareCoverage: number | null;
   compareLatestAt: string;
   ocrRuns: number;
   ocrAvgConfidence: number | null;

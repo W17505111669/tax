@@ -5,6 +5,7 @@ import { db } from "../src/db.ts";
 import { dirs } from "../src/config.ts";
 import { computePlatformStats } from "../src/services/stats.ts";
 import { BATCH_REF_BUDGET, BATCH_REF_MAX } from "../src/services/ref-checks.ts";
+import { compareRates, rateText } from "@tax/document-tools";
 
 /**
  * 作品说明里引用的那串全平台实测数字，直接取自 computePlatformStats。
@@ -118,6 +119,13 @@ export interface Stats {
   artifacts: number;
   compareAccuracy: number | null;
   compareRuns: number;
+  /** 最近一次记录级比对的构成与两个拆分比率：总准确率会把「填错」与「范围没对上」混成一个数 */
+  compareMatched: number;
+  compareMismatched: number;
+  compareOnlyA: number;
+  compareOnlyB: number;
+  compareMatchRate: number | null;
+  compareCoverage: number | null;
 }
 
 export function statsFor(agentId: string): Stats {
@@ -130,11 +138,19 @@ export function statsFor(agentId: string): Stats {
   let artifacts = 0;
   let compareAccuracy: number | null = null;
   let compareRuns = 0;
+  let compareAt = "";
+  let compareMatched = 0;
+  let compareMismatched = 0;
+  let compareOnlyA = 0;
+  let compareOnlyB = 0;
+  let compareMatchRate: number | null = null;
+  let compareCoverage: number | null = null;
   for (const t of tasks) {
-    const calls = db.prepare(`SELECT ok, tool_name, result FROM tool_calls WHERE task_id = ?`).all(t.id) as unknown as Array<{
+    const calls = db.prepare(`SELECT ok, tool_name, result, started_at FROM tool_calls WHERE task_id = ?`).all(t.id) as unknown as Array<{
       ok: number | null;
       tool_name: string;
       result: string | null;
+      started_at: string | null;
     }>;
     toolCalls += calls.length;
     toolOk += calls.filter((c) => c.ok === 1).length;
@@ -143,10 +159,33 @@ export function statsFor(agentId: string): Stats {
     for (const c of calls) {
       if (c.tool_name !== "compare_workpapers" || c.ok !== 1 || !c.result) continue;
       try {
-        const parsed = JSON.parse(c.result) as { sheets?: Array<{ mode?: string }>; totals?: { accuracyPercent?: number } };
+        const parsed = JSON.parse(c.result) as {
+          sheets?: Array<{ mode?: string }>;
+          totals?: {
+            accuracyPercent?: number;
+            matched?: number;
+            mismatched?: number;
+            onlyA?: number;
+            onlyB?: number;
+          };
+        };
         if (parsed.sheets?.[0]?.mode === "record" && parsed.totals?.accuracyPercent !== undefined) {
-          compareAccuracy = parsed.totals.accuracyPercent;
           compareRuns += 1;
+          // 「最近一次」按调用开始时间判定，与平台看板同一口径。早先按遍历顺序取最后一条，
+          // 实测取到的是 09-28 的旧比对（2 项 / 一致 1）而不是 09-29 的最新一次（3 项 / 一致 2），
+          // 于是作品说明写的准确率与看板上的对不上——正是本文档反复承诺不会发生的事。
+          const at = String(c.started_at ?? "");
+          if (at < compareAt) continue;
+          compareAt = at;
+          compareAccuracy = parsed.totals.accuracyPercent;
+          compareMatched = parsed.totals.matched ?? 0;
+          compareMismatched = parsed.totals.mismatched ?? 0;
+          compareOnlyA = parsed.totals.onlyA ?? 0;
+          compareOnlyB = parsed.totals.onlyB ?? 0;
+          // 比率按原始计数现算：拆分上线前的旧记录里没有这两个字段
+          const rates = compareRates(compareMatched, compareMismatched, compareOnlyA);
+          compareMatchRate = rates.matchRatePercent;
+          compareCoverage = rates.coveragePercent;
         }
       } catch {
         // 忽略坏记录
@@ -161,8 +200,17 @@ export function statsFor(agentId: string): Stats {
     artifacts,
     compareAccuracy,
     compareRuns,
+    compareMatched,
+    compareMismatched,
+    compareOnlyA,
+    compareOnlyB,
+    compareMatchRate,
+    compareCoverage,
   };
 }
+
+/** 比率展示：null 说「无可比对项」，不写成 0% 也不写成 100% */
+export { rateText };
 
 export function recentTaskLinks(agentId: string, limit = 3): Array<{ title: string; status: string; link: string }> {
   const rows = db

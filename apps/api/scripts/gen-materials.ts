@@ -20,6 +20,7 @@ import {
   GOALS,
   INNOVATIONS,
   latestCompareFor,
+  rateText,
   statsFor,
 } from "./materials-lib.ts";
 
@@ -161,7 +162,13 @@ function build(agent: TaxAgentConfig, extra: Array<{ name: string; label: string
   lines.push(`- 生成专业底稿/产物 ${stats.artifacts} 份`);
   lines.push(
     stats.compareAccuracy !== null
-      ? `- 与人工底稿记录级比对准确率 ${stats.compareAccuracy}%（${stats.compareRuns} 次比对；差异项均为预埋或真实口径差异，已列待核查）`
+      ? `- 与人工底稿记录级比对：总准确率 ${stats.compareAccuracy}%（${stats.compareRuns} 次比对）。总准确率把「填错」与「两份底稿范围没对上」混在一个数里，拆开才说得清——一致率 ${rateText(
+          stats.compareMatchRate,
+        )}（一致 ${stats.compareMatched} / 填错 ${stats.compareMismatched}，只看两边都有的项，回答「填得对不对」）、覆盖率 ${rateText(
+          stats.compareCoverage,
+        )}（人工底稿有的 ${stats.compareMatched + stats.compareOnlyA} 项里自动填到 ${
+          stats.compareMatched
+        } 项，回答「填得全不全」）、仅自动底稿有 ${stats.compareOnlyB} 项；差异项均为预埋或真实口径差异，已列待核查`
       : `- 暂无记录级比对数据`,
   );
   lines.push(`- 自动化验证：verify:pi / verify:docs / verify:template / verify:policy / verify:compare / verify:ocr / verify:agents 全部 PASS（见 docs/testing/test-report-*.md）`);

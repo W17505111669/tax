@@ -317,6 +317,9 @@ export function AgentOverview({
       `- 记录级比对准确率：最近一次 ${percentFrom(p.compareAccuracy)}（共 ${p.compareRuns} 次，按调用时间取最新）· 累计 ${percentFrom(
         p.compareAccuracyOverall,
       )}（一致 ${p.compareMatched} / 比对 ${p.compareCompared}）`,
+      `- 记录级比对构成：填错 ${p.compareMismatched} 项 · 仅人工底稿有 ${p.compareOnlyA} 项 · 仅自动底稿有 ${p.compareOnlyB} 项`,
+      `- 记录级比对一致率（累计）：${percentFrom(p.compareMatchRateOverall)}——只看两边都有的项，回答「填得对不对」`,
+      `- 记录级比对覆盖率（累计）：${percentFrom(p.compareCoverageOverall)}——人工底稿有的项里自动填到了多少，回答「填得全不全」`,
       `- OCR 平均置信度：${percentFrom(p.ocrAvgConfidence)}（${p.ocrRuns} 次）`,
       `- 复核闭环：待复核问题合计 ${p.reviewPendingIssues} 项；已完成但仍有未复核问题的任务 ${p.reviewBacklog.length} 个`,
       ...(p.reviewBacklog.length > 0
@@ -408,8 +411,13 @@ export function AgentOverview({
       `底稿产物\t${p.artifacts}`,
       `记录级比对准确率（最近一次）\t${percentFrom(p.compareAccuracy)}`,
       `记录级比对准确率（累计）\t${percentFrom(p.compareAccuracyOverall)}`,
+      `记录级比对一致率（累计）\t${percentFrom(p.compareMatchRateOverall)}`,
+      `记录级比对覆盖率（累计）\t${percentFrom(p.compareCoverageOverall)}`,
       `记录级比对项合计\t${p.compareCompared}`,
       `记录级比对一致项\t${p.compareMatched}`,
+      `记录级比对填错项\t${p.compareMismatched}`,
+      `记录级比对仅人工底稿有\t${p.compareOnlyA}`,
+      `记录级比对仅自动底稿有\t${p.compareOnlyB}`,
       `OCR 平均置信度\t${percentFrom(p.ocrAvgConfidence)}`,
       `待复核问题合计\t${p.reviewPendingIssues}`,
       `完成但未复核任务\t${p.reviewBacklog.length}`,
@@ -684,11 +692,16 @@ export function AgentOverview({
                     stats.platform.compareLatestAt ? `：${stats.platform.compareLatestAt}` : ""
                   }）；累计口径为各任务最近一次记录级比对的 一致项/比对项 合计 = ${stats.platform.compareMatched}/${
                     stats.platform.compareCompared
-                  }`,
+                  }。构成：填错 ${stats.platform.compareMismatched} 项、仅人工底稿有 ${stats.platform.compareOnlyA} 项、仅自动底稿有 ${
+                    stats.platform.compareOnlyB
+                  } 项。一致率 ${percentFrom(stats.platform.compareMatchRateOverall)} 只看两边都有的项（填得对不对），覆盖率 ${percentFrom(
+                    stats.platform.compareCoverageOverall,
+                  )} 看人工底稿有的项自动填到了多少（填得全不全）。总准确率把这两类问题混在一个数里，实测有过填错 0 项、仅范围差异 48 项却显示准确率 0% 的一次`,
                   value: stats.platform.compareAccuracy !== null ? String(stats.platform.compareAccuracy) : "—",
+                  // 单位串保持原长度量级：这张卡在 xl:grid-cols-6 的窄格里，写长了会折行挤动整排布局
                   unit:
-                    stats.platform.compareAccuracyOverall !== null
-                      ? `% · 累计 ${stats.platform.compareAccuracyOverall}%`
+                    stats.platform.compareMatchRateOverall !== null
+                      ? `% · 累计一致率 ${stats.platform.compareMatchRateOverall}%`
                       : "%",
                 },
                 {
