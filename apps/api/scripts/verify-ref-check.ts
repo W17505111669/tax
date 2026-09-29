@@ -33,6 +33,7 @@ import {
   summarizeRefChecks,
   toRevisionItems,
   trimEdgeWords,
+  uniqueVerifiedDocNum,
   refPrefix,
   type RefCheckTarget,
   type RefSearchOutcome,
@@ -543,6 +544,14 @@ db.prepare(`DELETE FROM ref_checks WHERE task_id = ?`).run(TASK);
 const offlineLib: PolicySearcher = async () => {
   throw new Error("离线验证不应访问政策法规库：请给这个目标显式注入假的 PolicySearcher");
 };
+/**
+ * 空的已核实原文索引：凡是想测「通用检索」这条路的用例都必须显式传它。
+ *
+ * 不传时 runRefChecks 会去读真实库，而库里确实有 财税[2015]119号、国税发[2006]187号 一类
+ * 已核实原文；这些用例的目标又都是上下文里没有发文机关的光杆文号，会被「唯一同字号认定」
+ * 直接判成 matched，本节真正要验的未命中 / 覆盖 / 保留规则根本走不到。
+ */
+const noVerified: Map<string, VerifiedOfficialDoc> = new Map();
 const fake: Searcher = async (query) => {
   const results = query.includes("187号") ? [] : [OFFICIAL];
   const attempts = [attempt(results.length > 0 ? "ok" : "irrelevant", results.length > 0 ? "保留 1 条" : "10 条结果与检索词无关")];
@@ -556,6 +565,7 @@ const ran = await runRefChecks(
   ],
   fake,
   offlineLib,
+  noVerified,
 );
 expect("两条都跑完", ran.length, 2);
 expect("第一条判定为找到出处", ran[0]?.verdict, "matched");
@@ -592,7 +602,7 @@ const again = await runRefChecks(TASK, [{ key: refKey("docref", "国税发〔200
   results: [hit("国家税务总局关于土地增值税清算有关问题的通知 国税发〔2006〕187号", "https://fgk.chinatax.gov.cn/zcfgk/a.html")],
   attempts: [attempt("ok", "保留 1 条")],
   minScore: 2,
-}), offlineLib);
+}), offlineLib, noVerified);
 expect("复查覆盖为最新一次", again[0]?.verdict, "matched");
 expect("同一文号不新增记录", listRefChecks(TASK).length, 2);
 expect(
@@ -738,11 +748,11 @@ const hitSearcher: Searcher = async () =>
   ({ results: [OFFICIAL], attempts: [attempt("ok", "保留 1 条")], minScore: 2 }) satisfies DetailedSearch;
 const missSearcher: Searcher = async () =>
   ({ results: [], attempts: [attempt("irrelevant", "10 条结果与检索词无关")], minScore: 2 }) satisfies DetailedSearch;
-const firstRun = await runRefChecks(TASK, [TARGET], hitSearcher, offlineLib);
+const firstRun = await runRefChecks(TASK, [TARGET], hitSearcher, offlineLib, noVerified);
 expect("第一次检索找到出处", firstRun[0]?.verdict, "matched");
 const beforeRec = listRefChecks(TASK)[0];
 expect("前置：库里已记为找到出处", beforeRec?.verdict, "matched");
-const rerun = await runRefChecks(TASK, [TARGET], missSearcher, offlineLib);
+const rerun = await runRefChecks(TASK, [TARGET], missSearcher, offlineLib, noVerified);
 expect("这次检索本身判为未命中", rerun[0]?.verdict, "empty");
 const kept = listRefChecks(TASK).find((c) => c.text.includes("119"));
 expect("库里仍是已找到出处", kept?.verdict, "matched");
@@ -754,9 +764,9 @@ expect("重试过程追加进 attempts", (kept?.attempts.length ?? 0) > (beforeR
 expect("复查时间更新到最新", (kept?.checkedAt ?? "") >= (beforeRec?.checkedAt ?? ""), true);
 expect("没有新增记录（仍是同一 key 覆盖）", listRefChecks(TASK).length, 1);
 db.prepare(`DELETE FROM ref_checks WHERE task_id = ?`).run(TASK);
-await runRefChecks(TASK, [TARGET], missSearcher, offlineLib);
+await runRefChecks(TASK, [TARGET], missSearcher, offlineLib, noVerified);
 expect("先记为未命中", listRefChecks(TASK)[0]?.verdict, "empty");
-const upgraded = await runRefChecks(TASK, [TARGET], hitSearcher, offlineLib);
+const upgraded = await runRefChecks(TASK, [TARGET], hitSearcher, offlineLib, noVerified);
 expect("反向：找到出处要能顶掉未命中", upgraded[0]?.verdict, "matched");
 expect("库里升级为已找到出处", listRefChecks(TASK)[0]?.verdict, "matched");
 expect("升级后仍是一条记录", listRefChecks(TASK).length, 1);
@@ -1587,6 +1597,80 @@ expect("官方站点的解读页同样是升级候选", upgradeRefTargets(UP_TAS
 saveUp(LIBRARY_URL, "国家税务总局关于研发费用税前加计扣除归集范围有关问题的公告");
 expect("已是政策法规库原文页就不再当候选", upgradeRefTargets(UP_TASK).length, 0);
 clearUp();
+
+// 光杆文号的唯一同字号认定：机关不明时不再整条跳过政策法规库，也不许猜机关
+expect(
+  "索引里只有一条以该光杆文号结尾时返回完整字号",
+  uniqueVerifiedDocNum("2019年第41号", ["国家税务总局公告2019年第41号", "财税[2015]119号"]),
+  "国家税务总局公告2019年第41号",
+);
+expect(
+  "两条同字号即跨机关歧义，返回 null 不猜",
+  uniqueVerifiedDocNum("2022年第28号", ["财政部税务总局科技部公告2022年第28号", "科技部公告2022年第28号"]),
+  null,
+);
+expect("索引里没有同字号时返回 null", uniqueVerifiedDocNum("2019年第41号", ["国家税务总局公告2017年第40号"]), null);
+expect("空文号返回 null", uniqueVerifiedDocNum("", ["国家税务总局公告2019年第41号"]), null);
+expect(
+  "文号里带空格也能对上，返回索引里的原键",
+  uniqueVerifiedDocNum("2019年 第41号", ["国家税务总局公告2019年第41号"]),
+  "国家税务总局公告2019年第41号",
+);
+
+// 集成：取自真实卡住的那一处——结论里只写「同时废止 …2022年第28号」，构造不出完整发文字号
+const BARE_TASK = "__verify_refcheck_bare__";
+const clearBare = () => db.prepare(`DELETE FROM ref_checks WHERE task_id = ?`).run(BARE_TASK);
+const bareTarget: RefCheckTarget = {
+  key: refKey("docref", "2022年第28号"),
+  kind: "docref",
+  text: "2022年第28号",
+  context: "同时废止 2021年第13号、2022年第16号、2022年第28号",
+};
+expect("前置：这个上下文构造不出完整发文字号", policyDocNumQuery(bareTarget), "");
+const BARE_SRC_TASK = "4bb22d34-0000-0000-0000-000000000000";
+const BARE_EVIDENCE = {
+  title: "财政部 税务总局 科技部关于加大支持科技创新税前扣除力度的公告",
+  url: "https://fgk.chinatax.gov.cn/zcfgk/c102416/c5202002/content.html",
+  snippet: "财政部 税务总局 科技部公告2022年第28号",
+  grade: "official",
+  gradeReason: "",
+};
+const oneDoc = new Map<string, VerifiedOfficialDoc>([
+  ["财政部税务总局科技部公告2022年第28号", { evidence: BARE_EVIDENCE, taskId: BARE_SRC_TASK }],
+]);
+let bareWebCalled = 0;
+const countWeb: Searcher = async (q, signal) => {
+  bareWebCalled += 1;
+  return webHit(q, signal);
+};
+clearBare();
+const bareRun = await runRefChecks(BARE_TASK, [bareTarget], countWeb, offlineLib, oneDoc);
+expect("唯一同字号命中判为找到出处", bareRun[0]?.verdict, "matched");
+expect("证据取平台已核实的原文页", bareRun[0]?.evidence?.url, BARE_EVIDENCE.url);
+expect("检索词记为认定出的完整字号", bareRun[0]?.query, "财政部税务总局科技部公告2022年第28号");
+ok("note 写明是机关不明的唯一同字号认定", (bareRun[0]?.note ?? "").includes("结论未写发文机关"), bareRun[0]?.note);
+expect("没有退回通用检索", bareWebCalled, 0);
+expect("不发网络请求也留一条痕", bareRun[0]?.attempts.length, 1);
+expect("留痕记在政策法规库这一路", bareRun[0]?.attempts[0]?.engine, "fgk");
+expect("复用不产生抓取", bareRun[0]?.attempts[0]?.fetched, 0);
+ok(
+  "留痕写明认定到哪一份、来自哪个任务",
+  (bareRun[0]?.attempts[0]?.note ?? "").includes("财政部税务总局科技部公告2022年第28号") &&
+    (bareRun[0]?.attempts[0]?.note ?? "").includes(BARE_SRC_TASK.slice(0, 8)),
+  bareRun[0]?.attempts[0]?.note,
+);
+
+// 歧义时必须维持原样退回通用检索，绝不猜机关
+const twoDocs = new Map<string, VerifiedOfficialDoc>([
+  ...oneDoc,
+  ["科技部公告2022年第28号", { evidence: BARE_EVIDENCE, taskId: BARE_SRC_TASK }],
+]);
+clearBare();
+bareWebCalled = 0;
+const ambRun = await runRefChecks(BARE_TASK, [bareTarget], countWeb, offlineLib, twoDocs);
+expect("同字号有两条时退回通用检索", bareWebCalled > 0, true);
+expect("歧义时不采用任何已核实原文", (ambRun[0]?.note ?? "").includes("结论未写发文机关"), false);
+clearBare();
 
 // 升级候选来自真实数据：只挑已 matched 但证据不是政策法规库原文页、且能构造完整发文字号的文号
 const upAll = listTasks().flatMap((t) => upgradeRefTargets(t.id).map((x) => ({ id: t.id, x })));

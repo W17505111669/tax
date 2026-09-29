@@ -35,6 +35,7 @@ import {
   reusableDocNum,
   shouldOverwrite,
   unresolvedTargets,
+  uniqueVerifiedDocNum,
   type RefCheckEvidence,
   type RefCheckKind,
   type RefCheckResult,
@@ -458,6 +459,42 @@ export async function runRefChecks(
         out.push(libRec);
         continue;
       }
+    }
+    // 结论里没写发文机关时，上面整条政策法规库路径都被跳过（机关不明不猜），只能退回通用检索。
+    // 这里补一条纯离线兜底：平台已在别的任务里按完整字号精确命中过原文页并落库，若这些已核实
+    // 字号里恰好只有一条以该光杆文号结尾，那就不是猜机关，而是读平台自己核实过的事实。
+    // 实测任务 aabd138a 的「2019年第41号」「2022年第28号」两处正是这种情形，此前通用检索给它们
+    // 捞回的是国家统计局页面，同域名分级为 official，摆在界面上比没有证据更容易误导。
+    // 多于一条即歧义，照旧退回通用检索。
+    const bareUniq = want === "" && t.kind === "docref" ? uniqueVerifiedDocNum(t.text, verifiedDocs.keys()) : null;
+    const bareEntry = bareUniq === null ? undefined : verifiedDocs.get(bareUniq);
+    if (bareUniq !== null && bareEntry !== undefined) {
+      attempts.push({
+        engine: "fgk",
+        via: "JSON",
+        fetched: 0,
+        kept: 1,
+        dropped: 0,
+        httpStatus: null,
+        status: "ok",
+        note: `结论未写发文机关，按平台已核实的唯一同字号原文认定为「${bareUniq}」（任务 ${bareEntry.taskId.slice(0, 8)} 已精确命中政策法规库），本次未发起检索`,
+      });
+      const bareRec: RefCheckRecord = {
+        key: t.key,
+        kind: t.kind,
+        text: t.text,
+        // 记完整字号：既如实说明认定到了哪一份，也让这条记录能被后续任务复用
+        query: bareUniq,
+        verdict: "matched",
+        note: `结论未写发文机关，按平台已核实的唯一同字号原文复用（完整字号「${bareUniq}」），链接为官方原文页`,
+        evidence: bareEntry.evidence,
+        subjectUrl: t.excludeUrl ?? "",
+        attempts,
+        checkedAt: at,
+      };
+      saveRefCheck(taskId, bareRec);
+      out.push(bareRec);
+      continue;
     }
     let graded: RefCheckResult | null = null;
     // 记录的是「得出结论所用」的检索词：换写法才查到时就记换后的，全都没查到时记最初那条最具体的

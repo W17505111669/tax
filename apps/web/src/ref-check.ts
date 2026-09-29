@@ -656,6 +656,29 @@ export function reusableDocNum(text: string, snippet: string, query = ""): strin
   return "";
 }
 
+/**
+ * 光杆文号的唯一同字号认定：结论里没写发文机关时，从平台已核实的完整字号里找唯一后缀匹配。
+ *
+ * `reusableDocNum` 刻意不收光杆字号，因此「机关不明」的文号此前整条政策法规库路径都被跳过，
+ * 只能退回通用检索——实测捞回来的是国家统计局一类同域名却与涉税主题无关的页面，还按 official
+ * 分级展示，比没有证据更容易误导。这里不是猜机关：候选全部来自本平台已按完整字号精确命中
+ * 政策法规库原文页并落库的记录，且要求后缀匹配唯一。多于一条即跨机关有歧义，返回 null 维持原样。
+ */
+export function uniqueVerifiedDocNum(bare: string, verifiedKeys: Iterable<string>): string | null {
+  // 库里同时存在「〔2006〕187 号」与「〔2006〕187号」两种写法，比对前先去掉空白。
+  // 返回的始终是索引里的原键，不会把光杆写法当成完整字号传出去。
+  const core = normalizeRef(bare).replace(/\s+/g, "");
+  if (core === "") return null;
+  let found: string | null = null;
+  for (const key of verifiedKeys) {
+    if (!key.replace(/\s+/g, "").endsWith(core)) continue;
+    // 第二条匹配就说明跨机关有歧义，宁可维持未解决也不猜
+    if (found !== null) return null;
+    found = key;
+  }
+  return found;
+}
+
 /** 修订指令的一条素材：一次已经出结果的复查记录 */
 export type RevisionItem = {
   kind: RefCheckKind;
