@@ -41,6 +41,8 @@ import { gradeCitation } from "../../web/src/citation-grade.ts";
 import { topicHint } from "../../web/src/domain-keywords.ts";
 import {
   matchedStillValid,
+  evidenceCanReplace,
+  keptBetterNote,
   preservedNote,
   shouldOverwrite,
   topicOverlap,
@@ -67,6 +69,7 @@ import {
   runRefChecks,
   saveRefCheck,
   toTargets,
+  upgradeRefTargets,
   type PolicySearcher,
   type Searcher,
 } from "../src/services/ref-checks.ts";
@@ -1115,6 +1118,91 @@ expect(
   "error",
 );
 clearLib();
+
+// 11) 证据升级通道：商业站点换成政策法规库官方原文，且反向替换必须被挡住
+expect("旧证据官方、新证据官方 → 可替换", evidenceCanReplace("docref", "official", "official"), true);
+expect("旧证据官方、新证据专业 → 不可替换", evidenceCanReplace("docref", "official", "professional"), false);
+expect("旧证据专业、新证据官方 → 可升级", evidenceCanReplace("docref", "professional", "official"), true);
+expect("旧证据专业、新证据专业 → 可平移", evidenceCanReplace("docref", "professional", "professional"), true);
+expect("没有旧证据时不设限", evidenceCanReplace("docref", null, "professional"), true);
+expect("引用类另有官方门槛，这里不重复管", evidenceCanReplace("citation", "official", "professional"), true);
+ok(
+  "保留原因写清是证据力不及",
+  keptBetterNote("", "professional", "2026-09-29T10:00:00.000Z").includes("不及已留存的官方原文"),
+  keptBetterNote("", "professional", "2026-09-29T10:00:00.000Z"),
+);
+ok(
+  "保留说明追加在原 note 之后而不是覆盖",
+  keptBetterNote("原有说明", "professional", "2026-09-29T10:00:00.000Z").startsWith("原有说明；"),
+);
+
+// 升级候选来自真实数据：只挑已 matched 但证据非官方、且能构造完整发文字号的文号
+const upAll = listTasks().flatMap((t) => upgradeRefTargets(t.id).map((x) => ({ id: t.id, x })));
+expect("升级候选都是文号类", upAll.every((o) => o.x.kind === "docref"), true);
+ok(
+  "升级候选都能构造完整发文字号（机关不明的不进清单）",
+  upAll.every((o) => policyDocNumQuery(o.x) !== ""),
+  JSON.stringify(upAll.slice(0, 3).map((o) => o.x.text)),
+);
+ok(
+  "升级候选不与同任务未解决项重叠（预算不会被同一文号占两次）",
+  upAll.every((o) => !pendingRefTargets(o.id).some((p) => p.key === o.x.key)),
+);
+console.log(`[verify] 升级候选 ${upAll.length} 条（已 matched 但证据非官方原文）`);
+
+// 落库双向：官方原文顶不掉，专业来源可以被官方原文升级
+const GUARD_TASK = "__verify_refcheck_guard__";
+const clearGuard = () => db.prepare(`DELETE FROM ref_checks WHERE task_id = ?`).run(GUARD_TASK);
+const guardTarget: RefCheckTarget = {
+  key: refKey("docref", "2019年第41号"),
+  kind: "docref",
+  text: "2019年第41号",
+  context: "已按国家税务总局公告2019年第41号自2019年度起废止",
+};
+const proSearcher: Searcher = async () =>
+  ({
+    results: [
+      hit(
+        "国家税务总局公告2019年第41号 全文",
+        "https://www.shui5.cn/article/36/143141.html",
+        "年度纳税申报表",
+      ),
+    ],
+    attempts: [attempt("ok", "保留 1 条")],
+    minScore: 2,
+  }) satisfies DetailedSearch;
+const libHit: PolicySearcher = async () => ({ hits: LIB_HITS, total: 1, status: 200, error: null });
+const libMiss2: PolicySearcher = async () => ({ hits: [], total: 0, status: 200, error: null });
+
+clearGuard();
+await runRefChecks(GUARD_TASK, [guardTarget], webHit, libHit);
+expect("前置：证据已是官方原文", listRefChecks(GUARD_TASK)[0]?.evidence?.grade, "official");
+const downgraded = await runRefChecks(GUARD_TASK, [guardTarget], proSearcher, libMiss2);
+expect("商业站点顶不掉官方原文", listRefChecks(GUARD_TASK)[0]?.evidence?.grade, "official");
+expect(
+  "证据地址没被换掉",
+  listRefChecks(GUARD_TASK)[0]?.evidence?.url,
+  "http://fgk.chinatax.gov.cn/zcfgk/c100012/c5194895/content.html",
+);
+expect("仍记为找到出处", downgraded[0]?.verdict, "matched");
+ok(
+  "note 说明为何保留官方原文",
+  (listRefChecks(GUARD_TASK)[0]?.note ?? "").includes("不及已留存的官方原文"),
+  listRefChecks(GUARD_TASK)[0]?.note,
+);
+ok(
+  "被挡下的这次尝试照样留痕",
+  (listRefChecks(GUARD_TASK)[0]?.attempts ?? []).length >= 2,
+  JSON.stringify(listRefChecks(GUARD_TASK)[0]?.attempts?.length),
+);
+
+clearGuard();
+await runRefChecks(GUARD_TASK, [guardTarget], proSearcher, libMiss2);
+expect("前置：先记为专业来源", listRefChecks(GUARD_TASK)[0]?.evidence?.grade, "professional");
+await runRefChecks(GUARD_TASK, [guardTarget], webHit, libHit);
+expect("官方原文可以顶掉专业来源", listRefChecks(GUARD_TASK)[0]?.evidence?.grade, "official");
+expect("升级后仍是一条记录", listRefChecks(GUARD_TASK).length, 1);
+clearGuard();
 
 console.log(`[verify] 文号复查检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {

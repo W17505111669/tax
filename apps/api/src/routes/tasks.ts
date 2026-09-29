@@ -24,6 +24,7 @@ import {
   listRefChecks,
   pendingCitationTargets,
   pendingRefTargets,
+  upgradeRefTargets,
   planBatchRefChecks,
   runRefChecks,
   toTargets,
@@ -415,6 +416,8 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     const pendingOf = (id: string) => [
       ...(kinds.has("docref") ? pendingRefTargets(id) : []),
       ...(kinds.has("citation") ? pendingCitationTargets(id) : []),
+      // 升级候选排最后：预算先补欠账，有余力再把商业站点的证据换成政策法规库官方原文
+      ...(kinds.has("docref") ? upgradeRefTargets(id) : []),
     ];
     const plan = planBatchRefChecks(candidates, pendingOf, budget);
     const label =

@@ -19,7 +19,9 @@ import { gradeCitation } from "../../../web/src/citation-grade.ts";
 import {
   buildRefQuery,
   citationTargets,
+  evidenceCanReplace,
   gradeRefCheck,
+  keptBetterNote,
   matchedStillValid,
   preservedNote,
   refPrefix,
@@ -34,7 +36,7 @@ import {
   type RefCheckTarget,
   type RefCheckVerdict,
 } from "../../../web/src/ref-check.ts";
-import { traceDocRefs } from "../../../web/src/policy-trace.ts";
+import { extractDocRefs, traceDocRefs } from "../../../web/src/policy-trace.ts";
 import { extractCitations } from "../../../web/src/search-evidence.ts";
 import { topicHint } from "../../../web/src/domain-keywords.ts";
 import { getTask } from "./task-store.ts";
@@ -108,6 +110,43 @@ export function pendingRefTargets(taskId: string): RefCheckTarget[] {
     checks,
     (c) => matchedStillValid(c.kind ?? "docref", c.evidence, gradeCitation),
   );
+}
+
+/**
+ * 证据升级候选：已 matched 但证据不是官方站点的文号。
+ *
+ * 政策法规库接入后这些记录有机会换成官方原文页——实测库里 23 条 matched 的文号证据中，
+ * 13 条来自 shui5.cn、ohmi.net.cn 一类商业或第三方站点，只有 10 条是官方。
+ * 批量复查把未解决项排在前面、升级项排在最后：预算先补欠账，有余力再提升已有证据的质量。
+ *
+ * 只放行能构造出完整发文字号的（上下文里有发文机关）——机关不明就不该猜是哪一份文件。
+ * 升级失败也不会丢证据：saveRefCheck 的不降级护栏与证据力闸门都会保留原记录，并把这次尝试追加进留痕。
+ */
+export function upgradeRefTargets(taskId: string): RefCheckTarget[] {
+  const text = getTask(taskId)?.result ?? "";
+  if (!text.trim()) return [];
+  const stale = new Set(
+    listRefChecks(taskId)
+      .filter(
+        (c) =>
+          c.kind === "docref" &&
+          c.verdict === "matched" &&
+          c.evidence !== null &&
+          gradeCitation(c.evidence.url, c.evidence.title).grade !== "official",
+      )
+      .map((c) => c.key),
+  );
+  if (stale.size === 0) return [];
+  const hint = topicHint(text, 2);
+  return extractDocRefs(text)
+    .map((r) => ({
+      key: refKey("docref", r.text),
+      kind: "docref" as const,
+      text: r.text,
+      context: r.context,
+      hint,
+    }))
+    .filter((t) => stale.has(t.key) && policyDocNumQuery(t) !== "");
 }
 
 /**
@@ -332,7 +371,13 @@ export function saveRefCheck(taskId: string, rec: RefCheckRecord): void {
     { url: prev?.evidence_url ?? "", title: prev?.evidence_title ?? "" },
     gradeCitation,
   );
-  if (prev && !shouldOverwrite(prev.verdict as RefCheckVerdict, rec.verdict, prevStillValid)) {
+  // 官方原文不被商业站点顶掉：升级通道让重跑已 matched 的记录变多，反向替换必须挡住
+  const notBetter =
+    prev !== undefined &&
+    prev.verdict === "matched" &&
+    rec.verdict === "matched" &&
+    !evidenceCanReplace(rec.kind, prev.evidence_grade, rec.evidence?.grade ?? null);
+  if (prev && (!shouldOverwrite(prev.verdict as RefCheckVerdict, rec.verdict, prevStillValid) || notBetter)) {
     let prevAttempts: SearchAttempt[] = [];
     try {
       prevAttempts = JSON.parse(prev.attempts ?? "[]") as SearchAttempt[];
@@ -342,7 +387,10 @@ export function saveRefCheck(taskId: string, rec: RefCheckRecord): void {
     out = {
       ...rec,
       verdict: "matched",
-      note: preservedNote(prev.note ?? "", rec.verdict, rec.checkedAt),
+      // 两种保留原因要分开说清：一种是这次没查到，一种是查到了但证据力不及已留存的官方原文
+      note: notBetter
+        ? keptBetterNote(prev.note ?? "", rec.evidence?.grade ?? "", rec.checkedAt)
+        : preservedNote(prev.note ?? "", rec.verdict, rec.checkedAt),
       evidence: {
         title: prev.evidence_title ?? "",
         url: prev.evidence_url ?? "",

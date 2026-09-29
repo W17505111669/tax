@@ -462,6 +462,31 @@ export function preservedNote(prevNote: string, next: RefCheckVerdict, checkedAt
   return prevNote.trim() === "" ? stamp : `${prevNote.trim()}；${stamp}`;
 }
 
+/**
+ * 新证据能不能顶掉旧证据（两者都已是 matched 时才有意义）。
+ *
+ * 旧证据已是官方原文时，只有同为官方原文才能替换。文号复查加了升级通道之后，重跑已 matched
+ * 的记录变多了，没有这道闸就会出现反向替换：一次通用检索拿商业站点顶掉已有的政策法规库原文页。
+ * 旧证据是专业来源时不设限——把它升级成官方原文正是这条通道要做的事。
+ * 引用类复查另有「必须仍是官方站点」的门槛（见 matchedStillValid），这里不重复管。
+ */
+export function evidenceCanReplace(
+  kind: RefCheckKind,
+  prevGrade: string | null,
+  nextGrade: string | null,
+): boolean {
+  if (kind !== "docref") return true;
+  if (prevGrade === null || prevGrade === "") return true;
+  if (prevGrade !== "official") return true;
+  return nextGrade === "official";
+}
+
+/** 因证据力不及旧记录而保留旧证据时写进 note 的说明：升级尝试失败也要如实留痕 */
+export function keptBetterNote(prevNote: string, nextGrade: string, checkedAt: string): string {
+  const stamp = `${checkedAt.slice(0, 19).replace("T", " ")} 再次检索到的来源证据力为「${nextGrade}」，不及已留存的官方原文，保留原证据`;
+  return prevNote.trim() === "" ? stamp : `${prevNote.trim()}；${stamp}`;
+}
+
 /** 修订指令的一条素材：一次已经出结果的复查记录 */
 export type RevisionItem = {
   kind: RefCheckKind;
