@@ -220,23 +220,32 @@ for (const row of rows) {
 ok("历史检索记录可回放", replayed > 0, `实际 ${replayed} 条`);
 console.log(`[verify] 历史检索回放：${replayed} 次调用 · 原 ${beforeTotal} 条 → 过滤后 ${afterTotal} 条（入口页 ${entryDropped} 条被丢弃）`);
 
-// 7) 实网冒烟：只校验不变量（保留项一定过门槛），网络不可用时如实跳过
-try {
-  const live = await searchWebDetailed("财税〔2015〕119号 研发费用加计扣除 政策原文", AbortSignal.timeout(15000));
-  checks += 1;
-  checks += 1;
-  if (live.attempts.some((a) => a.via !== "RSS" && a.via !== "HTML")) failures.push("实网冒烟：出现未知的取数方式");
-  for (const k of live.results) {
-    const lq = "财税〔2015〕119号 研发费用加计扣除 政策原文";
-    if (isEntryPage(k.url) || relevanceHits(lq, k).hits < relevanceThreshold(lq, k.url, 2)) {
-      failures.push(`实网冒烟：保留项未过门槛 ${k.url}`);
+// 7) 实网冒烟：只校验不变量（保留项一定过门槛）。
+// 默认门禁不联网——检索通道可用性随本机网络环境变化（实测同一台机器上 RSS 与 HTML 谁退化成
+// 兜底噪声会互换），联网项会让 qa:all 的时长与结果都不稳定。设 TAXAI_VERIFY_LIVE=1 才跑。
+const LIVE_QUERY = "财税〔2015〕119号 研发费用加计扣除 政策原文";
+if (process.env.TAXAI_VERIFY_LIVE === "1") {
+  try {
+    const live = await searchWebDetailed(LIVE_QUERY, AbortSignal.timeout(15000));
+    // 计数跟着真正执行到的断言走：原先两句无条件 checks += 1 会在什么都没校验时虚增检查项
+    checks += 1;
+    if (live.attempts.some((a) => a.via !== "RSS" && a.via !== "HTML" && a.via !== "JSON")) {
+      failures.push("实网冒烟：出现未知的取数方式");
     }
+    for (const k of live.results) {
+      checks += 1;
+      if (isEntryPage(k.url) || relevanceHits(LIVE_QUERY, k).hits < relevanceThreshold(LIVE_QUERY, k.url, 2)) {
+        failures.push(`实网冒烟：保留项未过门槛 ${k.url}`);
+      }
+    }
+    console.log(
+      `[verify] 实网冒烟：可用 ${live.results.length} 条 · 门槛 ${live.minScore} · ${describeAttempts(live.attempts)}`,
+    );
+  } catch (err) {
+    console.log(`[verify] 实网冒烟跳过（网络不可用：${err instanceof Error ? err.message : String(err)}）`);
   }
-  console.log(
-    `[verify] 实网冒烟：可用 ${live.results.length} 条 · 门槛 ${live.minScore} · ${describeAttempts(live.attempts)}`,
-  );
-} catch (err) {
-  console.log(`[verify] 实网冒烟跳过（网络不可用：${err instanceof Error ? err.message : String(err)}）`);
+} else {
+  console.log("[verify] 实网冒烟跳过（默认门禁不联网；设 TAXAI_VERIFY_LIVE=1 可跑）");
 }
 
 console.log(`[verify] 联网检索可信度检查项=${checks} 失败=${failures.length}`);
