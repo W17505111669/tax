@@ -659,3 +659,13 @@ curl -L -o data/ocr-tessdata/eng.traineddata https://cdn.jsdelivr.net/gh/tessera
 新增 `apps/web/src/text-find.ts`：`findRanges(text, query)` 一次扫描给出全部命中区间（大小写不敏感、不重叠、查询前后空格 trim、空查询返回空数组），`countMatches` 是它的长度，`splitForHighlight` 按区间切出「命中/非命中」分段供渲染包 `mark`（保留原文大小写），DOM 后处理与文本渲染因此共用同一份区间口径。另外把环形取模这个惯用法收进来：`wrapIndex(i, len)` 与 `stepIndex(cur, delta, len)`，此前在 mark 导航、表格命中导航、标签页切换、旋转角恢复四处各写一遍 `((x % n) + n) % n`；`matchLabel(current, total)` 统一计数文案，没有命中如实写「0 处」而不是「1/0」。
 
 `pnpm verify:textfind` 58 项：命中区间（重叠只算一次、紧邻两次都算、trim、中文多处、`.` `(` `\` 等正则特殊字符当普通文本、每个区间切回原文等于查询词、区间不重叠且递增）；**与旧的 split 计数在 8 段文本 × 7 个查询词上逐例一致**，保证 text 类文档的行为一字不变；分段拼接后与原文完全相同、命中段数等于计数；环形序号 19 项（越界回绕、负数多圈、长度为 0 或负、NaN 与 Infinity 给 0、小数截断、旋转角 -90 → 270）；计数文案 7 项；静态走查 8 项（不再用正则 split 高亮、不再 `indexOf` 只标一处、markdown 命中数以 DOM 为准、四处不再手写环形取模、全部组件扫一遍不再用 `.toLowerCase().split(` 数命中）。`qa:all` 现 42 项 verify。
+
+## 批量复查会把已找到的证据覆盖掉（点一次按钮，看板证据变少）
+
+按台账把 12 处待复查文号真跑了一遍批量复查，跑完看板数字反而变差：待复查 12 → 14、复查到出处 9 → 7。查下来是两条叠加的缺陷。一是 `pendingRefTargets` / `pendingCitationTargets` 只按「工具留痕里没有出处」挑目标，不看这条是否已经复查到出处，于是批量预算重复花在已解决的项目上；二是 `saveRefCheck` 用 `ON CONFLICT (task_id, ref_key) DO UPDATE` 无条件覆盖，而联网检索通道本身有波动，一次没命中就把之前找到的公开出处抹掉了。合起来的后果是最坏的那类：用户点了正确的按钮，平台的证据反而变少，而且没有任何提示。
+
+修法分两层。目标筛选加纯函数 `unresolvedTargets(targets, checks)`，把已有 `matched` 记录的 key 排除，预算只留给真正没解决的（`candidate` 与 `empty` 仍算未解决，因为它们还没有可点击核对的出处）。落库加不降级护栏：`shouldOverwrite(prev, next)` 只在「旧的已 matched 而新的没有」时返回 false，此时保留原有的 verdict、证据标题/地址/分级/摘要，把这次重试如实写进 note（`preservedNote` 生成「YYYY-MM-DD HH:MM:SS 再次检索为「未检索到相关公开来源」，保留此前已找到的公开出处」，接在旧 note 后面而不是替换），`attempts` 追加、`checkedAt` 更新到最新——失败不藏起来，证据也不丢。反向（`empty`/`candidate` → `matched`）照常升级，`matched` → `matched` 也照常覆盖成更新的那次。
+
+修完重跑：14 处待复查文号全部跑完，12 处找到公开出处；6 条弱证据引用跑完，4 条找到官方替代来源。看板从「待复查 12 · 复查到出处 9 · 已找到替代 12 · 欠账任务 9」变成「待复查 2 · 复查到出处 19 · 已找到替代 19 · 欠账任务 5」。要说明的是「文号有出处 10/31」没有变——那一栏统计的是工具留痕里可直接溯源的文号，只有把复查到的出处写回结论（结果页的「生成修订指令」→ 续跑）才会增加；这 19 条属于「已找到公开出处、待人工写回」，看板与台账都如实这么标，不冒充已溯源。
+
+`pnpm verify:refcheck` 从 232 项扩到 270 项。落库演练自成一回合（先删假任务记录，避免受前面小节留下的状态影响）：先检索命中写入 `matched`，再用返回空结果的假检索器复查同一条，断言库里 verdict 仍是 `matched`、证据地址与分级没被抹掉、note 含「保留此前已找到的公开出处」与「再次检索为」、`attempts` 条数增加、`checkedAt` 不早于原来、记录数仍是 1；随后清空重跑「先未命中、后命中」，断言能正常升级。纯函数层补 7 条 `shouldOverwrite` 真值表、3 条 `unresolvedTargets`、2 条 `preservedNote`。真实任务走查里「服务端口径 vs 前端口径」的两处比对同步套上 `unresolvedTargets`，否则过滤后两边清单必然对不上；走查结果也从「12 处待复查」变成过滤后的真实待办数。

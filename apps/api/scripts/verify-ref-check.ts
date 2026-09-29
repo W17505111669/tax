@@ -29,6 +29,7 @@ import { traceDocRefs } from "../../web/src/policy-trace.ts";
 import { extractCitations } from "../../web/src/search-evidence.ts";
 import { gradeCitation } from "../../web/src/citation-grade.ts";
 import { topicHint } from "../../web/src/domain-keywords.ts";
+import { preservedNote, shouldOverwrite, unresolvedTargets } from "../../web/src/ref-check.ts";
 import { db } from "../src/db.ts";
 import {
   BATCH_REF_BUDGET,
@@ -495,7 +496,9 @@ for (const t of listTasks()) {
       }
     });
   const tr = traceDocRefs(text, parsed, rows.map((r) => r.tool_name));
-  const pending = refCheckTargets(tr);
+  const recs = listRefChecks(t.id);
+  // 已经找到公开出处的不再算「待复查」：与批量入口和看板口径保持一致
+  const pending = unresolvedTargets(refCheckTargets(tr), recs);
   pendingTotal += pending.length;
   if (pending.length > 0) tasksPending += 1;
   // 服务端独立算出的待复查清单必须与前端口径一致（批量入口不依赖前端传清单）
@@ -508,7 +511,6 @@ for (const t of listTasks()) {
   if (fromService.some((x, i) => x.key !== pending[i]?.key)) {
     failures.push(`${t.id.slice(0, 8)} 服务端待复查清单主键顺序与前端口径不一致`);
   }
-  const recs = listRefChecks(t.id);
   storedTotal += recs.length;
   // 弱证据引用清单：服务端批量入口算出的必须与结果页同一口径（含领域补充词）
   const parsedCalls = rows.map((r) => {
@@ -520,10 +522,13 @@ for (const t of listTasks()) {
     }
     return { toolName: r.tool_name, result };
   });
-  const wantCites = citationTargets(
-    extractCitations(parsedCalls).map((c) => ({ ...c, grade: gradeCitation(c.url, c.title).grade })),
-    topicHint(text, 2),
-    10,
+  const wantCites = unresolvedTargets(
+    citationTargets(
+      extractCitations(parsedCalls).map((c) => ({ ...c, grade: gradeCitation(c.url, c.title).grade })),
+      topicHint(text, 2),
+      10,
+    ),
+    recs,
   );
   const gotCites = pendingCitationTargets(t.id);
   checks += 1;
@@ -561,6 +566,69 @@ for (const t of listTasks()) {
 console.log(
   `[verify] 真实任务走查：${tasksPending} 个任务共 ${pendingTotal} 处文号待复查 · 弱证据引用待替换 ${citeTotal} 条 · 已落库复查记录 ${storedTotal} 条`,
 );
+
+// 8) 复查失败不能把已经找到的公开出处覆盖掉（实测踩过：点一次批量复查，看板上的证据反而变少）
+// 自成一回合：先清掉假任务的记录，不受前面小节留下的状态影响
+db.prepare(`DELETE FROM ref_checks WHERE task_id = ?`).run(TASK);
+const hitSearcher: Searcher = async () =>
+  ({ results: [OFFICIAL], attempts: [attempt("ok", "保留 1 条")], minScore: 2 }) satisfies DetailedSearch;
+const missSearcher: Searcher = async () =>
+  ({ results: [], attempts: [attempt("irrelevant", "10 条结果与检索词无关")], minScore: 2 }) satisfies DetailedSearch;
+const firstRun = await runRefChecks(TASK, [TARGET], hitSearcher);
+expect("第一次检索找到出处", firstRun[0]?.verdict, "matched");
+const beforeRec = listRefChecks(TASK)[0];
+expect("前置：库里已记为找到出处", beforeRec?.verdict, "matched");
+const rerun = await runRefChecks(TASK, [TARGET], missSearcher);
+expect("这次检索本身判为未命中", rerun[0]?.verdict, "empty");
+const kept = listRefChecks(TASK).find((c) => c.text.includes("119"));
+expect("库里仍是已找到出处", kept?.verdict, "matched");
+expect("证据地址没被抹掉", kept?.evidence?.url, beforeRec?.evidence?.url);
+expect("证据分级没被抹掉", kept?.evidence?.grade, beforeRec?.evidence?.grade);
+ok("note 记下保留原因", (kept?.note ?? "").includes("保留此前已找到的公开出处"), kept?.note ?? "");
+ok("note 记下这次的判定", (kept?.note ?? "").includes("再次检索为"), kept?.note ?? "");
+expect("重试过程追加进 attempts", (kept?.attempts.length ?? 0) > (beforeRec?.attempts.length ?? 0), true);
+expect("复查时间更新到最新", (kept?.checkedAt ?? "") >= (beforeRec?.checkedAt ?? ""), true);
+expect("没有新增记录（仍是同一 key 覆盖）", listRefChecks(TASK).length, 1);
+db.prepare(`DELETE FROM ref_checks WHERE task_id = ?`).run(TASK);
+await runRefChecks(TASK, [TARGET], missSearcher);
+expect("先记为未命中", listRefChecks(TASK)[0]?.verdict, "empty");
+const upgraded = await runRefChecks(TASK, [TARGET], hitSearcher);
+expect("反向：找到出处要能顶掉未命中", upgraded[0]?.verdict, "matched");
+expect("库里升级为已找到出处", listRefChecks(TASK)[0]?.verdict, "matched");
+expect("升级后仍是一条记录", listRefChecks(TASK).length, 1);
+
+// 8.1 纯函数层
+expect("没有旧结果时可以写入", shouldOverwrite(null, "empty"), true);
+expect("matched 不被 empty 顶掉", shouldOverwrite("matched", "empty"), false);
+expect("matched 不被 error 顶掉", shouldOverwrite("matched", "error"), false);
+expect("matched 不被 candidate 顶掉", shouldOverwrite("matched", "candidate"), false);
+expect("matched 可以被新的 matched 顶掉", shouldOverwrite("matched", "matched"), true);
+expect("empty 可以被 matched 顶掉", shouldOverwrite("empty", "matched"), true);
+expect("candidate 可以被 matched 顶掉", shouldOverwrite("candidate", "matched"), true);
+expect(
+  "批量目标筛掉已找到出处的",
+  unresolvedTargets(
+    [
+      { key: "a", text: "甲" },
+      { key: "b", text: "乙" },
+    ],
+    [{ key: "a", verdict: "matched" }],
+  ).map((t) => t.key),
+  ["b"],
+);
+expect(
+  "candidate 与 empty 都仍算未解决",
+  unresolvedTargets([{ key: "a" }, { key: "b" }, { key: "c" }], [
+    { key: "a", verdict: "candidate" },
+    { key: "b", verdict: "empty" },
+  ]).length,
+  3,
+);
+expect("没有复查记录时全部保留", unresolvedTargets([{ key: "a" }], []).length, 1);
+expect("保留说明带上日期与判定", preservedNote("", "empty", "2026-09-29T03:00:00.000Z").includes("2026-09-29 03:00:00"), true);
+expect("保留说明接在旧 note 后面", preservedNote("旧说明", "empty", "2026-09-29T03:00:00.000Z").startsWith("旧说明；"), true);
+db.prepare(`DELETE FROM ref_checks WHERE task_id = ?`).run(TASK);
+expect("验证收尾清掉假任务的记录", listRefChecks(TASK).length, 0);
 
 console.log(`[verify] 文号复查检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {

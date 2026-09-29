@@ -301,6 +301,37 @@ export function pendingAfterRecheck(pending: number, summary: RefCheckSummary): 
   return Math.max(0, pending - summary.matched);
 }
 
+/** 已经拿到公开出处的 key 集合 */
+export function matchedKeys(checks: Array<{ key: string; verdict: RefCheckVerdict }>): Set<string> {
+  return new Set(checks.filter((c) => c.verdict === "matched").map((c) => c.key));
+}
+
+/**
+ * 批量复查的目标筛选：去掉已经找到公开出处的。
+ * 不筛会有两个后果——预算花在已解决的项目上，以及一次检索失败就把之前的证据覆盖掉：
+ * 点一下「批量复查文号」，看板上的证据反而变少。这是实测踩到的（12 处复查跑完，
+ * 「复查到出处」从 9 掉到 7、「待复查」从 12 涨到 14）。
+ */
+export function unresolvedTargets<T extends { key: string }>(
+  targets: T[],
+  checks: Array<{ key: string; verdict: RefCheckVerdict }>,
+): T[] {
+  const done = matchedKeys(checks);
+  return targets.filter((t) => !done.has(t.key));
+}
+
+/** 新结果能不能顶掉旧结果：旧的已找到出处而新的没有时不顶，其余都顶（含 matched 升级） */
+export function shouldOverwrite(prev: RefCheckVerdict | null, next: RefCheckVerdict): boolean {
+  if (prev === null) return true;
+  return !(prev === "matched" && next !== "matched");
+}
+
+/** 保留旧证据时写进 note 的说明：把这次重试如实记下来，不藏失败 */
+export function preservedNote(prevNote: string, next: RefCheckVerdict, checkedAt: string): string {
+  const stamp = `${checkedAt.slice(0, 19).replace("T", " ")} 再次检索为「${REF_VERDICT_TEXT[next]}」，保留此前已找到的公开出处`;
+  return prevNote.trim() === "" ? stamp : `${prevNote.trim()}；${stamp}`;
+}
+
 /** 修订指令的一条素材：一次已经出结果的复查记录 */
 export type RevisionItem = {
   kind: RefCheckKind;

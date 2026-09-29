@@ -12,9 +12,12 @@ import {
   buildRefQuery,
   citationTargets,
   gradeRefCheck,
+  preservedNote,
   refKey,
   refCheckTargets,
   refQueryVariants,
+  shouldOverwrite,
+  unresolvedTargets,
   type RefCheckEvidence,
   type RefCheckKind,
   type RefCheckResult,
@@ -72,7 +75,11 @@ export function pendingRefTargets(taskId: string): RefCheckTarget[] {
         return null;
       }
     });
-  return refCheckTargets(traceDocRefs(text, parsed, rows.map((r) => r.tool_name)));
+  // 已经找到公开出处的不再进批量清单：预算留给真正没解决的，也避免失败检索覆盖已有证据
+  return unresolvedTargets(
+    refCheckTargets(traceDocRefs(text, parsed, rows.map((r) => r.tool_name))),
+    listRefChecks(taskId),
+  );
 }
 
 /**
@@ -93,7 +100,7 @@ export function pendingCitationTargets(taskId: string, limit: number = MAX_REF_C
     }
   });
   const cites = extractCitations(parsed).map((c) => ({ ...c, grade: gradeCitation(c.url, c.title).grade }));
-  return citationTargets(cites, topicHint(getTask(taskId)?.result ?? "", 2), limit);
+  return unresolvedTargets(citationTargets(cites, topicHint(getTask(taskId)?.result ?? "", 2), limit), listRefChecks(taskId));
 }
 
 export type BatchPlanItem = { id: string; title: string; targets: RefCheckTarget[] };
@@ -215,8 +222,51 @@ export async function runRefChecks(
   return out;
 }
 
-/** 写入一条复查结果（同一 key 覆盖为最新一次） */
+/**
+ * 写入一条复查结果（同一 key 覆盖为最新一次）。
+ * 例外：旧结果已经找到公开出处而这次没找到时不降级——检索通道有波动，
+ * 「曾经检索到公开出处」是既成事实，不能因为一次空结果就把证据抹掉。
+ * 重试过程照样完整留痕（attempts 追加、note 说明、checkedAt 更新到最新）。
+ */
 export function saveRefCheck(taskId: string, rec: RefCheckRecord): void {
+  const prev = db
+    .prepare(
+      `SELECT verdict, note, evidence_title, evidence_url, evidence_grade, evidence_snippet, attempts
+         FROM ref_checks WHERE task_id = ? AND ref_key = ?`,
+    )
+    .get(taskId, rec.key) as
+    | {
+        verdict: string;
+        note: string | null;
+        evidence_title: string | null;
+        evidence_url: string | null;
+        evidence_grade: string | null;
+        evidence_snippet: string | null;
+        attempts: string | null;
+      }
+    | undefined;
+  let out = rec;
+  if (prev && !shouldOverwrite(prev.verdict as RefCheckVerdict, rec.verdict)) {
+    let prevAttempts: SearchAttempt[] = [];
+    try {
+      prevAttempts = JSON.parse(prev.attempts ?? "[]") as SearchAttempt[];
+    } catch {
+      prevAttempts = [];
+    }
+    out = {
+      ...rec,
+      verdict: "matched",
+      note: preservedNote(prev.note ?? "", rec.verdict, rec.checkedAt),
+      evidence: {
+        title: prev.evidence_title ?? "",
+        url: prev.evidence_url ?? "",
+        snippet: prev.evidence_snippet ?? "",
+        grade: prev.evidence_grade ?? "official",
+        gradeReason: "",
+      },
+      attempts: [...prevAttempts, ...rec.attempts],
+    };
+  }
   db.prepare(
     `INSERT INTO ref_checks
        (task_id, ref_key, kind, text, query, verdict, note, evidence_title, evidence_url, evidence_grade, evidence_snippet, subject_url, attempts, checked_at)
@@ -228,19 +278,19 @@ export function saveRefCheck(taskId: string, rec: RefCheckRecord): void {
        subject_url = excluded.subject_url, attempts = excluded.attempts, checked_at = excluded.checked_at`,
   ).run(
     taskId,
-    rec.key,
-    rec.kind,
-    rec.text,
-    rec.query,
-    rec.verdict,
-    rec.note,
-    rec.evidence?.title ?? null,
-    rec.evidence?.url ?? null,
-    rec.evidence?.grade ?? null,
-    rec.evidence?.snippet ?? null,
-    rec.subjectUrl,
-    JSON.stringify(rec.attempts),
-    rec.checkedAt,
+    out.key,
+    out.kind,
+    out.text,
+    out.query,
+    out.verdict,
+    out.note,
+    out.evidence?.title ?? null,
+    out.evidence?.url ?? null,
+    out.evidence?.grade ?? null,
+    out.evidence?.snippet ?? null,
+    out.subjectUrl,
+    JSON.stringify(out.attempts),
+    out.checkedAt,
   );
 }
 
