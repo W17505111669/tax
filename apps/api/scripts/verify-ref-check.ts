@@ -512,6 +512,15 @@ expect(
 // 5) 服务端：假检索器跑通全链路并落库
 const TASK = "__verify_refcheck__";
 db.prepare(`DELETE FROM ref_checks WHERE task_id = ?`).run(TASK);
+/**
+ * 离线段一律显式传这个桩：`runRefChecks` 第 4 个参数默认是真实的 searchPolicyLibrary。
+ * 现有目标的上下文都取不到发文机关，`policyDocNumQuery` 返回空串、政策法规库这一路会被跳过，
+ * 所以当前并不联网；但那是隐含前提——一旦有人给目标加上带机关的上下文，就会静默发起真实请求，
+ * 让离线门禁变慢且结果随网络环境波动。用抛错的桩把前提变成显式约束。
+ */
+const offlineLib: PolicySearcher = async () => {
+  throw new Error("离线验证不应访问政策法规库：请给这个目标显式注入假的 PolicySearcher");
+};
 const fake: Searcher = async (query) => {
   const results = query.includes("187号") ? [] : [OFFICIAL];
   const attempts = [attempt(results.length > 0 ? "ok" : "irrelevant", results.length > 0 ? "保留 1 条" : "10 条结果与检索词无关")];
@@ -524,6 +533,7 @@ const ran = await runRefChecks(
     { key: refKey("docref", "国税发〔2006〕187号"), kind: "docref", text: "国税发〔2006〕187号", context: "土地增值税清算" },
   ],
   fake,
+  offlineLib,
 );
 expect("两条都跑完", ran.length, 2);
 expect("第一条判定为找到出处", ran[0]?.verdict, "matched");
@@ -560,7 +570,7 @@ const again = await runRefChecks(TASK, [{ key: refKey("docref", "国税发〔200
   results: [hit("国家税务总局关于土地增值税清算有关问题的通知 国税发〔2006〕187号", "https://fgk.chinatax.gov.cn/zcfgk/a.html")],
   attempts: [attempt("ok", "保留 1 条")],
   minScore: 2,
-}));
+}), offlineLib);
 expect("复查覆盖为最新一次", again[0]?.verdict, "matched");
 expect("同一文号不新增记录", listRefChecks(TASK).length, 2);
 expect(
@@ -573,7 +583,7 @@ const citRan = await runRefChecks(TASK, weakTargets.slice(0, 1), async () => ({
   results: [hit("研发费用加计扣除政策执行指引", "https://fgk.chinatax.gov.cn/zcfgk/a.html")],
   attempts: [attempt("ok", "保留 1 条")],
   minScore: 2,
-}));
+}), offlineLib);
 expect("引用复查记下替代来源", citRan[0]?.evidence?.url, "https://fgk.chinatax.gov.cn/zcfgk/a.html");
 expect("引用复查保留被替换的原地址", citRan[0]?.subjectUrl, WEAK_URL);
 expect(
@@ -590,7 +600,7 @@ expect(
 
 const boom = await runRefChecks(TASK, [{ key: refKey("docref", "财税〔2016〕1号"), kind: "docref", text: "财税〔2016〕1号" }], async () => {
   throw new Error("网络不可达");
-});
+}, offlineLib);
 expect("检索异常记为失败而不是崩掉", boom[0]?.verdict, "error");
 expect("失败原因入库", boom[0]?.note, "网络不可达");
 expect("失败记录也可读回", listRefChecks(TASK).find((c) => c.text.includes("2016"))?.verdict, "error");
@@ -702,11 +712,11 @@ const hitSearcher: Searcher = async () =>
   ({ results: [OFFICIAL], attempts: [attempt("ok", "保留 1 条")], minScore: 2 }) satisfies DetailedSearch;
 const missSearcher: Searcher = async () =>
   ({ results: [], attempts: [attempt("irrelevant", "10 条结果与检索词无关")], minScore: 2 }) satisfies DetailedSearch;
-const firstRun = await runRefChecks(TASK, [TARGET], hitSearcher);
+const firstRun = await runRefChecks(TASK, [TARGET], hitSearcher, offlineLib);
 expect("第一次检索找到出处", firstRun[0]?.verdict, "matched");
 const beforeRec = listRefChecks(TASK)[0];
 expect("前置：库里已记为找到出处", beforeRec?.verdict, "matched");
-const rerun = await runRefChecks(TASK, [TARGET], missSearcher);
+const rerun = await runRefChecks(TASK, [TARGET], missSearcher, offlineLib);
 expect("这次检索本身判为未命中", rerun[0]?.verdict, "empty");
 const kept = listRefChecks(TASK).find((c) => c.text.includes("119"));
 expect("库里仍是已找到出处", kept?.verdict, "matched");
@@ -718,9 +728,9 @@ expect("重试过程追加进 attempts", (kept?.attempts.length ?? 0) > (beforeR
 expect("复查时间更新到最新", (kept?.checkedAt ?? "") >= (beforeRec?.checkedAt ?? ""), true);
 expect("没有新增记录（仍是同一 key 覆盖）", listRefChecks(TASK).length, 1);
 db.prepare(`DELETE FROM ref_checks WHERE task_id = ?`).run(TASK);
-await runRefChecks(TASK, [TARGET], missSearcher);
+await runRefChecks(TASK, [TARGET], missSearcher, offlineLib);
 expect("先记为未命中", listRefChecks(TASK)[0]?.verdict, "empty");
-const upgraded = await runRefChecks(TASK, [TARGET], hitSearcher);
+const upgraded = await runRefChecks(TASK, [TARGET], hitSearcher, offlineLib);
 expect("反向：找到出处要能顶掉未命中", upgraded[0]?.verdict, "matched");
 expect("库里升级为已找到出处", listRefChecks(TASK)[0]?.verdict, "matched");
 expect("升级后仍是一条记录", listRefChecks(TASK).length, 1);
