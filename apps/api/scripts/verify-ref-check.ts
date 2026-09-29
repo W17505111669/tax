@@ -13,7 +13,6 @@ import {
   citationTargets,
   contextKeywords,
   gradeRefCheck,
-  pendingAfterRecheck,
   refCheckTargets,
   refKey,
   REF_VERDICT_HINT,
@@ -258,8 +257,6 @@ const sum = summarizeRefChecks([
 expect("汇总计数", [sum.total, sum.matched, sum.candidate, sum.empty, sum.error], [4, 1, 1, 1, 1]);
 expect("汇总取最近复查时间", sum.checkedAt, "2026-09-29T02:00:00.000Z");
 expect("空汇总时间为 null", summarizeRefChecks([]).checkedAt, null);
-expect("复查后待处理数扣掉已找到出处的", pendingAfterRecheck(5, sum), 4);
-expect("待处理数不会为负", pendingAfterRecheck(1, { ...sum, matched: 3 }), 0);
 
 // 3b) 修订指令：把复查结果整理成可提交给 Agent 的续跑指令（人工核对后才提交）
 const revItems = toRevisionItems([

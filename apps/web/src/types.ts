@@ -235,6 +235,8 @@ export interface PlatformStats {
     citationsFromConclusion: number;
     docRefs: number;
     docRefTraced: number;
+    /** 有出处的文号里靠联网复查取得的条数 */
+    docRefTracedByRecheck: number;
     docRefPending: number;
     docRefMatched: number;
     /** 仍有证据缺口的任务：存在弱证据引用或待复查文号 */

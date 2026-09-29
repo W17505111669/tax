@@ -62,7 +62,6 @@ import {
 import {
   buildRevisionInstruction,
   citationTargets,
-  pendingAfterRecheck,
   refCheckTargets,
   refKey,
   REF_VERDICT_HINT,
@@ -996,28 +995,34 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       .finally(() => setUploading(false));
   };
 
-  // 政策文号溯源：结论里的文号是否能在工具结果中找到出处（联网检索扩展只存元数据时标为无法核验）
+  // 复查记录按类型分开统计：文号复查进「文号溯源」口径，引用复查进「联网引用」口径
+  const docRefChecks = useMemo(() => Object.values(refChecks).filter((c) => c.kind === "docref"), [refChecks]);
+  const citationCheckList = useMemo(() => Object.values(refChecks).filter((c) => c.kind === "citation"), [refChecks]);
+  // 复查判定「找到公开出处」的文号原文：与工具留存结果同等算作有出处（看板、证据表、交付清单同一口径）
+  const recheckedDocRefTexts = useMemo(
+    () => docRefChecks.filter((c) => c.verdict === "matched").map((c) => c.text),
+    [docRefChecks],
+  );
+
+  // 政策文号溯源：结论里的文号能否找到出处——工具留存结果或联网复查二者其一即可
+  //（只用过「只存元数据」的联网检索、又没有复查记录时才标为无法核验）
   const refTrace = useMemo(
     () =>
       traceDocRefs(
         finalResult,
         toolCalls.filter((c) => c.ok !== false).map((c) => c.result),
         toolCalls.map((c) => c.toolName),
+        recheckedDocRefTexts,
       ),
-    [finalResult, toolCalls],
+    [finalResult, toolCalls, recheckedDocRefTexts],
   );
 
   // 待复查的文号（待人工确认 + 无法核验）与已有复查结果的汇总
   const refTargets = useMemo(() => refCheckTargets(refTrace), [refTrace]);
-  // 复查记录按类型分开统计：文号复查进「文号溯源」口径，引用复查进「联网引用」口径
-  const docRefChecks = useMemo(() => Object.values(refChecks).filter((c) => c.kind === "docref"), [refChecks]);
-  const citationCheckList = useMemo(() => Object.values(refChecks).filter((c) => c.kind === "citation"), [refChecks]);
   const refSummary = useMemo(() => summarizeRefChecks(docRefChecks), [docRefChecks]);
   const citationSummary = useMemo(() => summarizeRefChecks(citationCheckList), [citationCheckList]);
-  const refPending = useMemo(
-    () => pendingAfterRecheck(refTrace.untraced.length + refTrace.unverifiable, refSummary),
-    [refTrace, refSummary],
-  );
+  // 复查到出处的已经计入 refTrace.traced，不能再从待复查里扣第二遍
+  const refPending = useMemo(() => refTrace.untraced.length + refTrace.unverifiable, [refTrace]);
 
   // 弱证据引用（门户首页 / 百科词条 / 检索页）找可替换的官方原文
   const weakCitations = useMemo(() => citations.filter((c) => c.grade === "weak"), [citations]);

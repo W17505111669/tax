@@ -802,8 +802,9 @@ export function AgentOverview({
                           其中 {p.evidence.weakWithReplacement} 条已找到官方替代来源、待人工写回结论 ·
                         </span>
                       )}
-                      政策文号待复查 {p.evidence.docRefPending} 处 {evidenceTrend("docRefPending", true)}（累计复查到公开出处{" "}
-                      {p.evidence.docRefMatched} 处，含已写回结论、现已可直接溯源的）·
+                      政策文号待复查 {p.evidence.docRefPending} 处 {evidenceTrend("docRefPending", true)}（另有{" "}
+                      {p.evidence.docRefMatched} 处已复查到公开出处，其中 {p.evidence.docRefTracedByRecheck}{" "}
+                      处已计入「有出处」）·
                       联网检索拦下 {p.evidence.searchDropped + p.evidence.searchDroppedReplay} 条无关结果与门户首页
                       {p.evidence.searchDropped === 0 && p.evidence.searchDroppedReplay > 0
                         ? "（历史记录按现行相关度规则回算）"
@@ -908,7 +909,8 @@ export function AgentOverview({
                   <summary className="cursor-pointer text-[12px] text-mist-300">
                     全平台证据核对台账（{rows.length} 个任务）
                     <span className="ml-2 text-[11px] text-mist-600">
-                      文号 {totals.docRefTraced}/{totals.docRefTotal} 有出处 · 待复查 {totals.docRefPending} · 引用{" "}
+                      文号 {totals.docRefTraced}/{totals.docRefTotal} 有出处（其中复查取得{" "}
+                      {totals.docRefTracedByRecheck}）· 待复查 {totals.docRefPending} · 引用{" "}
                       {totals.citations} 条（官方 {totals.official} · 弱 {totals.weak}）· 金额待确认{" "}
                       {totals.amountPending} · 欠账任务 {totals.withGaps} 个
                     </span>

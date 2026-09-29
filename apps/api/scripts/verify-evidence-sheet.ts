@@ -20,7 +20,7 @@ import {
 } from "../../web/src/search-evidence.ts";
 import { gradeCitation, summarizeGrades } from "../../web/src/citation-grade.ts";
 import { traceDocRefs } from "../../web/src/policy-trace.ts";
-import { pendingAfterRecheck, refCheckTargets, refKey, summarizeRefChecks } from "../../web/src/ref-check.ts";
+import { refCheckTargets, refKey, summarizeRefChecks } from "../../web/src/ref-check.ts";
 import { amountKey, traceAmounts } from "../../web/src/amount-trace.ts";
 import { deliveryCheck } from "../../web/src/delivery-check.ts";
 import { deltaDetail, deltaVerdict, evidenceDelta, evidenceSnapshot } from "../../web/src/revision-impact.ts";
@@ -211,11 +211,17 @@ function sheetOf(taskId: string): SheetInput | null {
   const se = searchEvidence(calls);
   const sf = searchFiltering(calls);
   const okResults = calls.filter((c) => c.ok !== false).map((c) => c.result);
-  const tr = traceDocRefs(text, okResults, calls.map((c) => c.toolName));
   const refRecs = listRefChecks(taskId);
+  // 复查判定「找到公开出处」的文号同样算有出处，与平台看板、结果页同一口径
+  const tr = traceDocRefs(
+    text,
+    okResults,
+    calls.map((c) => c.toolName),
+    refRecs.filter((r) => r.kind === "docref" && r.verdict === "matched").map((r) => r.text),
+  );
   const docSum = summarizeRefChecks(refRecs.filter((r) => r.kind === "docref"));
   const citeSum = summarizeRefChecks(refRecs.filter((r) => r.kind === "citation"));
-  const pending = pendingAfterRecheck(tr.untraced.length + tr.unverifiable, docSum);
+  const pending = tr.untraced.length + tr.unverifiable;
   const amounts = traceAmounts(text, calls.map((c) => c.result), task.instruction ?? "");
   const acked = new Set(listAmountChecks(taskId).map((c) => c.key));
   const amountPending = amounts.untraced.filter((u) => !acked.has(amountKey(u))).length;

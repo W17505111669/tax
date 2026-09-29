@@ -339,15 +339,6 @@ export function refCheckTargets(trace: RefTraceResult): RefCheckTarget[] {
   }));
 }
 
-/**
- * 复查之后，还剩多少处文号没有出处。
- * matched 表示已经拿到可点击核对的公开出处，因此从待处理里扣除；
- * candidate / empty / error 都还需要人工处理，照旧计入。
- */
-export function pendingAfterRecheck(pending: number, summary: RefCheckSummary): number {
-  return Math.max(0, pending - summary.matched);
-}
-
 /** 已经拿到公开出处的 key 集合 */
 export function matchedKeys(checks: Array<{ key: string; verdict: RefCheckVerdict }>): Set<string> {
   return new Set(checks.filter((c) => c.verdict === "matched").map((c) => c.key));

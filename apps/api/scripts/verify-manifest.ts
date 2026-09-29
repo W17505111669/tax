@@ -19,7 +19,7 @@ import {
   mergeCitations,
   searchEvidence,
 } from "../../web/src/search-evidence.ts";
-import { pendingAfterRecheck, summarizeRefChecks } from "../../web/src/ref-check.ts";
+import { summarizeRefChecks } from "../../web/src/ref-check.ts";
 import { deltaVerdict, evidenceDelta, evidenceSnapshot } from "../../web/src/revision-impact.ts";
 import { db } from "../src/db.ts";
 import { dirs } from "../src/config.ts";
@@ -377,17 +377,19 @@ for (const t of listTasks()) {
   const amounts = traceAmounts(detail?.result ?? "", calls.map((c) => c.result), detail?.instruction ?? "");
   const amountPending = amounts.untraced.filter((u) => !acked.has(amountKey(u))).length;
   const rc = reviewCounts(extractIssues(t.id), listReviews(t.id));
+  const refRecs = listRefChecks(t.id);
   const refs = traceDocRefs(
     detail?.result ?? "",
     calls.filter((c) => c.ok !== false).map((c) => c.result),
     calls.map((c) => c.toolName),
+    // 复查判定「找到公开出处」的文号同样算有出处，与看板、结果页、证据表同一口径
+    refRecs.filter((r) => r.kind === "docref" && r.verdict === "matched").map((r) => r.text),
   );
   const toolOk = calls.filter((c) => c.ok === true).length;
   const toolFailed = calls.filter((c) => c.ok === false).length;
   const cites = citationsOf(calls, detail?.result ?? "");
   const grades = summarizeGrades(cites);
   const searches = searchEvidence(calls);
-  const refRecs = listRefChecks(t.id);
   const refSum = summarizeRefChecks(refRecs.filter((r) => r.kind === "docref"));
   const citeCheckSum = summarizeRefChecks(refRecs.filter((r) => r.kind === "citation"));
   // 修订影响：结论按运行重组后取最后两轮对比（与结果页同一口径）
@@ -405,14 +407,19 @@ for (const t of listTasks()) {
   if (rev && rev.verdict !== deltaVerdict(evidenceDelta(rev.before, rev.after))) {
     failures.push(`${t.id.slice(0, 8)} 修订影响判断与前后快照不符`);
   }
-  const refPending = pendingAfterRecheck(refs.untraced.length + refs.unverifiable, refSum);
+  const refPending = refs.untraced.length + refs.unverifiable;
   checks += 1;
   if (refSum.total !== refSum.matched + refSum.candidate + refSum.empty + refSum.error) {
     failures.push(`${t.id.slice(0, 8)} 文号复查四类之和不等于总数`);
   }
+  // 复查取得的出处已计入 traced，两个数不能再各扣一遍：恒等式一破就说明口径又岔开了
   checks += 1;
-  if (refPending > refs.untraced.length + refs.unverifiable) {
-    failures.push(`${t.id.slice(0, 8)} 复查后待处理文号数反而变多`);
+  if (refs.traced + refPending !== refs.total) {
+    failures.push(`${t.id.slice(0, 8)} 文号有出处 ${refs.traced} + 待复查 ${refPending} ≠ 总数 ${refs.total}`);
+  }
+  checks += 1;
+  if (refs.tracedByRecheck > refs.traced) {
+    failures.push(`${t.id.slice(0, 8)} 复查取得的出处 ${refs.tracedByRecheck} 超过有出处总数 ${refs.traced}`);
   }
   for (const rec of refRecs) {
     checks += 1;

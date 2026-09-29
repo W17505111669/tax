@@ -18,11 +18,13 @@ export type LedgerRow = {
   title: string;
   agentId: string;
   status: string;
-  /** 政策文号：总数 / 工具可溯源 / 复查后仍无出处 / 已复查到公开出处 */
+  /** 政策文号：总数 / 有出处 / 仍无出处 / 复查判定 matched / 有出处中靠复查取得的 */
   docRefTotal: number;
   docRefTraced: number;
   docRefPending: number;
   docRefMatched: number;
+  /** docRefTraced 里靠联网复查取得出处的条数（工具留存结果里没有该文号），已含在 docRefTraced 内 */
+  docRefTracedByRecheck: number;
   /** 联网引用：总数 / 官方原文 / 证据力弱 / 弱证据中已找到替代来源 */
   citations: number;
   official: number;
@@ -45,6 +47,7 @@ export type LedgerTotals = {
   docRefTraced: number;
   docRefPending: number;
   docRefMatched: number;
+  docRefTracedByRecheck: number;
   citations: number;
   official: number;
   weak: number;
@@ -81,6 +84,7 @@ export function ledgerTotals(rows: LedgerRow[]): LedgerTotals {
     docRefTraced: 0,
     docRefPending: 0,
     docRefMatched: 0,
+    docRefTracedByRecheck: 0,
     citations: 0,
     official: 0,
     weak: 0,
@@ -99,6 +103,7 @@ export function ledgerTotals(rows: LedgerRow[]): LedgerTotals {
     t.docRefTraced += r.docRefTraced;
     t.docRefPending += r.docRefPending;
     t.docRefMatched += r.docRefMatched;
+    t.docRefTracedByRecheck += r.docRefTracedByRecheck;
     t.citations += r.citations;
     t.official += r.official;
     t.weak += r.weak;
@@ -122,6 +127,7 @@ export const LEDGER_COLUMNS = [
   "作品",
   "状态",
   "文号 有出处/总数",
+  "其中复查取得",
   "待复查",
   "复查到出处",
   "引用数",
@@ -142,6 +148,7 @@ export function ledgerCells(r: LedgerRow, agentName: (id: string) => string): st
     agentName(r.agentId),
     r.status,
     `${r.docRefTraced}/${r.docRefTotal}`,
+    String(r.docRefTracedByRecheck),
     String(r.docRefPending),
     String(r.docRefMatched),
     String(r.citations),
@@ -167,6 +174,7 @@ export function ledgerCsv(rows: LedgerRow[], agentName: (id: string) => string =
       "",
       "",
       `${t.docRefTraced}/${t.docRefTotal}`,
+      t.docRefTracedByRecheck,
       t.docRefPending,
       t.docRefMatched,
       t.citations,
@@ -195,7 +203,7 @@ export function ledgerMarkdown(
     "",
     ...(generatedAt === "" ? [] : [`- 生成时间：${generatedAt}`]),
     `- 任务数：${t.tasks}　仍有证据欠账的任务：${t.withGaps}`,
-    `- 政策文号：${t.docRefTotal} 处（工具可溯源 ${t.docRefTraced} · 复查后仍无出处 ${t.docRefPending} · 已复查到公开出处 ${t.docRefMatched}）`,
+    `- 政策文号：${t.docRefTotal} 处（有出处 ${t.docRefTraced}，其中复查取得 ${t.docRefTracedByRecheck} · 仍无出处 ${t.docRefPending} · 复查判定 matched ${t.docRefMatched}）`,
     `- 联网引用：${t.citations} 条（官方原文 ${t.official} · 证据力弱 ${t.weak}，其中 ${t.replaced} 条已找到替代来源待写回结论）`,
     `- 联网检索：${t.searchCalls} 次（只留查询元数据 ${t.searchMetadataOnly} 次）· 拦下无关结果与门户首页 ${t.searchDropped} 条`,
     `- 结论金额：${t.amountTotal} 处，待人工确认 ${t.amountPending} 处`,
@@ -213,6 +221,7 @@ export function ledgerMarkdown(
       "",
       "",
       `${t.docRefTraced}/${t.docRefTotal}`,
+      String(t.docRefTracedByRecheck),
       String(t.docRefPending),
       String(t.docRefMatched),
       String(t.citations),
@@ -232,8 +241,9 @@ export function ledgerMarkdown(
     "",
     "口径说明：",
     "",
-    "- 「文号 有出处/总数」按政策文号溯源口径：结论中的文号核心部分归一化后能否在工具结果里找到出处；",
-    "- 「待复查」是复查之后仍没有出处的处数，「复查到出处」是联网复查判定为 matched 的处数；",
+    "- 「文号 有出处/总数」按政策文号溯源口径：结论中的文号核心部分归一化后，能在工具留存结果里找到出处，或联网复查已判定 matched；",
+    "- 「其中复查取得」是工具留存里没有、靠联网复查才拿到出处的处数，已包含在「有出处」内，不再另计；",
+    "- 「待复查」是仍然没有出处的处数，「复查到出处」是联网复查判定为 matched 的处数（含原本就能从工具留存溯源的）；",
     "- 「证据力弱」指引用指向门户首页、百科词条或检索结果页，不能替代政策原文；「替代来源就绪」是已检索到官方原文、等人工写回结论的条数；",
     "- 「拦下无关」是检索结果里被相关度门槛与入口页规则过滤掉的条数（含历史记录按现行规则回算的部分）；",
     "- 行序按欠账数（证据力弱 + 待复查）倒序，同数按作品与标题，保证同一批数据每次导出行序一致。",

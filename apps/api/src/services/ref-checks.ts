@@ -76,10 +76,12 @@ export function pendingRefTargets(taskId: string): RefCheckTarget[] {
         return null;
       }
     });
-  // 已经找到公开出处的不再进批量清单：预算留给真正没解决的，也避免失败检索覆盖已有证据
+  const checks = listRefChecks(taskId);
+  // 复查判定为「找到公开出处」的文号已经算有出处，既不进待复查清单，也不占批量预算
+  const rechecked = checks.filter((c) => c.kind === "docref" && c.verdict === "matched").map((c) => c.text);
   return unresolvedTargets(
-    refCheckTargets(traceDocRefs(text, parsed, rows.map((r) => r.tool_name))),
-    listRefChecks(taskId),
+    refCheckTargets(traceDocRefs(text, parsed, rows.map((r) => r.tool_name), rechecked)),
+    checks,
     (c) => matchedStillValid(c.kind ?? "docref", c.evidence, gradeCitation),
   );
 }

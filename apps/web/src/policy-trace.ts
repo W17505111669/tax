@@ -13,8 +13,10 @@ export type DocRef = { core: string; text: string; index: number; context: strin
 export type RefTraceResult = {
   /** 结论中出现的文号总数（按核心去重） */
   total: number;
-  /** 能在工具结果里找到出处的 */
+  /** 有出处的：工具留存结果里出现该文号，或联网复查已判定「找到公开出处」 */
   traced: number;
+  /** 其中靠联网复查取得出处的条数（工具留存里没有，但 ref_checks 里有可点开的原文与检索时间） */
+  tracedByRecheck: number;
   /** 找不到出处，但本任务用过「只持久化元数据」的联网检索工具，因此无法从留存数据核验 */
   unverifiable: number;
   /** 与 unverifiable 同一批文号的明细，供「联网复查」逐条使用 */
@@ -92,19 +94,33 @@ export function collectRefStrings(results: unknown[]): string[] {
   return out;
 }
 
-/** 文号溯源：核心部分出现在任一工具结果字符串里即视为有出处，否则按是否用过元数据检索工具分级 */
+/**
+ * 文号溯源：核心部分出现在任一工具结果字符串里，或联网复查已判定「找到公开出处」，即视为有出处；
+ * 否则按是否用过元数据检索工具分级。
+ *
+ * 复查取得的出处同样是出处：`ref_checks` 里存着标题、地址、证据力分级与检索时间，界面上点
+ * 文号徽章就能打开原文，交付包也带这份记录。只认工具留存结果会逼着 Agent 为了指标把同一个
+ * 文号再检索一遍——实测就是写回续跑跑完「文号有出处」纹丝不动的原因。
+ *
+ * `recheckedSources` 传复查判定为 matched 的文号原文清单（按任务），为空时行为与旧版一致。
+ */
 export function traceDocRefs(
   text: string,
   results: unknown[],
   toolNames: string[] = [],
+  recheckedSources: string[] = [],
 ): RefTraceResult {
   const refs = extractDocRefs(text);
   const pool = collectRefStrings(results);
-  const missing = refs.filter((r) => !pool.some((s) => s.includes(r.core)));
+  const rechecked = recheckedSources.map((s) => normalizeRef(s)).filter((s) => s !== "");
+  const inPool = (core: string): boolean => pool.some((s) => s.includes(core));
+  const inRecheck = (core: string): boolean => rechecked.some((s) => s === core || s.includes(core));
+  const missing = refs.filter((r) => !inPool(r.core) && !inRecheck(r.core));
   const metadataOnly = toolNames.some((n) => METADATA_ONLY_SEARCH_TOOLS.has(n));
   return {
     total: refs.length,
     traced: refs.length - missing.length,
+    tracedByRecheck: refs.filter((r) => !inPool(r.core) && inRecheck(r.core)).length,
     unverifiable: metadataOnly ? missing.length : 0,
     unverifiableRefs: metadataOnly ? missing : [],
     untraced: metadataOnly ? [] : missing,

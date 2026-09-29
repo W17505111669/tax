@@ -14,7 +14,7 @@ import {
 } from "../../../web/src/search-evidence.ts";
 import { gradeCitation, summarizeGrades } from "../../../web/src/citation-grade.ts";
 import { traceDocRefs } from "../../../web/src/policy-trace.ts";
-import { pendingAfterRecheck, summarizeRefChecks, type RefCheckVerdict } from "../../../web/src/ref-check.ts";
+import { summarizeRefChecks, type RefCheckVerdict } from "../../../web/src/ref-check.ts";
 import { refKey } from "../../../web/src/ref-check.ts";
 import { traceAmounts, amountKey } from "../../../web/src/amount-trace.ts";
 import { deltaVerdict, evidenceDelta, evidenceSnapshot } from "../../../web/src/revision-impact.ts";
@@ -60,6 +60,8 @@ export interface EvidenceStats {
   /** 政策文号：总数 / 工具结果可溯源 / 复查后仍无出处 / 已复查到公开出处 */
   docRefs: number;
   docRefTraced: number;
+  /** 有出处的文号里，靠联网复查取得出处的条数（看板据此说明两个来源各占多少） */
+  docRefTracedByRecheck: number;
   docRefPending: number;
   docRefMatched: number;
   /** 仍有证据缺口的任务（存在弱证据引用或待复查文号） */
@@ -135,6 +137,7 @@ export function computePlatformStats(): PlatformStats {
     weakWithReplacement: 0,
     docRefs: 0,
     docRefTraced: 0,
+    docRefTracedByRecheck: 0,
     docRefPending: 0,
     docRefMatched: 0,
     gaps: [],
@@ -230,10 +233,23 @@ export function computePlatformStats(): PlatformStats {
           return null;
         }
       });
-    const tr = traceDocRefs(String(task.result ?? ""), okResults, calls.map((c) => c.tool_name));
     const rcRows = db
-      .prepare(`SELECT ref_key, kind, verdict, checked_at FROM ref_checks WHERE task_id = ?`)
-      .all(task.id) as unknown as Array<{ ref_key: string; kind: string; verdict: string; checked_at: string }>;
+      .prepare(`SELECT ref_key, kind, text, verdict, checked_at FROM ref_checks WHERE task_id = ?`)
+      .all(task.id) as unknown as Array<{
+      ref_key: string;
+      kind: string;
+      text: string;
+      verdict: string;
+      checked_at: string;
+    }>;
+    // 复查判定为「找到公开出处」的文号原文：与工具留存结果同等算作有出处
+    const recheckedDocRefs = rcRows.filter((r) => r.kind === "docref" && r.verdict === "matched").map((r) => r.text);
+    const tr = traceDocRefs(
+      String(task.result ?? ""),
+      okResults,
+      calls.map((c) => c.tool_name),
+      recheckedDocRefs,
+    );
     const rc = summarizeRefChecks(
       rcRows
         .filter((r) => r.kind !== "citation")
@@ -243,7 +259,8 @@ export function computePlatformStats(): PlatformStats {
     const replaced = new Set(
       rcRows.filter((r) => r.kind === "citation" && r.verdict === "matched").map((r) => r.ref_key),
     );
-    const docRefPending = pendingAfterRecheck(tr.untraced.length + tr.unverifiable, rc);
+    // 待复查就是「仍然没有出处」的那些：复查到出处的已经计入 traced，不再从这里扣一遍
+    const docRefPending = tr.untraced.length + tr.unverifiable;
     evidence.searchCalls += se.calls;
     evidence.searchMetadataOnly += se.metadataOnly;
     evidence.searchWithUrls += se.withUrls;
@@ -260,6 +277,7 @@ export function computePlatformStats(): PlatformStats {
     evidence.weakWithReplacement += replacedCount;
     evidence.docRefs += tr.total;
     evidence.docRefTraced += tr.traced;
+    evidence.docRefTracedByRecheck += tr.tracedByRecheck;
     evidence.docRefPending += docRefPending;
     evidence.docRefMatched += rc.matched;
     if (grades.weak > 0 || docRefPending > 0) {
@@ -299,6 +317,7 @@ export function computePlatformStats(): PlatformStats {
       docRefTraced: tr.traced,
       docRefPending,
       docRefMatched: rc.matched,
+      docRefTracedByRecheck: tr.tracedByRecheck,
       citations: grades.total,
       official: grades.official,
       weak: grades.weak,

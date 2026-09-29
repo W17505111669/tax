@@ -55,11 +55,47 @@ expect("三类之和等于总数", (() => {
   const r = traceDocRefs("财税〔2015〕119号 与 国税发〔2006〕187号", results, ["web_search"]);
   return r.traced + r.unverifiable + r.untraced.length === r.total;
 })(), true);
+
+// 2.5) 复查取得的出处同样是出处
+expect(
+  "复查 matched 的文号计入有出处",
+  traceDocRefs("按国税发〔2006〕187号执行", results, [], ["国税发〔2006〕187 号"]).traced,
+  1,
+);
+expect(
+  "复查取得的出处单独计数",
+  traceDocRefs("按国税发〔2006〕187号执行", results, [], ["国税发[2006]187号"]).tracedByRecheck,
+  1,
+);
+expect(
+  "工具留存已有的不重复计入复查取得",
+  traceDocRefs("按财税〔2015〕119号执行", results, [], ["财税[2015]119号"]).tracedByRecheck,
+  0,
+);
+expect(
+  "复查到出处后不再算无法核验",
+  traceDocRefs("按国税发〔2006〕187号执行", results, ["web_search"], ["国税发〔2006〕187号"]).unverifiable,
+  0,
+);
+expect(
+  "复查记录为空时与旧口径一致",
+  traceDocRefs("按国税发〔2006〕187号执行", results, [], []).untraced.length,
+  1,
+);
+expect(
+  "两个文号一个来自留存一个来自复查",
+  (() => {
+    const r = traceDocRefs("财税〔2015〕119号 与 国税发〔2006〕187号", results, [], ["国税发[2006]187号"]);
+    return r.traced === 2 && r.tracedByRecheck === 1 && r.total === 2;
+  })(),
+  true,
+);
 expect("元数据检索工具清单", [...METADATA_ONLY_SEARCH_TOOLS].sort(), ["fetch_content", "web_search"]);
 
 // 3) 真实任务走查：三级口径必须自洽
 let total = 0;
 let traced = 0;
+let byRecheck = 0;
 let unverifiable = 0;
 let untraced = 0;
 for (const t of listTasks()) {
@@ -80,18 +116,29 @@ for (const t of listTasks()) {
         return null;
       }
     });
-  const res = traceDocRefs(text, parsed, rows.map((r) => r.tool_name));
+  // 与看板、结果页、证据表同一口径：复查判定 matched 的文号也算有出处
+  const rechecked = (
+    db
+      .prepare(`SELECT text FROM ref_checks WHERE task_id = ? AND kind = 'docref' AND verdict = 'matched'`)
+      .all(t.id) as Array<{ text: string }>
+  ).map((r) => r.text);
+  const res = traceDocRefs(text, parsed, rows.map((r) => r.tool_name), rechecked);
   checks += 1;
   if (res.traced + res.unverifiable + res.untraced.length !== res.total) {
     failures.push(`${t.id} 文号三级口径之和 ${res.traced + res.unverifiable + res.untraced.length} ≠ 总数 ${res.total}`);
   }
+  checks += 1;
+  if (res.tracedByRecheck > res.traced) {
+    failures.push(`${t.id} 复查取得的出处 ${res.tracedByRecheck} 超过有出处总数 ${res.traced}`);
+  }
   total += res.total;
   traced += res.traced;
+  byRecheck += res.tracedByRecheck;
   unverifiable += res.unverifiable;
   untraced += res.untraced.length;
 }
 console.log(
-  `[verify] 真实文号=${total} 有出处=${traced} 无法核验=${unverifiable} 待确认=${untraced}`,
+  `[verify] 真实文号=${total} 有出处=${traced}（其中复查取得=${byRecheck}）无法核验=${unverifiable} 待确认=${untraced}`,
 );
 console.log(`[verify] 文号溯源检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {

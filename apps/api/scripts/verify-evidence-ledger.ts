@@ -42,6 +42,7 @@ const row = (over: Partial<LedgerRow> = {}): LedgerRow => ({
   docRefTraced: 2,
   docRefPending: 1,
   docRefMatched: 1,
+  docRefTracedByRecheck: 1,
   citations: 6,
   official: 3,
   weak: 2,
@@ -81,9 +82,27 @@ expect(
 
 // 2) 合计
 const t = ledgerTotals([
-  row({ taskId: "a", weak: 2, docRefPending: 1, citations: 6, official: 3, replaced: 1, revision: "证据质量改善" }),
-  row({ taskId: "b", weak: 0, docRefPending: 0, citations: 2, official: 2, replaced: 0, revision: "证据质量退步，请核对本次修订" }),
-  row({ taskId: "c", weak: 1, docRefPending: 0, citations: 0, official: 0, replaced: 0, revision: null }),
+  row({
+    taskId: "a",
+    weak: 2,
+    docRefPending: 1,
+    docRefTracedByRecheck: 1,
+    citations: 6,
+    official: 3,
+    replaced: 1,
+    revision: "证据质量改善",
+  }),
+  row({
+    taskId: "b",
+    weak: 0,
+    docRefPending: 0,
+    docRefTracedByRecheck: 0,
+    citations: 2,
+    official: 2,
+    replaced: 0,
+    revision: "证据质量退步，请核对本次修订",
+  }),
+  row({ taskId: "c", weak: 1, docRefPending: 0, docRefTracedByRecheck: 2, citations: 0, official: 0, replaced: 0, revision: null }),
 ]);
 expect("任务数", t.tasks, 3);
 expect("弱证据合计", t.weak, 3);
@@ -91,6 +110,7 @@ expect("引用合计", t.citations, 8);
 expect("官方原文合计", t.official, 5);
 expect("替代来源就绪合计", t.replaced, 1);
 expect("待复查文号合计", t.docRefPending, 1);
+expect("复查取得出处合计", t.docRefTracedByRecheck, 3);
 expect("欠账任务数", t.withGaps, 2);
 expect("修订可比任务数", t.revisionCompared, 2);
 expect("修订改善任务数", t.revisionImproved, 1);
@@ -98,20 +118,20 @@ expect("空台账合计", ledgerTotals([]).tasks, 0);
 expect("逐项求和（检索与金额）", [t.searchCalls, t.searchMetadataOnly, t.searchDropped, t.amountTotal, t.amountPending], [9, 3, 15, 30, 6]);
 
 // 3) 单元格与列序
+// 按列名取下标：新增或调整列时断言不会静默错位（此前硬编码下标就因为插入「其中复查取得」整段偏移）
+const cell = (
+  r: LedgerRow,
+  col: (typeof LEDGER_COLUMNS)[number],
+  name: (id: string) => string = (x) => x,
+): string => ledgerCells(r, name)[LEDGER_COLUMNS.indexOf(col)]!;
+
 expect("列数与表头一致", ledgerCells(row(), (x) => x).length, LEDGER_COLUMNS.length);
-expect(
-  "文号列写成 有出处/总数",
-  ledgerCells(row(), (x) => x)[3],
-  "2/4",
-);
-expect(
-  "金额列写成 待确认/总数",
-  ledgerCells(row(), (x) => x)[13],
-  "2/10",
-);
-expect("修订影响为空时用破折号", ledgerCells(row(), (x) => x)[14], "—");
-expect("修订影响原样透出", ledgerCells(row({ revision: "证据质量改善" }), (x) => x)[14], "证据质量改善");
-expect("作品名走传入的映射", ledgerCells(row(), () => "智研税审")[1], "智研税审");
+expect("文号列写成 有出处/总数", cell(row(), "文号 有出处/总数"), "2/4");
+expect("复查取得单独成列", cell(row(), "其中复查取得"), "1");
+expect("金额列写成 待确认/总数", cell(row(), "金额 待确认/总数"), "2/10");
+expect("修订影响为空时用破折号", cell(row(), "修订影响"), "—");
+expect("修订影响原样透出", cell(row({ revision: "证据质量改善" }), "修订影响"), "证据质量改善");
+expect("作品名走传入的映射", cell(row(), "作品", () => "智研税审"), "智研税审");
 
 // 4) CSV 导出与转义
 expect("普通字段不加引号", csvField("示例任务"), "示例任务");
@@ -162,6 +182,7 @@ expect("待复查文号合计与看板一致", sum((r) => r.docRefPending), ev.d
 expect("复查到出处合计与看板一致", sum((r) => r.docRefMatched), ev.docRefMatched);
 expect("文号总数合计与看板一致", sum((r) => r.docRefTotal), ev.docRefs);
 expect("文号可溯源合计与看板一致", sum((r) => r.docRefTraced), ev.docRefTraced);
+expect("复查取得出处合计与看板一致", sum((r) => r.docRefTracedByRecheck), ev.docRefTracedByRecheck);
 expect("检索调用合计与看板一致", sum((r) => r.searchCalls), ev.searchCalls);
 expect("仅元数据检索合计与看板一致", sum((r) => r.searchMetadataOnly), ev.searchMetadataOnly);
 expect("欠账任务数与缺口清单一致", ledgerTotals(led).withGaps, ev.gaps.length);
@@ -186,7 +207,9 @@ expect(
       r.docRefTraced <= r.docRefTotal &&
       r.docRefPending <= r.docRefTotal &&
       r.docRefMatched >= 0 &&
-      r.docRefTraced + r.docRefPending <= r.docRefTotal,
+      // 复查取得的出处已计入 traced，两个数不能再各扣一遍：有出处 + 待复查 恒等于总数
+      r.docRefTraced + r.docRefPending === r.docRefTotal &&
+      r.docRefTracedByRecheck <= r.docRefTraced,
   ),
   true,
 );
