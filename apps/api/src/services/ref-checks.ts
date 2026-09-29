@@ -80,7 +80,8 @@ export function pendingRefTargets(taskId: string): RefCheckTarget[] {
   // 复查判定为「找到公开出处」的文号已经算有出处，既不进待复查清单，也不占批量预算
   const rechecked = checks.filter((c) => c.kind === "docref" && c.verdict === "matched").map((c) => c.text);
   return unresolvedTargets(
-    refCheckTargets(traceDocRefs(text, parsed, rows.map((r) => r.tool_name), rechecked)),
+    // 主题词兜底：与引用复查同一套 topicHint，供上下文里没有发文机关的文号使用
+    refCheckTargets(traceDocRefs(text, parsed, rows.map((r) => r.tool_name), rechecked), topicHint(text, 2)),
     checks,
     (c) => matchedStillValid(c.kind ?? "docref", c.evidence, gradeCitation),
   );

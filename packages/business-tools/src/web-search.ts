@@ -66,13 +66,31 @@ function parseBing(html: string): WebSearchResult[] {
     if (!href) continue;
     out.push({
       title: stripTags(title?.[1] ?? ""),
-      url: decodeEntities(href[1]!),
+      url: unwrapBingRedirect(decodeEntities(href[1]!)),
       snippet: stripTags(snippet?.[1] ?? "").slice(0, 300),
       engine: "bing",
     });
     if (out.length >= 8) break;
   }
   return out;
+}
+
+/**
+ * 还原 Bing HTML 结果里的跳转包装地址（`www.bing.com/ck/a?...&u=a1<base64url>`）。
+ * 直接把包装地址当证据存下来，来源域名会显示成 bing.com：既拿不到政府站点的权威判定
+ * 与相应的相关度门槛，链接本身也可能失效。解不出来时原样返回，不猜。
+ */
+export function unwrapBingRedirect(raw: string): string {
+  if (!/^https?:\/\/(?:www\.|cn\.)?bing\.com\/ck\/a\b/i.test(raw)) return raw;
+  const m = /[?&]u=a1([^&]+)/.exec(raw);
+  const payload = m?.[1];
+  if (!payload) return raw;
+  try {
+    const decoded = Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+    return /^https?:\/\//i.test(decoded) ? decoded : raw;
+  } catch {
+    return raw;
+  }
 }
 
 function parseBaidu(html: string): WebSearchResult[] {
@@ -143,8 +161,25 @@ export function parseBingRss(xml: string): WebSearchResult[] {
 }
 
 /**
- * 单引擎取数：Bing 优先 RSS（实测本机 HTML 结果页会返回与检索词完全无关的条目，
- * RSS 输出则与检索词对应且结构稳定），RSS 不可用时退回 HTML 解析；百度只有 HTML。
+ * RSS 这批结果值不值得采用：至少要留下一条过滤后可用的结果。
+ *
+ * 只判断「解析出条数」是不够的。本机实测过 RSS 整批退化成与检索词无关的兜底条目
+ * （微软帮助页、Facebook 登录页、无关的地方政府站点），条数照样是 10；而只要条数不为 0
+ * 就会一直挡住 HTML 通道，百度又被安全验证拦住，最终表现为「联网复查全部 empty」。
+ * 用与下游完全相同的过滤函数判定，避免两处规则各说一套。
+ */
+export function rssWorthUsing(
+  query: string,
+  items: WebSearchResult[],
+  minScore: number = minRelevanceScore(),
+): boolean {
+  return items.length > 0 && filterSearchResults(query, items, minScore).kept.length > 0;
+}
+
+/**
+ * 单引擎取数：Bing 优先 RSS（结构稳定，不受页面改版与推荐位/广告位干扰），
+ * 但 RSS 解析出的条目要先过 `rssWorthUsing`——留下不了任何可用结果时说明这批是兜底噪声，
+ * 退回 HTML 解析；百度只有 HTML。
  */
 async function fetchEngine(
   engine: SearchEngine,
@@ -156,7 +191,7 @@ async function fetchEngine(
       const rss = await getPage(rssUrl(query), signal);
       if (rss.status >= 200 && rss.status < 400 && !detectBlockedPage(rss.html)) {
         const items = parseBingRss(rss.html);
-        if (items.length > 0) return { results: items, via: "RSS", status: rss.status, blocked: null };
+        if (rssWorthUsing(query, items)) return { results: items, via: "RSS", status: rss.status, blocked: null };
       }
     } catch {
       // RSS 不可用，退回 HTML

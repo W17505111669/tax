@@ -58,7 +58,27 @@ const LEAD_WORDS = [
   "按照",
   "依照",
   "参照",
+  "同时",
+  "此外",
+  "上述",
+  "前述",
+  "以下",
+  "下列",
   "按",
+  "已",
+  "并",
+  "且",
+  "或",
+  "则",
+  "均",
+  "系",
+  "另",
+  "该",
+  "此",
+  "其",
+  "将",
+  "对",
+  "把",
   "见",
   "据",
   "如",
@@ -99,15 +119,41 @@ export function trimEdgeWords(s: string): string {
   return out;
 }
 
+/** 公文种类词：紧邻部分以这些词结尾时，左边才可能还有联合发文的机关 */
+const DOC_KIND_TAIL = /(公告|通知|通告|令|决定|意见|办法|规定|函|文件)$/;
+/** 联合发文时机关之间的分隔符（结论里通常是空格，正式标题里也可能是顿号） */
+const AGENCY_BEFORE = /([\u4e00-\u9fa5]{2,10})[\s、·]+$/;
+/** 机关名结尾字：只有以这些字结尾才继续往左取，避免把「同时废止」一类普通词组当成机关 */
+const AGENCY_TAIL = /(部|委|局|署|院|会|行|厅|办|队|处|中心|委员会|办公厅)$/;
+/** 光杆公告号：只有年份与序号、不带发文机关代号，单靠它去检索等于捞噪声 */
+const BARE_GONGGAO = /^\d{4}\s*年第\s*\d+\s*号$/;
+
 /**
  * 文号前面的发文机关（「根据财税〔2015〕119号」→「财税」，「国家税务总局公告2017年第40号」→ 原样保留）。
  * 只靠「〔2015〕119号」检索命中率很低，补上发文机关才是一条能用的检索词。
+ *
+ * 联合发文必须连着一起取：「财政部 税务总局 科技部公告2022年第28号」若只取紧邻的
+ * 「科技部公告」，检索词指向的就是一份不存在的文件，实测这类文号一直复查不到出处。
+ * 机关名之间以空格或顿号分隔，因此仅在紧邻部分以公文种类词结尾、且左边那段以机关结尾字
+ * 收尾时才往左延伸——两个条件缺一不可，否则会把 markdown 表格里空格分隔的普通中文吞进来。
  */
 export function refPrefix(context: string, refText: string, maxChars = 12): string {
   const idx = context.indexOf(refText);
   if (idx <= 0) return "";
-  const m = context.slice(Math.max(0, idx - maxChars), idx).match(/[\u4e00-\u9fa5]{2,}$/);
-  return m ? trimEdgeWords(m[0]) : "";
+  const before = context.slice(0, idx);
+  const m = before.match(/[\u4e00-\u9fa5]{2,}$/);
+  const base = m ? trimEdgeWords(m[0].slice(-maxChars)) : "";
+  if (base === "" || !DOC_KIND_TAIL.test(base)) return base;
+  let tail = m ? before.slice(0, before.length - m[0].length) : before;
+  const agencies: string[] = [];
+  // 联合发文极少超过五个机关，够覆盖「财政部 税务总局 科技部」与四部委集成电路公告两类写法
+  for (let guard = 0; guard < 5; guard += 1) {
+    const g = tail.match(AGENCY_BEFORE);
+    if (!g || !AGENCY_TAIL.test(g[1]!)) break;
+    agencies.unshift(g[1]!);
+    tail = tail.slice(0, tail.length - g[0].length);
+  }
+  return agencies.length === 0 ? base : `${agencies.join(" ")} ${base}`;
 }
 
 /**
@@ -143,7 +189,12 @@ export function buildRefQuery(t: RefCheckTarget): string {
   const context = t.context ?? "";
   const prefix = refPrefix(context, t.text);
   const kw = contextKeywords(context, t.text, prefix);
-  return [`${prefix}${t.text.trim()}`, kw].filter((s) => s !== "").join(" ");
+  // 前缀为空有两种情况，只有第一种需要主题词兜底：
+  // 「财税〔2015〕119号」这类文号自带机关代号，照旧用上下文关键词；
+  // 「2022年第28号」这种光杆公告号（除年份序号外不带任何机关信息），上下文又只剩
+  // 「项同时废止」一类残句时，检索必然全是噪声，改用任务主题词做领域限定。
+  const tail = prefix === "" && BARE_GONGGAO.test(t.text.trim()) ? (t.hint ?? "").trim() || kw : kw;
+  return [`${prefix}${t.text.trim()}`, tail].filter((s) => s !== "").join(" ");
 }
 
 /**
@@ -329,13 +380,19 @@ export function summarizeRefChecks(
   return out;
 }
 
-/** 需要复查的文号：待人工确认 + 无法从留存数据核验（两类都还没有可核对的出处） */
-export function refCheckTargets(trace: RefTraceResult): RefCheckTarget[] {
+/**
+ * 需要复查的文号：待人工确认 + 无法从留存数据核验（两类都还没有可核对的出处）。
+ *
+ * hint 传任务主题词：结论写成「同时废止 2021年第13号、2022年第16号、2022年第28号」这类清单时，
+ * 上下文里连发文机关都没有，光靠文号数字去检索必然全是噪声，得用主题词做领域限定。
+ */
+export function refCheckTargets(trace: RefTraceResult, hint = ""): RefCheckTarget[] {
   return [...trace.untraced, ...trace.unverifiableRefs].map((r) => ({
     key: refKey("docref", r.text),
     kind: "docref" as const,
     text: r.text,
     context: r.context,
+    hint,
   }));
 }
 

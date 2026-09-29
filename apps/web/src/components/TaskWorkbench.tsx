@@ -1018,7 +1018,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   );
 
   // 待复查的文号（待人工确认 + 无法核验）与已有复查结果的汇总
-  const refTargets = useMemo(() => refCheckTargets(refTrace), [refTrace]);
+  // 主题词与批量复查同一套 topicHint：上下文里没有发文机关时用它兜底，两个入口检索词一致
+  const refTargets = useMemo(() => refCheckTargets(refTrace, topicHint(finalResult, 2)), [refTrace, finalResult]);
   const refSummary = useMemo(() => summarizeRefChecks(docRefChecks), [docRefChecks]);
   const citationSummary = useMemo(() => summarizeRefChecks(citationCheckList), [citationCheckList]);
   // 复查到出处的已经计入 refTrace.traced，不能再从待复查里扣第二遍

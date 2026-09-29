@@ -13,7 +13,9 @@ import {
   queryTokens,
   relevanceHits,
   relevanceThreshold,
+  rssWorthUsing,
   searchWebDetailed,
+  unwrapBingRedirect,
   type SearchAttempt,
   type WebSearchResult,
 } from "@tax/business-tools";
@@ -130,6 +132,25 @@ expect(
 );
 expect("入口页在任何门槛下都被过滤", filterSearchResults("土地增值税", [junk[1]!], 0).kept.length, 0);
 
+// 4b) RSS 退化成兜底噪声时不能挡住 HTML 通道
+// 本机实测过 RSS 整批返回微软帮助页、Facebook 登录页一类与检索词无关的条目，条数照样是 10；
+// 只判断条数就会一直走 RSS，百度又被安全验证拦住，联网复查于是全部 empty。
+expect("全部无关的 RSS 不采用", rssWorthUsing(Q, junk, 2), false);
+expect("只剩入口页的 RSS 不采用", rssWorthUsing("土地增值税", [junk[1]!], 0), false);
+expect("空结果不采用", rssWorthUsing(Q, [], 2), false);
+expect("留下可用结果的 RSS 才采用", rssWorthUsing(Q, [...junk, ...good], 2), true);
+
+// 4c) Bing 跳转包装地址还原：包装地址当证据会让来源域名显示成 bing.com，既拿不到权威判定也可能失效
+const BING_TARGET = "https://fgk.chinatax.gov.cn/zcfgk/c102416/c5202002/content.html";
+const BING_WRAP = `https://www.bing.com/ck/a?!&&p=abc123&u=a1${Buffer.from(BING_TARGET)
+  .toString("base64")
+  .replace(/\+/g, "-")
+  .replace(/\//g, "_")}&ntb=1`;
+expect("跳转包装还原成真实地址", unwrapBingRedirect(BING_WRAP), BING_TARGET);
+expect("还原后能判定为权威域名", isAuthoritativeUrl(unwrapBingRedirect(BING_WRAP)), true);
+expect("非包装地址原样返回", unwrapBingRedirect(BING_TARGET), BING_TARGET);
+expect("缺 u 参数的包装地址原样返回", unwrapBingRedirect("https://www.bing.com/ck/a?!&&p=abc"), "https://www.bing.com/ck/a?!&&p=abc");
+expect("u 参数解不出地址时原样返回", unwrapBingRedirect("https://www.bing.com/ck/a?u=a1bm90LWEtdXJs"), "https://www.bing.com/ck/a?u=a1bm90LWEtdXJs");
 // 5) 验证页识别与引擎尝试说明
 expect("识别百度安全验证", detectBlockedPage("<html><head><title>百度安全验证</title></head></html>"), "百度安全验证");
 expect("识别反爬提示", detectBlockedPage("<p>We have detected unusual traffic from your network</p>") !== null, true);
