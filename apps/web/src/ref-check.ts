@@ -318,6 +318,24 @@ export function domainOverlap(originalTitle: string, hitTitle: string, hitSnippe
   const got = new Set(extractDocRefs(`${hitTitle} ${hitSnippet}`).map((r) => r.core));
   return [...want].filter((c) => got.has(c));
 }
+
+/**
+ * 命中页是否与「这份结论」谈的是同一件事：与任务主题词共享一个完整的涉税领域词。
+ *
+ * 只看与原引用标题的共同词还不够。原引用常常是百科词条或门户首页（「土地（汉语词语）_百度百科」
+ * 「土地交易 - 上海土地市场」），标题里的词本身没有主题价值；而 `isDomainToken` 按互为子串判定，
+ * 「土地」是「土地增值税」的前缀就会通过。实测因此把《中华人民共和国土地管理法实施条例》当成了
+ * 替代来源——只因为都含「土地」，而这份结论谈的是土地增值税清算，正是通用词表注释里早就
+ * 警告过的那类混淆（「都含『土地』就把《土地管理法》当成土地增值税清算依据」）。
+ *
+ * 任务主题词取自结论里出现最多的领域词（`topicHint`），因此这里要求的是完整词条共现：
+ * 主题词含「土地增值税」而命中页不含，就不算谈同一件事。主题词为空时返回 false，由调用方决定回退。
+ */
+export function onTaskTopic(taskHint: string, hitTitle: string, hitSnippet = ""): boolean {
+  if ((taskHint ?? "").trim() === "") return false;
+  const hit = `${hitTitle} ${hitSnippet ?? ""}`;
+  return DOMAIN_KEYWORDS.some((k) => taskHint.includes(k) && hit.includes(k));
+}
 /** 候选排序：官方原文优先，其次专业来源，再看相关度 */
 const GRADE_RANK: Record<string, number> = { official: 0, professional: 1, weak: 2 };
 
@@ -357,7 +375,17 @@ export function gradeRefCheck(t: RefCheckTarget, outcome: RefSearchOutcome): Ref
     // 不限定为政策法规库：科技部一类的官方文件页（most.gov.cn 上的指引 PDF）同样是合格的原文。
     const isOfficial = (h: RefSearchHit) =>
       gradeCitation(h.url, h.title).grade === "official" && !isOfficialChannelPage(h.url);
-    const official = pool.find((h) => isOfficial(h) && domainOverlap(t.text, h.title, h.snippet ?? "").length > 0);
+    // 两道主题关：既要与原引用谈同一件事，也要与这份结论谈同一件事。
+    // 后者才挡得住「土地（汉语词语）_百度百科 → 土地管理法实施条例」这类替换。
+    // 结论里取不到任何领域词时（onTaskTopic 返回 false）一律不判 matched：连这份结论谈什么都
+    // 确定不了，就没法断言替代来源与它同主题，按本文件既定的「宁可漏判降为 candidate」处理。
+    const hint = (t.hint ?? "").trim();
+    const official = pool.find(
+      (h) =>
+        isOfficial(h) &&
+        domainOverlap(t.text, h.title, h.snippet ?? "").length > 0 &&
+        onTaskTopic(hint, h.title, h.snippet ?? ""),
+    );
     if (official) {
       return {
         verdict: "matched",
@@ -505,12 +533,19 @@ export function matchedStillValid(
   evidence: { url: string; title: string; snippet?: string } | null,
   gradeOf: (url: string, title: string) => { grade: string },
   originalText = "",
+  taskHint = "",
 ): boolean {
   if (!evidence || evidence.url === "") return false;
   const grade = gradeOf(evidence.url, evidence.title).grade;
   if (kind !== "citation") return grade !== "weak";
   if (grade !== "official" || isOfficialChannelPage(evidence.url)) return false;
-  return originalText === "" || domainOverlap(originalText, evidence.title, evidence.snippet ?? "").length > 0;
+  if (originalText !== "" && domainOverlap(originalText, evidence.title, evidence.snippet ?? "").length === 0) {
+    return false;
+  }
+  // 与新增判定同一口径，且同样不设「主题词为空就放过」的回退：
+  // 实测任务 060b4eea 的结论里没有任何领域词，回退会把《土地管理法实施条例》
+  // 当成「土地（汉语词语）_百度百科」的有效替代来源永久锁在 matched 上。
+  return onTaskTopic(taskHint, evidence.title, evidence.snippet ?? "");
 }
 
 /** 保留旧证据时写进 note 的说明：把这次重试如实记下来，不藏失败 */

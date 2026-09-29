@@ -228,10 +228,12 @@ export function pendingCitationTargets(taskId: string, limit: number = MAX_REF_C
     }
   });
   const cites = extractCitations(parsed).map((c) => ({ ...c, grade: gradeCitation(c.url, c.title).grade }));
+  // 任务主题词有两个用途：作检索补充词，以及判定已有替代来源是否仍与这份结论谈同一件事
+  const hint = topicHint(getTask(taskId)?.result ?? "", 2);
   return unresolvedTargets(
-    citationTargets(cites, topicHint(getTask(taskId)?.result ?? "", 2), limit),
+    citationTargets(cites, hint, limit),
     listRefChecks(taskId),
-    (c) => matchedStillValid(c.kind ?? "citation", c.evidence, gradeCitation, c.text),
+    (c) => matchedStillValid(c.kind ?? "citation", c.evidence, gradeCitation, c.text, hint),
   );
 }
 
@@ -466,6 +468,11 @@ export function saveRefCheck(taskId: string, rec: RefCheckRecord): void {
     | undefined;
   let out = rec;
   // 旧证据按当前分级规则仍算官方原文才享受不降级保护；规则收紧后误判的 matched 可以被纠正
+  // 只有可能要顶掉一条已 matched 的引用替换记录时才需要任务主题词，免得每存一条都多查一次库
+  const prevHint =
+    prev !== undefined && prev.verdict === "matched" && rec.kind === "citation"
+      ? topicHint(getTask(taskId)?.result ?? "", 2)
+      : "";
   const prevStillValid = matchedStillValid(
     (prev?.kind ?? rec.kind) as RefCheckKind,
     {
@@ -476,6 +483,7 @@ export function saveRefCheck(taskId: string, rec: RefCheckRecord): void {
     gradeCitation,
     // 原引用标题也要带上：引用替换的主题相关判据需要它，缺了就纠正不了收紧前的误判
     prev?.text ?? rec.text,
+    prevHint,
   );
   // 官方原文不被商业站点顶掉：升级通道让重跑已 matched 的记录变多，反向替换必须挡住
   const notBetter =

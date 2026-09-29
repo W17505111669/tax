@@ -45,6 +45,7 @@ import {
   evidenceCanReplace,
   isDomainToken,
   keptBetterNote,
+  onTaskTopic,
   preservedNote,
   reusableDocNum,
   shouldOverwrite,
@@ -254,7 +255,11 @@ expect(
     .evidence?.url,
   "https://www.most.gov.cn/xxgk/a.pdf",
 );
-expect("引用类找到官方页 → matched", gradeRefCheck({ ...TARGET, kind: "citation" }, outcome([OFFICIAL])).verdict, "matched");
+expect(
+  "引用类找到官方页 → matched",
+  gradeRefCheck({ ...TARGET, kind: "citation", hint: "研发费用 加计扣除" }, outcome([OFFICIAL])).verdict,
+  "matched",
+);
 expect("四级文案齐全", Object.keys(REF_VERDICT_TEXT).length, 4);
 expect("四级提示齐全", Object.values(REF_VERDICT_HINT).every((s) => s.length > 0), true);
 
@@ -651,7 +656,7 @@ for (const t of listTasks()) {
     kind?: "docref" | "citation";
     text: string;
     evidence: { url: string; title: string; snippet?: string } | null;
-  }) => matchedStillValid(c.kind ?? "docref", c.evidence, gradeCitation, c.text);
+  }) => matchedStillValid(c.kind ?? "docref", c.evidence, gradeCitation, c.text, topicHint(text, 2));
   const pending = unresolvedTargets(refCheckTargets(tr), recs, stillOfficial);
   pendingTotal += pending.length;
   if (pending.length > 0) tasksPending += 1;
@@ -793,10 +798,13 @@ expect(
       {
         key: "b",
         verdict: "matched",
-        evidence: { url: "https://www.gov.cn/zhengce/content/2023-08/28/content_6900000.htm", title: "通知" },
+        evidence: {
+          url: "https://www.gov.cn/zhengce/content/2023-08/28/content_6900000.htm",
+          title: "关于研发费用加计扣除政策的通知",
+        },
       },
     ],
-    (c) => matchedStillValid(c.kind ?? "citation", c.evidence, gradeCitation),
+    (c) => matchedStillValid(c.kind ?? "citation", c.evidence, gradeCitation, c.text, "研发费用 加计扣除"),
   ).map((t) => t.key),
   ["a"],
 );
@@ -837,6 +845,7 @@ expect(
     { url: "https://www.most.gov.cn/xxgk/a.pdf", title: "研发费用加计扣除政策执行指引" },
     gradeCitation,
     "研发 - MBA智库百科",
+    "研发费用 加计扣除",
   ),
   true,
 );
@@ -854,16 +863,14 @@ expect(
   false,
 );
 expect(
-  "不传原引用标题时跳过主题判定（既有调用方与离线测试行为不变）",
+  "取不到任务主题词时不认定为有效（连结论谈什么都确定不了，宁可降为候选）",
   matchedStillValid(
     "citation",
-    {
-      url: "http://www.scio.gov.cn/31773/31774/31779/Document/1628713/1628713.htm",
-      title: "全面认识和把握我国基本国情",
-    },
+    { url: "https://www.most.gov.cn/xxgk/a.pdf", title: "研发费用加计扣除政策执行指引" },
     gradeCitation,
+    "研发 - MBA智库百科",
   ),
-  true,
+  false,
 );
 expect("空地址不保护", matchedStillValid("docref", { url: "", title: "甲" }, gradeCitation), false);
 expect(
@@ -879,8 +886,13 @@ expect(
   "引用替换：政策原文地址仍受保护",
   matchedStillValid(
     "citation",
-    { url: "https://www.gov.cn/zhengce/content/2023-08/28/content_6900000.htm", title: "关于某某的通知" },
+    {
+      url: "https://www.gov.cn/zhengce/content/2023-08/28/content_6900000.htm",
+      title: "关于研发费用加计扣除政策的通知",
+    },
     gradeCitation,
+    "研发费用加计扣除",
+    "研发费用 加计扣除",
   ),
   true,
 );
@@ -1000,6 +1012,7 @@ const relatedOfficial = gradeRefCheck(
     key: "citation:r",
     kind: "citation",
     text: "研发费用加计扣除",
+    hint: "研发费用 加计扣除",
     excludeUrl: "https://baike.baidu.com/x",
   },
   outcome([
@@ -1037,7 +1050,13 @@ expect("解读页即使主题相关也不判为找到官方原文", interpretati
 ok("解读页只作候选并要求人工确认", (interpretation.note ?? "").includes("人工确认"), interpretation.note);
 // 反向护栏：收紧的只是税务主站频道页，其他官方站点的文件页与政策法规库原文页都还要能过
 const otherGov = gradeRefCheck(
-  { key: "citation:g", kind: "citation", text: "研发费用加计扣除", excludeUrl: "https://baike.baidu.com/x" },
+  {
+    key: "citation:g",
+    kind: "citation",
+    text: "研发费用加计扣除",
+    hint: "研发费用 加计扣除",
+    excludeUrl: "https://baike.baidu.com/x",
+  },
   outcome([
     hit(
       "研发费用加计扣除政策执行指引",
@@ -1048,7 +1067,13 @@ const otherGov = gradeRefCheck(
 );
 expect("其他政府站点的文件页仍算官方原文", otherGov.verdict, "matched");
 const libraryPage = gradeRefCheck(
-  { key: "citation:l", kind: "citation", text: "研发费用加计扣除", excludeUrl: "https://baike.baidu.com/x" },
+  {
+    key: "citation:l",
+    kind: "citation",
+    text: "研发费用加计扣除",
+    hint: "研发费用 加计扣除",
+    excludeUrl: "https://baike.baidu.com/x",
+  },
   outcome([
     hit(
       "关于完善研究开发费用税前加计扣除政策的通知",
@@ -1061,7 +1086,13 @@ expect("政策法规库原文页仍算官方原文", libraryPage.verdict, "match
 expect(
   "原引用标题就是文号时，命中同一文号的官方页仍算 matched",
   gradeRefCheck(
-    { key: "citation:d", kind: "citation", text: "财税〔2015〕119号", excludeUrl: "https://baike.baidu.com/x" },
+    {
+      key: "citation:d",
+      kind: "citation",
+      text: "财税〔2015〕119号",
+      hint: "研发费用 加计扣除",
+      excludeUrl: "https://baike.baidu.com/x",
+    },
     outcome([
       hit(
         "财政部 国家税务总局 科技部关于完善研究开发费用税前加计扣除政策的通知 财税〔2015〕119号",
@@ -1076,6 +1107,73 @@ expect(
   "文号不同则不算同一件事",
   domainOverlap("财税〔2015〕119号", "国家税务总局公告2019年第41号", "").length,
   0,
+);
+
+// 还要与「这份结论」谈同一件事：只与原引用标题共用一个词是不够的
+expect("主题词与命中页共享完整领域词", onTaskTopic("土地增值税 底稿", "土地增值税清算管理规程", ""), true);
+expect(
+  "只共用前缀不算（土地 ≠ 土地增值税）",
+  onTaskTopic("土地增值税 底稿", "中华人民共和国土地管理法实施条例", ""),
+  false,
+);
+expect("主题词为空时返回 false，由调用方回退", onTaskTopic("", "研发费用加计扣除", ""), false);
+expect(
+  "研发类命中页与研发类主题词对得上",
+  onTaskTopic("研发费用 加计扣除", "研发费用加计扣除 政策执行指引 （2.0版）", ""),
+  true,
+);
+// 实测误判：结论谈土地增值税清算，却把《土地管理法实施条例》当成「土地（汉语词语）_百度百科」的替代来源
+const landMis = gradeRefCheck(
+  {
+    key: "citation:t",
+    kind: "citation",
+    text: "土地（汉语词语）_百度百科",
+    hint: "土地增值税 底稿",
+    excludeUrl: "https://baike.baidu.com/x",
+  },
+  outcome([
+    hit(
+      "中华人民共和国土地管理法实施条例_土地_中国政府网",
+      "https://www.gov.cn/zhengce/content/2023-08/28/content_6900002.htm",
+      "土地管理",
+    ),
+  ]),
+);
+expect("只共用「土地」的替换不再判为找到官方原文", landMis.verdict, "candidate");
+const rdOk = gradeRefCheck(
+  {
+    key: "citation:k",
+    kind: "citation",
+    text: "研发_百度百科",
+    hint: "研发费用 加计扣除",
+    excludeUrl: "https://baike.baidu.com/x",
+  },
+  outcome([
+    hit("研发费用加计扣除 政策执行指引 （2.0版）", "https://www.most.gov.cn/xxgk/a.pdf", "研发费用加计扣除"),
+  ]),
+);
+expect("与结论同主题的官方原文仍判 matched", rdOk.verdict, "matched");
+expect(
+  "旧记录按同一判据重算：只含土地的替代来源不再算有效",
+  matchedStillValid(
+    "citation",
+    { url: "https://www.gov.cn/zhengce/content/x.htm", title: "中华人民共和国土地管理法实施条例" },
+    gradeCitation,
+    "土地（汉语词语）_百度百科",
+    "土地增值税 底稿",
+  ),
+  false,
+);
+expect(
+  "同主题命中页在旧记录上仍算有效",
+  matchedStillValid(
+    "citation",
+    { url: "https://www.most.gov.cn/xxgk/a.pdf", title: "研发费用加计扣除 政策执行指引" },
+    gradeCitation,
+    "研发_百度百科",
+    "研发费用 加计扣除",
+  ),
+  true,
 );
 
 // 主题相关门槛：共同词里要有涉税领域词。只共用泛词不算「谈同一件事」——通用词黑名单是手工
