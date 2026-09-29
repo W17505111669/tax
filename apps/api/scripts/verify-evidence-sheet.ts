@@ -26,6 +26,7 @@ import { deliveryCheck } from "../../web/src/delivery-check.ts";
 import { deltaDetail, deltaVerdict, evidenceDelta, evidenceSnapshot } from "../../web/src/revision-impact.ts";
 import {
   evidenceSheetMarkdown,
+  evidenceSheetDocument,
   evidenceSheetRows,
   evidenceSheetTodoGroups,
   evidenceSheetTodos,
@@ -157,6 +158,14 @@ for (const r of rows) {
 ok("MD 含待办小节", md.includes("**交付前待办**"));
 ok("MD 含核对人签字行", md.includes("核对人"));
 ok("MD 含具体待办条目", md.includes("〔2006〕187号（未复查）"));
+
+// 3b) 单页导出文档：与整页 MD 里的那一节内容一致，只多一个标题
+const doc = evidenceSheetDocument(full);
+expect("单页文档以 H1 开头", doc[0], "# 证据核对表");
+expect("单页文档正文与 MD 节一致", doc.slice(2), evidenceSheetMarkdown(full));
+ok("单页文档含签字行", doc.join("\n").includes("核对人"));
+ok("单页文档含全部核对项", rows.every((r) => doc.join("\n").includes(r.item)));
+ok("单页文档含任务元信息", doc.join("\n").includes("RD-2026-001"));
 expect(
   "单元格里的竖线被转义",
   evidenceSheetMarkdown({ ...full, revision: { verdict: "a|b", detail: "c|d" } })

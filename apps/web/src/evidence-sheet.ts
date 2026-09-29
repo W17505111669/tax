@@ -201,3 +201,11 @@ export function evidenceSheetMarkdown(i: SheetInput): string[] {
   lines.push("", `- 核对人：＿＿＿＿＿＿　日期：＿＿＿＿＿＿（本表由平台按真实运行数据生成，口径与界面一致）`);
   return lines;
 }
+
+/**
+ * 单页文档：核对表单独导出时用（整页交付 MD 里用的是不带 H1 的 evidenceSheetMarkdown）。
+ * 纸质归档常常只需要这一页，不必打印整份材料。
+ */
+export function evidenceSheetDocument(i: SheetInput): string[] {
+  return ["# 证据核对表", "", ...evidenceSheetMarkdown(i)];
+}

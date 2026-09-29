@@ -46,6 +46,7 @@
 | `pnpm verify:revimpact` | 修订前后证据对比（快照口径 / 差值与总体判断 / 按事件流重组结论的真实续跑走查） | PASS |
 | `pnpm verify:trend` | 指标趋势（每日快照记录与裁剪 / 基线日选择 / 环比差值 / 越高越好与越低越好的方向判断） | PASS |
 | `pnpm verify:sheet` | 证据核对表（九项核对结论 / 空输入如实兜底 / 待办分组 / MD 片段 / 真实任务走查） | PASS |
+| `pnpm verify:amtnote` | 金额核对备注模板（模板可用性 / 追加分段与去重 / 撤销最近一段 / 留痕有效性判断） | PASS |
 | `pnpm verify:upload` | 上传预检规则（扩展名 / 大小 / 空文件 / 批量分组 / 提示文案） | PASS |
 
 ## 三、真实任务台账

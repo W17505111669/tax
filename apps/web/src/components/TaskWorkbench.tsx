@@ -49,6 +49,7 @@ import { topDomainWords, topicHint } from "../domain-keywords.ts";
 import { deltaDetail, deltaText, deltaVerdict, evidenceDelta, evidenceSnapshot } from "../revision-impact.ts";
 import {
   evidenceSheetMarkdown,
+  evidenceSheetDocument,
   evidenceSheetRows,
   evidenceSheetTodoGroups,
   NO_TODO_TEXT,
@@ -2426,6 +2427,12 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                 linkSummary={linkSummary}
                 onCheckLinks={() => checkCitationLinks(citations.map((c) => c.url))}
                 onDownloadReport={() => download(`${task.title}-审查报告.md`, finalResult)}
+                onDownloadSheet={() =>
+                  download(`${task.title}-证据核对表.md`, `${evidenceSheetDocument(sheet).join("\n")}\n`)
+                }
+                onCopySheet={() =>
+                  void navigator.clipboard?.writeText(evidenceSheetDocument(sheet).join("\n")).catch(() => undefined)
+                }
                 onDownloadCitations={() =>
                   download(
                     `${task.title}-引用清单.md`,
@@ -3565,6 +3572,8 @@ function ResultView({
   sheet,
   onOpenUrl,
   onDownloadReport,
+  onDownloadSheet,
+  onCopySheet,
   onDownloadCitations,
   onDownloadBibtex,
   onCopyBibtex,
@@ -3610,6 +3619,9 @@ function ResultView({
   sheet: SheetInput;
   onOpenUrl: (target: ReaderTarget) => void;
   onDownloadReport: () => void;
+  /** 单独下载这一页证据核对表（纸质归档常常只需要这一页） */
+  onDownloadSheet: () => void;
+  onCopySheet: () => void;
   onDownloadCitations: () => void;
   onDownloadBibtex: () => void;
   onCopyBibtex: () => void;
@@ -4065,7 +4077,27 @@ function ResultView({
         </div>
 
         <div className="mt-5">
-          <div className="kicker">证据核对表</div>
+          <div className="flex items-center gap-2">
+            <div className="kicker">证据核对表</div>
+            <button
+              type="button"
+              className="action-btn ml-auto"
+              onClick={onDownloadSheet}
+              title="单独下载这一页核对表（Markdown），可直接打印签字归档；整页交付 MD 里也含同一份内容"
+            >
+              <IconDownload className="h-3.5 w-3.5" />
+              下载核对表
+            </button>
+            <button
+              type="button"
+              className="action-btn"
+              onClick={onCopySheet}
+              title="复制核对表 Markdown 到剪贴板"
+            >
+              <IconCopy className="h-3.5 w-3.5" />
+              复制
+            </button>
+          </div>
           <table className="mt-2 w-full border-collapse text-[11.5px]">
             <thead>
               <tr className="text-left text-mist-500">

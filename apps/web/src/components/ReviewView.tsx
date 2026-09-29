@@ -1,6 +1,12 @@
 import { useState } from "react";
 import type { ReviewRecord, TaskIssue } from "../types.ts";
 import { IconAlert, IconCheck } from "./Icons.tsx";
+import {
+  AMOUNT_NOTE_TEMPLATES,
+  composeNote,
+  dropLastNoteSegment,
+  noteIsMeaningful,
+} from "../amount-note.ts";
 
 interface Props {
   issues: TaskIssue[];
@@ -128,6 +134,39 @@ export function ReviewView({
                   </button>
                 </div>
                 <div className="mt-1 flex items-center gap-1.5">
+                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+                    {AMOUNT_NOTE_TEMPLATES.map((t) => (
+                      <button
+                        key={t.label}
+                        type="button"
+                        className="shrink-0 rounded-full border border-line bg-night-850 px-2 py-0.5 text-[10.5px] text-mist-400 transition-colors hover:border-glow-500 hover:text-glow-300"
+                        title={`填入「${t.text}」；已有内容时按分号追加，重复点不会重复追加`}
+                        onClick={() =>
+                          setAmountNotes((prev) => ({
+                            ...prev,
+                            [a.key]: composeNote(prev[a.key] ?? a.note, t.text),
+                          }))
+                        }
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      className="action-btn shrink-0 !text-[10.5px]"
+                      title="删掉最近一段备注（点错模板时用）"
+                      onClick={() =>
+                        setAmountNotes((prev) => ({
+                          ...prev,
+                          [a.key]: dropLastNoteSegment(prev[a.key] ?? a.note),
+                        }))
+                      }
+                    >
+                      删上一段
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-1 flex items-center gap-1.5">
                   <input
                     value={amountNotes[a.key] ?? a.note}
                     onChange={(e) => setAmountNotes((prev) => ({ ...prev, [a.key]: e.target.value }))}
@@ -143,6 +182,11 @@ export function ReviewView({
                     保存备注
                   </button>
                 </div>
+                {!noteIsMeaningful(amountNotes[a.key] ?? a.note) && (
+                  <p className="mt-1 text-[10.5px] leading-4 text-amber-300">
+                    还没有写核对依据：备注会进整页交付 MD 与交付包，空着等于没有留痕
+                  </p>
+                )}
               </li>
             ))}
           </ul>
