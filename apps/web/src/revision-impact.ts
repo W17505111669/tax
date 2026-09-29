@@ -82,13 +82,17 @@ export function deltaVerdict(d: EvidenceDelta): string {
   return "证据质量有增有减，请核对本次修订";
 }
 
-/** 一行人类可读的对比结论（界面提示与整页交付 MD 共用） */
-export function deltaText(d: EvidenceDelta): string {
-  const parts = [
+/** 四项指标的前后值与差值（不含总体判断），供证据核对表等需要分开展示的场合使用 */
+export function deltaDetail(d: EvidenceDelta): string {
+  return [
     `弱证据引用 ${d.before.weak} → ${d.after.weak}（${signed(d.weak)}）`,
     `官方原文 ${d.before.official} → ${d.after.official}（${signed(d.official)}）`,
     `引用合计 ${d.before.citations} → ${d.after.citations}（${signed(d.citations)}）`,
     `政策文号 ${d.before.docRefs} → ${d.after.docRefs}（${signed(d.docRefs)}）`,
-  ];
-  return `${deltaVerdict(d)}：${parts.join(" · ")}`;
+  ].join(" · ");
+}
+
+/** 一行人类可读的对比结论（界面提示与整页交付 MD 共用） */
+export function deltaText(d: EvidenceDelta): string {
+  return `${deltaVerdict(d)}：${deltaDetail(d)}`;
 }

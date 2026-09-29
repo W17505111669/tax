@@ -46,12 +46,20 @@ import { buildManifest } from "../manifest.ts";
 import { traceDocRefs } from "../policy-trace.ts";
 import { gradeCitation, GRADE_HINT, GRADE_TEXT, summarizeGrades } from "../citation-grade.ts";
 import { topDomainWords, topicHint } from "../domain-keywords.ts";
-import { deltaText, deltaVerdict, evidenceDelta, evidenceSnapshot } from "../revision-impact.ts";
+import { deltaDetail, deltaText, deltaVerdict, evidenceDelta, evidenceSnapshot } from "../revision-impact.ts";
+import {
+  evidenceSheetMarkdown,
+  evidenceSheetRows,
+  evidenceSheetTodoGroups,
+  NO_TODO_TEXT,
+  type SheetInput,
+} from "../evidence-sheet.ts";
 import {
   buildRevisionInstruction,
   citationTargets,
   pendingAfterRecheck,
   refCheckTargets,
+  refKey,
   REF_VERDICT_HINT,
   REF_VERDICT_TEXT,
   revisionCounts,
@@ -66,6 +74,7 @@ import {
   SEARCH_TOOL_NAMES as SEARCH_TOOLS,
   searchEvidence,
   searchEvidenceNote,
+  searchFiltering,
   type SearchEvidence,
 } from "../search-evidence.ts";
 import {
@@ -632,6 +641,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   // 检索留痕：区分「留下了来源」与「只留下查询元数据」，避免把后者误报成没有联网核验
   const searches = useMemo(() => searchEvidence(toolCalls), [toolCalls]);
   const searchNote = useMemo(() => searchEvidenceNote(searches, citations.length), [searches, citations.length]);
+  // 检索时被过滤掉的条数（落库在工具结果的 details.dropped 里），证据核对表用
+  const filtering = useMemo(() => searchFiltering(toolCalls), [toolCalls]);
 
   // 引用证据力汇总：交付自检、整页 MD 与交付包清单共用同一口径
   const citationGrades = useMemo(() => summarizeGrades(citations), [citations]);
@@ -1025,6 +1036,33 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     () => citationTargets(weakCitations, topicHint(finalResult, 2), 10),
     [weakCitations, finalResult],
   );
+  // 已经找到官方替代来源的弱证据引用（结论没改之前它仍是弱证据，只用于如实标注补救进度）
+  const replacedKeys = useMemo(
+    () => new Set(citationCheckList.filter((c) => c.verdict === "matched").map((c) => c.key)),
+    [citationCheckList],
+  );
+  const weakReplaced = useMemo(
+    () => weakCitations.filter((c) => replacedKeys.has(refKey("citation", c.url))).length,
+    [weakCitations, replacedKeys],
+  );
+  // 证据核对表的待办清单：还没闭环的具体条目
+  const sheetTodos = useMemo(() => {
+    const matchedDocs = new Set(docRefChecks.filter((c) => c.verdict === "matched").map((c) => c.key));
+    return {
+      docRefs: refTargets
+        .filter((t) => !matchedDocs.has(t.key))
+        .map((t) => {
+          const rec = refChecks[t.key];
+          return rec ? `${t.text}（已复查：${REF_VERDICT_TEXT[rec.verdict]}）` : `${t.text}（未复查）`;
+        }),
+      weakCitations: weakCitations
+        .filter((c) => !replacedKeys.has(refKey("citation", c.url)))
+        .map((c) => `${c.title} ${c.url}`),
+      deadLinks: Object.values(linkChecks)
+        .filter((r) => linkVerdict(r) === "dead")
+        .map((r) => r.url),
+    };
+  }, [refTargets, docRefChecks, refChecks, weakCitations, replacedKeys, linkChecks]);
 
   // 修订素材：只取与当前结论对得上的复查记录，避免上一版结论留下的记录写进指令
   const revisionItems = useMemo(() => {
@@ -1126,6 +1164,59 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     ],
   );
 
+  // 证据核对表输入：与界面、交付自检、整页 MD 同一口径；生成时间取当下，故每次渲染重算
+  const sheet: SheetInput = {
+    taskTitle: task.title,
+    caseId: task.caseId,
+    agentName: agent.shortName,
+    statusText: STATUS_META[liveStatus]?.label ?? liveStatus,
+    generatedAt: new Date().toISOString(),
+    delivery: { verdict: delivery.verdict, blocks: delivery.blocks, warns: delivery.warns, infos: delivery.infos },
+    docRefs: {
+      total: refTrace.total,
+      traced: refTrace.traced,
+      unverifiable: refTrace.unverifiable,
+      untraced: refTrace.untraced.length,
+      pending: refPending,
+    },
+    docRefChecks: refSummary,
+    citations: {
+      total: citationGrades.total,
+      official: citationGrades.official,
+      professional: citationGrades.professional,
+      weak: citationGrades.weak,
+      fromTools: citations.filter((c) => c.via !== "conclusion").length,
+      fromConclusion: citations.filter((c) => c.via === "conclusion").length,
+      replaced: weakReplaced,
+    },
+    citationChecks: {
+      total: citationSummary.total,
+      matched: citationSummary.matched,
+      candidate: citationSummary.candidate,
+      empty: citationSummary.empty,
+      error: citationSummary.error,
+    },
+    linkCheck: linkCheckedAt ? { ...linkSummary, checkedAt: linkCheckedAt } : null,
+    searches:
+      searches.calls > 0
+        ? {
+            calls: searches.calls,
+            withUrls: searches.withUrls,
+            metadataOnly: searches.metadataOnly,
+            dropped: filtering.dropped,
+          }
+        : null,
+    amounts: {
+      total: amountTrace.total,
+      traced: amountTrace.traced,
+      fromInput: amountTrace.fromInput,
+      pending: amountPending.length,
+      acked: amountAcked,
+    },
+    revision: revImpact ? { verdict: deltaVerdict(revImpact), detail: deltaDetail(revImpact) } : null,
+    todos: sheetTodos,
+  };
+
   // 交付包里的工具调用清单：按运行分组，含结果、耗时与入参摘要（表格单元格已做竖线/换行安全化）
   const toolCallSection = (): string[] => {
     if (toolCalls.length === 0) return ["（本次任务没有工具调用记录）"];
@@ -1167,6 +1258,10 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     "## 交付自检",
     "",
     ...deliverySection(deliveryInput()),
+    "",
+    "## 证据核对表",
+    "",
+    ...evidenceSheetMarkdown(sheet),
     "",
     "## 目录",
     "",
@@ -2323,6 +2418,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                   onCompose: fillRevisionInstruction,
                   notice: revisionMsg,
                 }}
+                sheet={sheet}
                 onOpenUrl={openReader}
                 linkChecks={linkChecks}
                 linkBusy={linkBusy}
@@ -3466,6 +3562,7 @@ function ResultView({
   searches,
   searchNote,
   citationRecheck,
+  sheet,
   onOpenUrl,
   onDownloadReport,
   onDownloadCitations,
@@ -3509,6 +3606,8 @@ function ResultView({
     onCompose: () => void;
     notice: string;
   };
+  /** 证据核对表输入（与整页交付 MD 用的是同一份数据） */
+  sheet: SheetInput;
   onOpenUrl: (target: ReaderTarget) => void;
   onDownloadReport: () => void;
   onDownloadCitations: () => void;
@@ -3963,6 +4062,55 @@ function ResultView({
             <div className="mt-1.5 text-[13px] font-medium text-mist-100">复制整页 MD</div>
             <div className="text-[11px] text-mist-600">剪贴板 · 含元信息/目录/引用</div>
           </button>
+        </div>
+
+        <div className="mt-5">
+          <div className="kicker">证据核对表</div>
+          <table className="mt-2 w-full border-collapse text-[11.5px]">
+            <thead>
+              <tr className="text-left text-mist-500">
+                <th className="w-7 border-b border-line py-1 pr-2 font-normal">#</th>
+                <th className="w-[128px] border-b border-line py-1 pr-2 font-normal">核对项</th>
+                <th className="w-[140px] border-b border-line py-1 pr-2 font-normal">结论</th>
+                <th className="border-b border-line py-1 font-normal">说明</th>
+              </tr>
+            </thead>
+            <tbody>
+              {evidenceSheetRows(sheet).map((r, n) => (
+                <tr key={r.item} className="align-top">
+                  <td className="border-b border-line/60 py-1 pr-2 font-mono text-[10.5px] text-mist-600">{n + 1}</td>
+                  <td className="border-b border-line/60 py-1 pr-2 text-mist-300">{r.item}</td>
+                  <td className="border-b border-line/60 py-1 pr-2 text-mist-100">{r.value}</td>
+                  <td className="border-b border-line/60 py-1 text-mist-500">{r.note}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="mt-3">
+            <div className="kicker mb-1">交付前待办</div>
+            {evidenceSheetTodoGroups(sheet).length === 0 ? (
+              <p className="text-[11.5px] text-jade-300">{NO_TODO_TEXT}</p>
+            ) : (
+              <ul className="space-y-1 text-[11.5px] leading-5 text-mist-400">
+                {evidenceSheetTodoGroups(sheet).map((g) => (
+                  <li key={g.label}>
+                    {g.label}（{g.list.length} 项）
+                    <ul className="mt-0.5 space-y-0.5 pl-4 text-mist-500">
+                      {g.list.slice(0, 8).map((x, k) => (
+                        <li key={`${g.label}-${k}`} className="break-all">
+                          {x}
+                        </li>
+                      ))}
+                      {g.list.length > 8 && <li>等 {g.list.length} 项，完整清单见上文对应小节</li>}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <p className="mt-3 text-[10.5px] text-mist-600">
+            核对人＿＿＿＿＿＿　日期＿＿＿＿＿＿　本表由平台按真实运行数据生成，口径与界面、整页交付 MD 一致。
+          </p>
         </div>
       </div>
     </div>
