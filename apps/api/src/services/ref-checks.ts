@@ -28,6 +28,7 @@ import {
   refKey,
   refCheckTargets,
   refQueryVariants,
+  reusableDocNum,
   shouldOverwrite,
   unresolvedTargets,
   type RefCheckEvidence,
@@ -36,7 +37,7 @@ import {
   type RefCheckTarget,
   type RefCheckVerdict,
 } from "../../../web/src/ref-check.ts";
-import { extractDocRefs, traceDocRefs } from "../../../web/src/policy-trace.ts";
+import { extractDocRefs, normalizeRef, traceDocRefs } from "../../../web/src/policy-trace.ts";
 import { extractCitations } from "../../../web/src/search-evidence.ts";
 import { topicHint } from "../../../web/src/domain-keywords.ts";
 import { getTask } from "./task-store.ts";
@@ -149,6 +150,60 @@ export function upgradeRefTargets(taskId: string): RefCheckTarget[] {
     .filter((t) => stale.has(t.key) && policyDocNumQuery(t) !== "");
 }
 
+/** 索引值：可直接复用的官方原文证据，以及它最初是在哪个任务里核实到的 */
+export type VerifiedOfficialDoc = { evidence: RefCheckEvidence; taskId: string };
+
+/**
+ * 全平台已核实的官方原文索引：完整发文字号（归一化）→ 证据。
+ *
+ * 同一份政策文件会被多个任务引用，而检索接口很慢（实测单次响应可达 7 秒以上）且全文排序有波动：
+ * 《财政部 税务总局 科技部公告2022年第28号》确实在库里，用完整字号查却排不上来。已经精确命中并
+ * 落库为官方原文的记录，本身就是一份核实过的事实，跨任务复用比每次重新检索更准也更省。
+ *
+ * 只收「文号类 + matched + 按当前分级规则仍是官方站点 + 能取出完整发文字号」的记录；
+ * 复用键是带机关的完整字号，因此机关不明的光杆文号永远查不到，不会猜。
+ */
+export function verifiedOfficialDocs(): Map<string, VerifiedOfficialDoc> {
+  const rows = db
+    .prepare(
+      `SELECT task_id, kind, text, verdict, evidence_title, evidence_url, evidence_grade, evidence_snippet
+         FROM ref_checks`,
+    )
+    .all() as unknown as Array<{
+    task_id: string;
+    kind: string;
+    text: string;
+    verdict: string;
+    evidence_title: string | null;
+    evidence_url: string | null;
+    evidence_grade: string | null;
+    evidence_snippet: string | null;
+  }>;
+  const out = new Map<string, VerifiedOfficialDoc>();
+  for (const r of rows) {
+    if (r.kind !== "docref" || r.verdict !== "matched") continue;
+    const url = r.evidence_url ?? "";
+    const title = r.evidence_title ?? "";
+    if (url === "") continue;
+    // 按当前分级规则重算，规则收紧后旧记录不会把误判带进索引
+    const grade = gradeCitation(url, title);
+    if (grade.grade !== "official") continue;
+    const key = reusableDocNum(r.text ?? "", r.evidence_snippet ?? "");
+    if (key === "" || out.has(key)) continue;
+    out.set(key, {
+      taskId: r.task_id,
+      evidence: {
+        title,
+        url,
+        snippet: r.evidence_snippet ?? "",
+        grade: grade.grade,
+        gradeReason: grade.reason,
+      },
+    });
+  }
+  return out;
+}
+
 /**
  * 某任务当前需要找替代来源的弱证据引用（门户首页 / 百科词条 / 检索页）。
  * 与结果页同一口径：引用提取走 search-evidence、分级走 citation-grade、检索补充词从结论里取领域词，
@@ -237,9 +292,14 @@ export async function runRefChecks(
   targets: RefCheckTarget[],
   searcher: Searcher = searchWebDetailed,
   policySearcher: PolicySearcher = searchPolicyLibrary,
+  verified?: Map<string, VerifiedOfficialDoc>,
 ): Promise<RefCheckRecord[]> {
   const at = nowIso();
   const out: RefCheckRecord[] = [];
+  // 整批共用一份索引：同一批里若有多个任务引用同一份文件，只查一次表。
+  // 可注入是为了让验证脚本能隔离复用路径——否则上一节刚存下的官方原文会被下一节直接复用，
+  // 测不到「不降级护栏」与「证据力闸门」。
+  const verifiedDocs = verified ?? verifiedOfficialDocs();
   for (const t of targets.slice(0, MAX_REF_CHECKS)) {
     // 依次尝试检索词候选：拿到「找到出处」或「有候选页」就收手，只有空手而归才换一种写法再查
     const variants = refQueryVariants(t);
@@ -248,6 +308,37 @@ export async function runRefChecks(
     // 通用搜索引擎对中文长查询已退化（Bing 忽略 site: 运算符、长查询只命中「国家」二字就返回
     // 百科词条，百度持续安全验证），因此未命中不代表文件不公开，照旧退回通用检索。
     const want = policyDocNumQuery(t);
+    // 已核实的官方原文优先复用，命中就不发任何网络请求：同一发文字号在别的任务里已经精确命中
+    // 政策法规库并落库为官方原文，那是核实过的事实，比再检索一次更准（接口全文排序有波动）也更省。
+    // 索引键是归一化后的字号（括号统一成半角），查询侧必须同样归一化，否则六角括号写法永远查不到
+    const reused = want === "" ? undefined : verifiedDocs.get(normalizeRef(want));
+    if (reused !== undefined) {
+      attempts.push({
+        engine: "fgk",
+        via: "JSON",
+        fetched: 0,
+        kept: 1,
+        dropped: 0,
+        httpStatus: null,
+        status: "ok",
+        note: `复用本平台已核实的官方原文（任务 ${reused.taskId.slice(0, 8)} 已按发文字号精确命中政策法规库），本次未发起检索`,
+      });
+      const reuseRec: RefCheckRecord = {
+        key: t.key,
+        kind: t.kind,
+        text: t.text,
+        query: want,
+        verdict: "matched",
+        note: "复用本平台其他任务已核实的政策法规库官方原文（同一发文字号），链接为官方原文页",
+        evidence: reused.evidence,
+        subjectUrl: t.excludeUrl ?? "",
+        attempts,
+        checkedAt: at,
+      };
+      saveRefCheck(taskId, reuseRec);
+      out.push(reuseRec);
+      continue;
+    }
     if (want !== "") {
       const lib = await policySearcher(want, AbortSignal.timeout(REF_CHECK_TIMEOUT_MS));
       const hit = lib.error === null ? matchPolicyDocNum(want, lib.hits) : null;

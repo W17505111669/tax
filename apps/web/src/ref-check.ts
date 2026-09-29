@@ -58,6 +58,10 @@ const LEAD_WORDS = [
   "按照",
   "依照",
   "参照",
+  "确认为",
+  "认定为",
+  "确认",
+  "视为",
   "同时",
   "此外",
   "上述",
@@ -485,6 +489,20 @@ export function evidenceCanReplace(
 export function keptBetterNote(prevNote: string, nextGrade: string, checkedAt: string): string {
   const stamp = `${checkedAt.slice(0, 19).replace("T", " ")} 再次检索到的来源证据力为「${nextGrade}」，不及已留存的官方原文，保留原证据`;
   return prevNote.trim() === "" ? stamp : `${prevNote.trim()}；${stamp}`;
+}
+
+/**
+ * 从一条已 matched 的文号复查记录里取出可跨任务复用的完整发文字号，取不到就返回空串。
+ *
+ * 只有 `snippet` 本身就是「发文机关 + 文号」且以该文号结尾时才可用——政策法规库精确命中时
+ * 存进去的正是发文字号；通用检索命中时 snippet 往往是页面正文的一段话，拿它当字号会把噪声写进索引。
+ * snippet 与文号相同（没有补出机关）时也返回空串：光杆字号跨机关有歧义，不能当复用键。
+ */
+export function reusableDocNum(text: string, snippet: string): string {
+  const core = normalizeRef(text);
+  const full = normalizeRef(snippet);
+  if (core === "" || full === "" || full === core) return "";
+  return full.endsWith(core) ? full : "";
 }
 
 /** 修订指令的一条素材：一次已经出结果的复查记录 */

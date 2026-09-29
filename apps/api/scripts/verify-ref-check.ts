@@ -44,6 +44,7 @@ import {
   evidenceCanReplace,
   keptBetterNote,
   preservedNote,
+  reusableDocNum,
   shouldOverwrite,
   topicOverlap,
   topicTokens,
@@ -70,8 +71,10 @@ import {
   saveRefCheck,
   toTargets,
   upgradeRefTargets,
+  verifiedOfficialDocs,
   type PolicySearcher,
   type Searcher,
+  type VerifiedOfficialDoc,
 } from "../src/services/ref-checks.ts";
 import { getTask, listTasks } from "../src/services/task-store.ts";
 
@@ -139,6 +142,11 @@ expect(
   "非公告类文号不往左延伸",
   refPrefix("财政部 税务总局 财税〔2015〕119号", "〔2015〕119号"),
   "财税",
+);
+expect(
+  "动词短语「确认为」不进前缀（实测 Agent 自己写的核对结论就是这种句式）",
+  refPrefix("打开成功，确认为国税函〔2010〕220号原文", "〔2010〕220号"),
+  "国税函",
 );
 expect("上下文取去虚词后最长中文段", contextKeywords(TARGET.context!, TARGET.text), "企业研发费用加计扣除比例");
 expect("关键词排除已用作前缀的部分", contextKeywords("依据国税发〔2006〕187号与国税发处理", "〔2006〕187号", "国税发"), "");
@@ -1053,6 +1061,9 @@ expect("结果数组缺失不抛错", parsePolicyLibrary({ searchResultAll: {} }
 // 全链路：库内精确命中即定为找到出处且不再走通用检索；未命中或接口失败都退回通用检索
 const LIB_TASK = "__verify_refcheck_lib__";
 const clearLib = () => db.prepare(`DELETE FROM ref_checks WHERE task_id = ?`).run(LIB_TASK);
+// 第 10、11 节要测的是检索与护栏本身，必须关掉跨任务复用：本节刚存下的官方原文会被下一节的
+// 复用路径直接拿走，那样就测不到「政策法规库未命中退回通用检索」与「商业站点顶不掉官方原文」。
+const noDocs: Map<string, VerifiedOfficialDoc> = new Map();
 const libTarget: RefCheckTarget = {
   key: refKey("docref", "2019年第41号"),
   kind: "docref",
@@ -1080,6 +1091,7 @@ const libRan = await runRefChecks(
     throw new Error("政策法规库已精确命中，不应再走通用检索");
   },
   async () => ({ hits: LIB_HITS, total: 1, status: 200, error: null }),
+  noDocs,
 );
 expect("政策法规库精确命中判为找到出处", libRan[0]?.verdict, "matched");
 ok("说明写明来自政策法规库", (libRan[0]?.note ?? "").includes("政策法规库"), libRan[0]?.note);
@@ -1099,7 +1111,7 @@ expect(
 
 clearLib();
 const missLib: PolicySearcher = async () => ({ hits: [LIB_HITS[1]!], total: 6, status: 200, error: null });
-const libMiss = await runRefChecks(LIB_TASK, [libTarget], webHit, missLib);
+const libMiss = await runRefChecks(LIB_TASK, [libTarget], webHit, missLib, noDocs);
 expect("库内无相符发文字号时退回通用检索", libMiss[0]?.verdict, "matched");
 ok(
   "未命中时如实说明库内没有发文字号相符的",
@@ -1110,7 +1122,7 @@ expect("退回通用检索后两路都留痕", libMiss[0]?.attempts.length, 2);
 
 clearLib();
 const errLib: PolicySearcher = async () => ({ hits: [], total: 0, status: null, error: "接口超时" });
-const libErr = await runRefChecks(LIB_TASK, [libTarget], webHit, errLib);
+const libErr = await runRefChecks(LIB_TASK, [libTarget], webHit, errLib, noDocs);
 expect("政策法规库接口失败不影响通用检索", libErr[0]?.verdict, "matched");
 expect(
   "接口失败如实记为 error",
@@ -1175,9 +1187,9 @@ const libHit: PolicySearcher = async () => ({ hits: LIB_HITS, total: 1, status: 
 const libMiss2: PolicySearcher = async () => ({ hits: [], total: 0, status: 200, error: null });
 
 clearGuard();
-await runRefChecks(GUARD_TASK, [guardTarget], webHit, libHit);
+await runRefChecks(GUARD_TASK, [guardTarget], webHit, libHit, noDocs);
 expect("前置：证据已是官方原文", listRefChecks(GUARD_TASK)[0]?.evidence?.grade, "official");
-const downgraded = await runRefChecks(GUARD_TASK, [guardTarget], proSearcher, libMiss2);
+const downgraded = await runRefChecks(GUARD_TASK, [guardTarget], proSearcher, libMiss2, noDocs);
 expect("商业站点顶不掉官方原文", listRefChecks(GUARD_TASK)[0]?.evidence?.grade, "official");
 expect(
   "证据地址没被换掉",
@@ -1197,12 +1209,101 @@ ok(
 );
 
 clearGuard();
-await runRefChecks(GUARD_TASK, [guardTarget], proSearcher, libMiss2);
+await runRefChecks(GUARD_TASK, [guardTarget], proSearcher, libMiss2, noDocs);
 expect("前置：先记为专业来源", listRefChecks(GUARD_TASK)[0]?.evidence?.grade, "professional");
-await runRefChecks(GUARD_TASK, [guardTarget], webHit, libHit);
+await runRefChecks(GUARD_TASK, [guardTarget], webHit, libHit, noDocs);
 expect("官方原文可以顶掉专业来源", listRefChecks(GUARD_TASK)[0]?.evidence?.grade, "official");
 expect("升级后仍是一条记录", listRefChecks(GUARD_TASK).length, 1);
 clearGuard();
+
+// 12) 跨任务复用已核实的官方原文：命中索引就不发任何网络请求
+expect(
+  "snippet 是完整字号时可复用",
+  reusableDocNum("〔2010〕220号", "国税函〔2010〕220号"),
+  "国税函[2010]220号",
+);
+expect("snippet 与文号相同（没补出机关）时不可复用", reusableDocNum("〔2010〕220号", "〔2010〕220号"), "");
+expect("snippet 是页面正文时不可复用", reusableDocNum("〔2010〕220号", "国家税务总局关于清算有关问题的通知 阅读量"), "");
+expect("空值不可复用", reusableDocNum("", ""), "");
+
+const REUSE_SRC = "__verify_refcheck_reuse_src__";
+const REUSE_DST = "__verify_refcheck_reuse_dst__";
+const REUSE_URL = "http://fgk.chinatax.gov.cn/zcfgk/c100012/c9999999/content.html";
+const clearReuse = () => {
+  db.prepare(`DELETE FROM ref_checks WHERE task_id = ?`).run(REUSE_SRC);
+  db.prepare(`DELETE FROM ref_checks WHERE task_id = ?`).run(REUSE_DST);
+};
+clearReuse();
+saveRefCheck(REUSE_SRC, {
+  key: refKey("docref", "〔2099〕999号"),
+  kind: "docref",
+  text: "〔2099〕999号",
+  query: "国税函〔2099〕999号",
+  verdict: "matched",
+  note: "国家税务总局政策法规库按发文字号精确命中，链接为官方原文页",
+  evidence: {
+    title: "国家税务总局关于验证用虚构文件的通知",
+    url: REUSE_URL,
+    snippet: "国税函〔2099〕999号",
+    grade: "official",
+    gradeReason: "",
+  },
+  subjectUrl: "",
+  attempts: [],
+  checkedAt: "2026-09-29T10:00:00.000Z",
+});
+expect("索引键为归一化后的完整发文字号", verifiedOfficialDocs().get("国税函[2099]999号")?.evidence.grade, "official");
+expect("索引记下最初核实的任务", verifiedOfficialDocs().get("国税函[2099]999号")?.taskId, REUSE_SRC);
+
+const reuseTarget: RefCheckTarget = {
+  key: refKey("docref", "〔2099〕999号"),
+  kind: "docref",
+  text: "〔2099〕999号",
+  context: "打开成功，确认为国税函〔2099〕999号原文",
+};
+const reused = await runRefChecks(
+  REUSE_DST,
+  [reuseTarget],
+  async () => {
+    throw new Error("复用已核实证据时不应发起通用检索");
+  },
+  async () => {
+    throw new Error("复用已核实证据时不应发起政策法规库检索");
+  },
+);
+expect("复用即判为找到出处", reused[0]?.verdict, "matched");
+expect("证据地址来自已核实记录", reused[0]?.evidence?.url, REUSE_URL);
+expect("证据分级为官方原文", reused[0]?.evidence?.grade, "official");
+ok("note 说明是复用而不是新检索", (reused[0]?.note ?? "").includes("复用"), reused[0]?.note);
+ok(
+  "留痕写明本次未发起检索",
+  (reused[0]?.attempts ?? []).some((a) => a.engine === "fgk" && a.note.includes("本次未发起检索")),
+  JSON.stringify(reused[0]?.attempts),
+);
+expect("复用结果同样落库", listRefChecks(REUSE_DST).length, 1);
+
+// 索引不收非官方证据：换成商业站点后同一字号不应再被复用
+clearReuse();
+saveRefCheck(REUSE_SRC, {
+  key: refKey("docref", "〔2099〕999号"),
+  kind: "docref",
+  text: "〔2099〕999号",
+  query: "国税函〔2099〕999号",
+  verdict: "matched",
+  note: "公开检索结果的标题或摘要中出现该文号",
+  evidence: {
+    title: "国税函〔2099〕999号 全文",
+    url: "https://www.shui5.cn/article/x/1.html",
+    snippet: "国税函〔2099〕999号",
+    grade: "professional",
+    gradeReason: "",
+  },
+  subjectUrl: "",
+  attempts: [],
+  checkedAt: "2026-09-29T10:00:00.000Z",
+});
+expect("非官方证据不进索引", verifiedOfficialDocs().has("国税函[2099]999号"), false);
+clearReuse();
 
 console.log(`[verify] 文号复查检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
