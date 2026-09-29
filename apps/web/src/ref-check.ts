@@ -383,6 +383,37 @@ export function offTopicCitationTitles(
 /** 候选排序：官方原文优先，其次专业来源，再看相关度 */
 const GRADE_RANK: Record<string, number> = { official: 0, professional: 1, weak: 2 };
 
+/**
+ * 候选说明：把「两道主题关各自过没过」如实讲清楚。
+ *
+ * 早先不论哪道关拦下的都写「与原引用没有共同的涉税领域词」，实测 17 条候选全挂着这一句，
+ * 而其中真正的原因往往是第二道关——替代来源与原引用共用了「土地」一类领域词，却与这份结论的
+ * 主题词（「土地增值税」）不相干，正是 gradeRefCheck 注释里点名要挡的那类替换。人工复核照着
+ * 错的说明去补，只会往错的方向找。
+ *
+ * 结论里取不到领域词时也要说清：那是「无从判断」，不是「判断为不相干」，两者的处置方式不同。
+ */
+export function topicGapReason(originalTitle: string, hint: string, hitTitle: string, hitSnippet = ""): string {
+  const overlap = domainOverlap(originalTitle, hitTitle, hitSnippet);
+  const h = (hint ?? "").trim();
+  // 第二道关的三种结果要分开说：不相干是判定，取不到领域词是无从判定，处置方式不同
+  const topic =
+    h === ""
+      ? { text: "结论里取不到涉税领域词，无从判断它谈的是不是这份结论的事", ok: false }
+      : onTaskTopic(h, hitTitle, hitSnippet)
+        ? { text: `与结论主题词「${h}」相符`, ok: true }
+        : { text: `与结论主题词「${h}」不相干，看不出谈的是这份结论的事`, ok: false };
+  // 返回值自带句首连接词，调用方直接接在「检索到官方站点页面」后面。
+  // 连接词按两段的肯定/否定配对：两段都否定用「且」，一肯定一否定用「但」。
+  // 实测把连接词留在调用方会撞车——外层固定写「但」，内层又起「虽」，出来是「但虽与原引用…」。
+  if (overlap.length > 0) {
+    return `虽与原引用「${originalTitle}」有共同涉税领域词「${overlap.join("、")}」，但${topic.text}`;
+  }
+  return topic.ok
+    ? `与原引用「${originalTitle}」没有共同的涉税领域词，但${topic.text}`
+    : `但与原引用「${originalTitle}」没有共同的涉税领域词，且${topic.text}`;
+}
+
 function bestHit(hits: RefSearchHit[]): RefSearchHit | null {
   if (hits.length === 0) return null;
   return hits
@@ -442,7 +473,7 @@ export function gradeRefCheck(t: RefCheckTarget, outcome: RefSearchOutcome): Ref
       return {
         verdict: "candidate",
         evidence: toEvidence(unrelated),
-        note: `检索到官方站点页面，但与原引用「${t.text}」没有共同的涉税领域词，看不出谈的是同一件事，需人工确认后再替换`,
+        note: `检索到官方站点页面，${topicGapReason(t.text, hint, unrelated.title, unrelated.snippet ?? "")}，需人工确认后再替换`,
       };
     }
     const best = bestHit(pool);

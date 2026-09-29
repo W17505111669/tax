@@ -33,6 +33,7 @@ import {
   summarizeRefChecks,
   toRevisionItems,
   trimEdgeWords,
+  topicGapReason,
   uniqueVerifiedDocNum,
   refPrefix,
   type RefCheckTarget,
@@ -1016,6 +1017,50 @@ const unrelatedOfficial = gradeRefCheck(
 );
 expect("官方页但主题不相关 → 只给候选", unrelatedOfficial.verdict, "candidate");
 ok("候选说明写清是主题不相关", (unrelatedOfficial.note ?? "").includes("没有共同的涉税领域词"), unrelatedOfficial.note);
+ok(
+  "候选说明写清结论里取不到领域词（该用例没传 hint，是无从判断而不是判为不相干）",
+  (unrelatedOfficial.note ?? "").includes("结论里取不到涉税领域词"),
+  unrelatedOfficial.note,
+);
+// 候选说明必须分清是哪道主题关拦下的：人工复核照着说明去补，说明错了就找错方向
+const gapSharedWord = topicGapReason("国家税务总局公告2017年第40号", "土地增值税", "国家税务总局公告2017年第40号 全文", "");
+ok(
+  "共用领域词但不谈这份结论的事时，写明是第二道关拦下的",
+  gapSharedWord.includes("虽与原引用") &&
+    gapSharedWord.includes("有共同涉税领域词") &&
+    gapSharedWord.includes("不相干") &&
+    gapSharedWord.includes("土地增值税") &&
+    !gapSharedWord.includes("没有共同的涉税领域词"),
+  gapSharedWord,
+);
+const gapNoSharedWord = topicGapReason("国家政务服务平台", "研发费用", "研发费用加计扣除政策执行指引", "");
+ok(
+  "没有共同领域词但与结论主题相符时也如实说，不谎称两道关都没过",
+  gapNoSharedWord.includes("没有共同的涉税领域词") && gapNoSharedWord.includes("相符") && !gapNoSharedWord.includes("不相干"),
+  gapNoSharedWord,
+);
+const gapBothFail = topicGapReason("国家政务服务平台", "土地增值税", "中华人民共和国土地管理法实施条例", "");
+ok(
+  "两道关都没过时用「且」而不是连用两个「但」",
+  gapBothFail.includes("没有共同的涉税领域词") &&
+    gapBothFail.includes("，且与结论主题词「土地增值税」不相干") &&
+    !gapBothFail.includes("，但"),
+  gapBothFail,
+);
+ok(
+  "第一道关过了、第二道关没过时用「虽…但…」",
+  gapSharedWord.includes("虽与原引用") && gapSharedWord.includes("，但与结论主题词"),
+  gapSharedWord,
+);
+// 句首连接词由函数自己带，调用方不再补「但」：实测外层固定写「但」会与内层的「虽」撞成「但虽与原引用…」
+expect("两道关都没过时句首用「但」", gapBothFail.startsWith("但与原引用"), true);
+expect("第一道关过了时句首用「虽」", gapSharedWord.startsWith("虽与原引用"), true);
+expect("只有第二道关过了时句首不加连接词", gapNoSharedWord.startsWith("与原引用"), true);
+ok(
+  "结论取不到领域词时不冒充主题判定",
+  topicGapReason("研发费用加计扣除", "  ", "中华人民共和国增值税暂行条例", "").includes("结论里取不到涉税领域词"),
+  topicGapReason("研发费用加计扣除", "  ", "中华人民共和国增值税暂行条例", ""),
+);
 expect(
   "候选仍给出证据链接",
   unrelatedOfficial.evidence?.url,
