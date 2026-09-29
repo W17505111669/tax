@@ -6,9 +6,11 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { computePlatformStats } from "../src/services/stats.ts";
 import { db } from "../src/db.ts";
 import { dirs } from "../src/config.ts";
+import { docRefSnapshotText, evidenceSnapshotText } from "./materials-lib.ts";
 
 const failures: string[] = [];
 let checks = 0;
@@ -190,6 +192,23 @@ expect("有历史未过滤记录时才回算", ev.searchDroppedReplay === 0 || l
 console.log(
   `[verify] 证据可信度：检索 ${ev.searchCalls} 次（留来源 ${ev.searchWithUrls} / 仅元数据 ${ev.searchMetadataOnly}）· 引用 ${ev.citations} 条（工具留存 ${ev.citationsFromTools} + 结论正文 ${ev.citationsFromConclusion}；官方 ${ev.officialCitations} · 弱 ${ev.weakCitations}，其中 ${ev.weakWithReplacement} 条已找到替代来源）· 拦下无关结果 ${ev.searchDropped + ev.searchDroppedReplay} 条 · 文号 ${ev.docRefs} 处（可溯源 ${ev.docRefTraced} · 待复查 ${ev.docRefPending} · 已复查到出处 ${ev.docRefMatched}）· 缺口任务 ${ev.gaps.length} 个`,
 );
+
+// 交付文档必须与实时数据同源：作品说明里的口径串由生成器在生成时取数拼出。
+// 一旦有人把数字写死回散文里，或者数据变了却没重生成，这里就会失败——作品说明自己写着
+// 「看板与交付材料不会对不上」，这句话不能由同一份文档里的另一段来打脸。
+const statsHere = path.dirname(fileURLToPath(import.meta.url));
+const competitionDir = path.join(path.resolve(statsHere, "..", "..", ".."), "docs", "competition");
+const materialDocs = fs.existsSync(competitionDir)
+  ? fs.readdirSync(competitionDir).filter((n) => n.endsWith("-作品说明.md"))
+  : [];
+expect("作品说明文档存在", materialDocs.length >= 2, true);
+for (const f of materialDocs) {
+  const text = fs.readFileSync(path.join(competitionDir, f), "utf8");
+  for (const snap of [evidenceSnapshotText(), docRefSnapshotText()]) {
+    // 不同源时这里会失败，处理办法是跑 pnpm gen:materials 后连同数据一起提交
+    expect(`${f} 含实时口径「${snap.slice(0, 20)}…」`, text.includes(snap), true);
+  }
+}
 
 console.log(
   `[verify] 平台统计检查项=${checks} 失败=${failures.length}（比对 ${runs} 次：最近 ${s.compareAccuracy ?? "n/a"}% / 累计 ${

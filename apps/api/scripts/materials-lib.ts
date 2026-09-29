@@ -4,6 +4,7 @@ import path from "node:path";
 import { db } from "../src/db.ts";
 import { dirs } from "../src/config.ts";
 import { computePlatformStats } from "../src/services/stats.ts";
+import { BATCH_REF_BUDGET, BATCH_REF_MAX } from "../src/services/ref-checks.ts";
 
 /**
  * 作品说明里引用的那串全平台实测数字，直接取自 computePlatformStats。
@@ -23,6 +24,25 @@ export function evidenceSnapshotText(): string {
   ].join("、");
 }
 
+/**
+ * 文号复查的当前口径，与看板同源、生成时取数。
+ *
+ * 这一串数字曾以「实测一次点按覆盖 4 个任务 12 处文号：找到公开出处 9 处、候选待确认 1 处、
+ * 未检索到 2 处，平台口径随即从待复查 18 变为 12」的形式写死在作品说明里，而平台口径随后就变了
+ *（待复查一路降到 0），写死的那句立刻成了同一份文档里的反例——上一行还承诺「看板与交付材料不会对不上」。
+ */
+export function docRefSnapshotText(): string {
+  const ev = computePlatformStats().evidence;
+  return `文号 ${ev.docRefs} 处（有出处 ${ev.docRefTraced}，其中复查取得 ${ev.docRefTracedByRecheck} · 待复查 ${ev.docRefPending} · 复查判定 matched ${ev.docRefMatched}）`;
+}
+
+/**
+ * 批量复查的预算口径：直接取服务端的真常量，文档里不写死数字。
+ * 常量一改文档自动跟着改，不会出现「说明写 12 处、代码已经改成 20 处」。
+ */
+export function batchBudgetText(): string {
+  return `默认 ${BATCH_REF_BUDGET} 处、硬上限 ${BATCH_REF_MAX} 处`;
+}
 export const BACKGROUND: Record<string, string> = {
   "rd-audit":
     "面向企业研发费用加计扣除专项审查业务。事务所需要从研发项目资料、费用辅助账和企业财务记录中识别关键业务信息，检查费用归集情况，结合税收政策形成专业审查意见。传统方式下资料来源分散、辅助账与财务账需人工核对、不同费用类型涉及不同归集要求、专项审查底稿编制工作量大。",
