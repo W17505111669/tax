@@ -126,6 +126,12 @@ const cell = (
 ): string => ledgerCells(r, name)[LEDGER_COLUMNS.indexOf(col)]!;
 
 expect("列数与表头一致", ledgerCells(row(), (x) => x).length, LEDGER_COLUMNS.length);
+// 界面按列名给欠账两列上色，列名一改就会静默失去高亮：这里替它盯着
+expect(
+  "欠账两列的列名仍在表头里",
+  (["待复查", "证据力弱"] as const).every((c) => (LEDGER_COLUMNS as readonly string[]).includes(c)),
+  true,
+);
 expect("文号列写成 有出处/总数", cell(row(), "文号 有出处/总数"), "2/4");
 expect("复查取得单独成列", cell(row(), "其中复查取得"), "1");
 expect("金额列写成 待确认/总数", cell(row(), "金额 待确认/总数"), "2/10");

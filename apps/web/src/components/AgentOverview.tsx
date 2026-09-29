@@ -27,6 +27,13 @@ const DESC_KEYWORDS = ["整数分", "行级", "记录级", "OCR", "mermaid", "�
 
 const RING_C = 2 * Math.PI * 12;
 
+/**
+ * 台账里要标琥珀色的两列欠账（待复查 / 证据力弱）。
+ * 按列名取下标而不是写死数字：新增「其中复查取得」一列后，硬编码的 4 与 8 当场错位到了
+ * 「其中复查取得」和「官方原文」，欠账列反而不再高亮。与验证脚本同一套防错位做法。
+ */
+const LEDGER_GAP_COLS = new Set([LEDGER_COLUMNS.indexOf("待复查"), LEDGER_COLUMNS.indexOf("证据力弱")]);
+
 /** 智能体描述中的能力关键词高亮。 */
 function renderDesc(text: string) {
   const re = new RegExp(`(${DESC_KEYWORDS.join("|")})`, "g");
@@ -983,8 +990,8 @@ export function AgentOverview({
                               ) : (
                                 <td
                                   key={i}
-                                  className={`whitespace-nowrap border-b border-line/60 px-1.5 py-1 ${
-                                    (i === 4 || i === 8) && cell !== "0" ? "text-amber-300" : "text-mist-500"
+                                className={`whitespace-nowrap border-b border-line/60 px-1.5 py-1 ${
+                                    LEDGER_GAP_COLS.has(i) && cell !== "0" ? "text-amber-300" : "text-mist-500"
                                   }`}
                                 >
                                   {cell}
