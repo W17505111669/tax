@@ -141,10 +141,16 @@ export function pendingRefTargets(taskId: string): RefCheckTarget[] {
 }
 
 /**
- * 证据升级候选：已 matched 但证据不是官方站点的文号。
+ * 证据升级候选：已 matched 但证据不是政策法规库原文页的文号。
  *
- * 政策法规库接入后这些记录有机会换成官方原文页——实测库里 23 条 matched 的文号证据中，
- * 13 条来自 shui5.cn、ohmi.net.cn 一类商业或第三方站点，只有 10 条是官方。
+ * 判据是「原文页」而不是「官方站点」：主站解读频道页（www.chinatax.gov.cn/chinatax/…）按分级
+ * 同样算 official，但它只是链接到原文、不是原文本身。早先用 grade !== "official" 筛，这类记录
+ * 永远进不了候选——「国家税务总局公告2017年第40号」的任务级证据就一直卡在解读页上，重跑多少次
+ * 都不会被修正。改成 !isLibraryDocUrl 之后，它才有机会被换成 zcfgk 文档树下的原文页。
+ *
+ * 放宽候选不会把已核实的好证据拿去冒险：verifiedOfficialDocs 只收原文页，runRefChecks 命中复用
+ * 索引就直接返回，已经是原文页的记录根本不会再发请求。
+ * 实测库里 23 条 matched 的文号证据中，13 条来自 shui5.cn、ohmi.net.cn 一类商业或第三方站点。
  * 批量复查把未解决项排在前面、升级项排在最后：预算先补欠账，有余力再提升已有证据的质量。
  *
  * 只放行能构造出完整发文字号的（上下文里有发文机关）——机关不明就不该猜是哪一份文件。
@@ -160,7 +166,7 @@ export function upgradeRefTargets(taskId: string): RefCheckTarget[] {
           c.kind === "docref" &&
           c.verdict === "matched" &&
           c.evidence !== null &&
-          gradeCitation(c.evidence.url, c.evidence.title).grade !== "official",
+          !isLibraryDocUrl(c.evidence.url),
       )
       .map((c) => c.key),
   );

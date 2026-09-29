@@ -1543,7 +1543,52 @@ ok(
   keptBetterNote("原有说明", "professional", "2026-09-29T10:00:00.000Z").startsWith("原有说明；"),
 );
 
-// 升级候选来自真实数据：只挑已 matched 但证据非官方、且能构造完整发文字号的文号
+// 升级候选的判据是「原文页」而不是「官方站点」：解读页同域名也算 official，
+// 早先的写法会把它永久排除在候选之外，重跑多少次都修不回来。
+const UP_TASK = "__verify_refcheck_upgrade__";
+const UP_KEY = refKey("docref", "2017年第40号");
+const INTERPRET_URL = "https://www.chinatax.gov.cn/chinatax/n810341/n810755/c5194759/content.html";
+const LIBRARY_URL = "http://fgk.chinatax.gov.cn/zcfgk/c100012/c5194758/content.html";
+const clearUp = () => {
+  db.prepare(`DELETE FROM ref_checks WHERE task_id = ?`).run(UP_TASK);
+  db.prepare(`DELETE FROM tasks WHERE id = ?`).run(UP_TASK);
+};
+clearUp();
+db.prepare(
+  `INSERT INTO tasks (id, agent_id, case_id, title, status, instruction, result, created_at, updated_at)
+   VALUES (?, 'rd-audit', 'VERIFY-UP', '升级候选判据', 'completed', '', ?, ?, ?)`,
+).run(UP_TASK, "经复核，适用国家税务总局公告2017年第40号。", "2026-09-29T10:00:00.000Z", "2026-09-29T10:00:00.000Z");
+const saveUp = (url: string, title: string) =>
+  saveRefCheck(UP_TASK, {
+    key: UP_KEY,
+    kind: "docref",
+    text: "2017年第40号",
+    query: "国家税务总局公告2017年第40号",
+    verdict: "matched",
+    note: "",
+    evidence: {
+      title,
+      url,
+      snippet: "国家税务总局公告2017年第40号",
+      grade: gradeCitation(url, title).grade,
+      gradeReason: "",
+    },
+    subjectUrl: "",
+    attempts: [],
+    checkedAt: "2026-09-29T10:00:00.000Z",
+  });
+
+// 顺序按证据力从低到高：不降级护栏会挡住反向替换，倒过来写测不到东西
+saveUp("https://www.shui5.cn/article/36/143141.html", "国家税务总局公告2017年第40号 全文");
+expect("商业站点是升级候选", upgradeRefTargets(UP_TASK).map((t) => t.key), [UP_KEY]);
+saveUp(INTERPRET_URL, "《国家税务总局关于研发费用税前加计扣除归集范围有关问题的公告》的解读");
+expect("解读页按分级仍算官方", gradeCitation(INTERPRET_URL, "解读").grade, "official");
+expect("官方站点的解读页同样是升级候选", upgradeRefTargets(UP_TASK).map((t) => t.key), [UP_KEY]);
+saveUp(LIBRARY_URL, "国家税务总局关于研发费用税前加计扣除归集范围有关问题的公告");
+expect("已是政策法规库原文页就不再当候选", upgradeRefTargets(UP_TASK).length, 0);
+clearUp();
+
+// 升级候选来自真实数据：只挑已 matched 但证据不是政策法规库原文页、且能构造完整发文字号的文号
 const upAll = listTasks().flatMap((t) => upgradeRefTargets(t.id).map((x) => ({ id: t.id, x })));
 expect("升级候选都是文号类", upAll.every((o) => o.x.kind === "docref"), true);
 ok(
