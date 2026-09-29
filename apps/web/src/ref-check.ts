@@ -362,7 +362,13 @@ export function offTopicCitationTitles(
   //（实测按整篇正文比对时 54 条引用里 0 条被判跑题）。
   let body = conclusionText ?? "";
   for (const c of citations) {
+    // 标题与地址都要剔掉。剔标题是因为结论末尾常列引用清单，留着就是拿标题和它自己比
+    //（自证循环，实测会让 54 条引用一条也判不出来）；剔地址是因为地址里的数字与域名片段
+    // 同样会混进词元——实测「12366纳税服务平台」正因为它自己的地址写在结论里，
+    // 标题词元「12366」与正文撞车而蒙混过关。实测 54 条引用里只有 32 条标题原样出现在
+    // 结论中，却有更多条的地址在正文里，只剔标题会漏掉一大片。
     if (c.title.trim() !== "") body = body.split(c.title).join(" ");
+    if (c.url.trim() !== "") body = body.split(c.url).join(" ");
   }
   const base = new Set(topicTokens(body));
   if (base.size === 0) return [];

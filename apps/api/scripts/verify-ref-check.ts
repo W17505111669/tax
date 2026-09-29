@@ -1159,6 +1159,24 @@ expect(
   [],
 );
 expect("没有引用时返回空", offTopicCitationTitles([], CONCLUSION).length, 0);
+// 两条机制护栏：判据靠「把引用清单从正文里剔掉」打破自证循环，剔除一旦失效就会静默退回
+// 0 命中，而 0 命中不会让任何断言失败——因此这里直接构造「结论里列着引用」的场景盯着它。
+expect(
+  "结论里列着引用标题时仍能判出跑题（标题剔除生效）",
+  offTopicCitationTitles(
+    [{ title: "国家（政治地理学名词）_百度百科", url: "https://baike.baidu.com/item/x" }],
+    "本项目研发费用加计扣除比例按 100% 计算。引用清单：国家（政治地理学名词）_百度百科",
+  ).length,
+  1,
+);
+expect(
+  "结论里只写了引用地址时仍能判出跑题（地址剔除生效，否则地址里的数字会撞车）",
+  offTopicCitationTitles(
+    [{ title: "12366纳税服务平台", url: "https://12366.chinatax.gov.cn/" }],
+    "本项目研发费用加计扣除比例按 100% 计算。引用：https://12366.chinatax.gov.cn/",
+  ).length,
+  1,
+);
 expect(
   "研发类命中页与研发类主题词对得上",
   onTaskTopic("研发费用 加计扣除", "研发费用加计扣除 政策执行指引 （2.0版）", ""),
