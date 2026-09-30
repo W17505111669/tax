@@ -1,6 +1,7 @@
 /**
  * 验证脚本：政策文号溯源（提取 / 归一化 / 三级口径 / 真实任务走查）。
- * 运行：pnpm verify:policy
+ * 运行：pnpm verify:policytrace
+ *（此前写成 verify:policy，那是智研税审政策库的另一项检查——照着跑能过，但根本没验到这个脚本）
  */
 import {
   collectRefStrings,
