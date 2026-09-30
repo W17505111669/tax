@@ -918,18 +918,22 @@ export function Sidebar({
           const toolSum = list.reduce((a, t) => a + (t.toolCount ?? 0), 0);
           return (
             <div key={g.id} className="mb-1">
-              <button
-                type="button"
-                onClick={() => setCollapsed((prev) => ({ ...prev, [g.id]: !closed }))}
-                title={
-                  list.length
-                    ? `最早 ${new Date(Math.min(...list.map((t) => Date.parse(t.createdAt)))).toLocaleString("zh-CN", {
-                        hour12: false,
-                      })} · 最晚 ${new Date(Math.max(...list.map((t) => Date.parse(t.createdAt)))).toLocaleString("zh-CN", { hour12: false })}`
-                    : undefined
-                }
-                className="flex w-full items-center gap-1.5 px-2 py-1 text-[10.5px] font-medium uppercase tracking-[0.14em] text-mist-600 transition-colors hover:text-mist-300"
-              >
+              {/* 折叠与「按工具数排序」是两个独立控件，必须做成兄弟节点：把排序按钮嵌在折叠按钮
+                  里面是非法 HTML（button 不得包含 button），React 会报 hydration 警告，内层点击还
+                  可能冒泡触发外层折叠。改成 flex 行 + 两个并列 button，视觉与原来一致 */}
+              <div className="flex w-full items-center gap-1.5 px-2 py-1">
+                <button
+                  type="button"
+                  onClick={() => setCollapsed((prev) => ({ ...prev, [g.id]: !closed }))}
+                  title={
+                    list.length
+                      ? `最早 ${new Date(Math.min(...list.map((t) => Date.parse(t.createdAt)))).toLocaleString("zh-CN", {
+                          hour12: false,
+                        })} · 最晚 ${new Date(Math.max(...list.map((t) => Date.parse(t.createdAt)))).toLocaleString("zh-CN", { hour12: false })}`
+                      : undefined
+                  }
+                  className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-[10.5px] font-medium uppercase tracking-[0.14em] text-mist-600 transition-colors hover:text-mist-300"
+                >
                 <span className={`chev text-[9px] ${closed ? "" : "rotate-90"}`}>▶</span>
                 <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[g.id] ?? "bg-mist-600"}`} />
                 {list.some((t) => t.status === "processing") && (
@@ -944,9 +948,10 @@ export function Sidebar({
                   />
                 )}
                 {g.label}
+                </button>
                 <button
                   type="button"
-                  className="ml-auto font-mono text-[10px] transition-colors hover:text-glow-300"
+                  className="ml-auto shrink-0 font-mono text-[10px] transition-colors hover:text-glow-300"
                   title={`组内任务 ${list.length} 件 · 工具调用合计 ${toolSum}（点击按工具数排序）`}
                   data-on={sortTools}
                   onClick={() => setSortTools((v) => !v)}
@@ -954,7 +959,7 @@ export function Sidebar({
                   {list.length}
                   <span className="ml-1 opacity-70">Σ{toolSum}</span>
                 </button>
-              </button>
+              </div>
               {!closed && list.map((task) => renderTaskRow(task))}
             </div>
           );

@@ -207,6 +207,19 @@ export interface PlatformStats {
   toolFailed: number;
   /** ok IS NULL：调用发起了但结果没能写回该行，既不是成功也不是失败（口径见 tool-outcome.ts） */
   toolUnfinished: number;
+  /**
+   * 失败调用的逐条清单（按时间倒序，服务端最多给 50 条），总数看 toolFailed。
+   * 形状与 tool-failures.ts 的 FailureItem 一致，可直接交给 groupFailures 归因分类。
+   */
+  toolFailures: Array<{
+    taskId: string;
+    taskTitle: string;
+    agentId: string;
+    toolName: string;
+    error: string;
+    args: string;
+    startedAt: string;
+  }>;
   artifacts: number;
   compareAccuracy: number | null;
   compareRuns: number;

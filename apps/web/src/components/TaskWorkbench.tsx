@@ -18,6 +18,9 @@ import type {
 } from "../types.ts";
 import { useTaskEvents } from "../hooks/useTaskEvents.ts";
 import { MarkdownView, type Annotation } from "./MarkdownView.tsx";
+// 目录、摘要、差异行、关键词段落这些「一句话展示位」不能直接塞结论原文，否则 ###、反引号、
+// ** 与表格竖线会原样显示出来。正文渲染仍走 MarkdownView，这里只负责把片段转成可读纯文本。
+import { countTables, markdownToPlainText, plainLine, plainSnippet, tocEntries } from "../md-text.ts";
 import { readerKey, SideReader, type ReaderTarget } from "./SideReader.tsx";
 import { loadTags, saveTags } from "../tags.ts";
 import { matchToolCalls } from "../timeline-calls.ts";
@@ -787,10 +790,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   };
 
   const toc = useMemo(
-    () =>
-      (finalResult.match(/^#{2,3} .+$/gm) ?? [])
-        .map((h) => h.replace(/^#{2,3} /, ""))
-        .slice(0, 24),
+    // 条目顺序与 MarkdownView 的 sec-N 锚点一致（同样只取 h2/h3、同样按出现顺序），跳转不会错位
+    () => tocEntries(finalResult),
     [finalResult],
   );
 
@@ -800,8 +801,9 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       finalResult.split(/\n{2,}/).find((s) => s.trim() && !s.startsWith("#") && !s.startsWith("|") && !s.startsWith("```")) ??
       "";
     return {
-      firstPara: firstPara.trim().slice(0, 220),
-      tables: (finalResult.match(/^\| ?---/gm) ?? []).length,
+      firstPara: plainSnippet(firstPara, 220),
+      // 分隔行可能带对齐冒号（|:---|---:|），旧正则一张也数不到，见 md-text.ts 的 countTables
+      tables: countTables(finalResult),
       mermaids: (finalResult.match(/```mermaid/g) ?? []).length,
       heads: (finalResult.match(/^#{2,4} /gm) ?? []).length,
     };
@@ -815,9 +817,12 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     if (!kwFilter || !finalResult) return [];
     return finalResult
       .split(/\n{2,}/)
-      .map((s) => s.trim())
+      // 先转纯文本再匹配关键词：否则用户搜「加计扣除」，命中的可能是被 ** 包起来的同一段文字，
+      // 而显示出来又带着记号，搜到的和看到的不是一回事
+      .map((s) => markdownToPlainText(s))
       .filter((s) => s.includes(kwFilter))
-      .slice(0, 6);
+      .slice(0, 6)
+      .map((s) => plainSnippet(s, 240));
   }, [kwFilter, finalResult]);
 
   // 续跑场景：上一次运行的结论摘录，供对照本次结论
@@ -2203,7 +2208,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                 {prevConclusion && (
                   <div className="no-print mb-3 rounded-md border border-line bg-night-850 px-3 py-2 text-[11.5px] leading-5 text-mist-500">
                     <span className="kicker mr-2">上次运行结论</span>
-                    {prevConclusion.replace(/\s+/g, " ").slice(0, 120)}…（{prevConclusion.length} 字 · 本次 {finalResult.length} 字）
+                    {plainSnippet(prevConclusion, 120)}（{prevConclusion.length} 字 · 本次 {finalResult.length} 字）
                   </div>
                 )}
                 {conclDiff && (
@@ -2212,14 +2217,14 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                     {conclDiff.added.length > 0 && (
                       <ul className="space-y-0.5 text-[11.5px] leading-5 text-jade-400">
                         {conclDiff.added.map((s, i) => (
-                          <li key={`a${i}`}>+ {s}</li>
+                          <li key={`a${i}`}>+ {plainLine(s)}</li>
                         ))}
                       </ul>
                     )}
                     {conclDiff.removed.length > 0 && (
                       <ul className="mt-1 space-y-0.5 text-[11.5px] leading-5 text-rose-300">
                         {conclDiff.removed.map((s, i) => (
-                          <li key={`r${i}`}>- {s}</li>
+                          <li key={`r${i}`}>- {plainLine(s)}</li>
                         ))}
                       </ul>
                     )}
@@ -2248,7 +2253,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                   <div className="text-[12px] font-semibold text-mist-100 print:text-gray-900">目录</div>
                   <ul className="mt-1 list-decimal pl-5 text-[11px] leading-5 text-mist-400 print:text-gray-700">
                     {toc.map((h, i) => (
-                      <li key={h}>
+                      // key 带上下标：目录文字已剥掉 Markdown 记号，两个不同层级的同名小节会撞 key
+                      <li key={`${i}-${h}`}>
                         <button
                           type="button"
                           className="underline decoration-transparent underline-offset-2 transition-colors hover:text-glow-300 hover:decoration-glow-400 print:hover:text-gray-700"
@@ -2635,7 +2641,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
               <div className="kicker mb-1">目录</div>
               <ul className="max-h-40 space-y-0.5 overflow-y-auto">
                 {toc.map((h, i) => (
-                  <li key={h}>
+                  <li key={`${i}-${h}`}>
                     <button
                       type="button"
                       className="block w-full truncate rounded px-1.5 py-0.5 text-left text-[11px] text-mist-500 transition-colors hover:bg-night-800 hover:text-mist-100"

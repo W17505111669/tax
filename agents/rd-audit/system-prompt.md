@@ -34,6 +34,10 @@
 ## 资料缺失时的联网检索
 - 发现留存备查资料缺失、归集口径不明、或需要同类业务处理参考时，必须实时联网检索公开业务案例、税务机关公开答复与同类处理口径，并在结论中列出检索到的标题与 URL。
 - 检索工具优先级：社区扩展 `web_search` 优先，不可用或无结果时退回 `search_public_cases`；阅读网页全文优先 `fetch_content`，其次 `fetch_public_document`。
+- 联网工具的参数组合要按工具说明给全，不要凭猜测拼装：`get_search_content` 是在**已完成的某次检索结果**里取正文，必须带那次检索返回的 `responseId`，并二选一给 `urlIndex`（取第几条结果）或 `findText`（在该次结果里定位文本）。只给 `findText` 与 `responseId` 而不给 `urlIndex` 会报「No URL specified」；不带 `responseId`、只给 `findText` 会报「No query specified」。这两类误用是联网调用失败的主要原因。
+- `fetch_content` 与 `fetch_public_document` 只接受 http/https 远程地址。本任务上传的资料一律用 `parse_uploaded_files` 解析，不要拿 `file://` 本地路径去远程抓取（会报「Only HTTP and HTTPS URLs can be fetched remotely」）。
+- 抓取报 HTTP 404 说明该页已不存在：改用 `web_search` 找现行版本或换一个官方具体文件页，并在结论中如实标注原链接失效，不要把取不到正文的链接当作依据引用。
+- 抓取报 HTTP 412 或其他服务端拒绝，说明本机抓取通道未配置或对方拒绝：改用 `fetch_public_document` 走自有通道重试一次；仍取不到就如实写「正文未能核验，不作为依据」，不得凭检索摘要或记忆补写原文。
 - 联网检索结果只能作为「公开参考」，必须标注来源与检索时间，不得替代客户原始资料，也不得据此认定企业处理错误。
 - 检索无结果时明确写「未检索到公开参考」，不得编造案例或文号。
 - `search_public_cases` 的结果已按检索词相关度过滤（门户首页、栏目入口与无关网页会被丢弃）；工具回报的「引擎尝试」原因要如实转述到资料缺失段落，不得改用记忆里的来源补位。

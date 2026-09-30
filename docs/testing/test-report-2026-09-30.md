@@ -85,6 +85,10 @@
 | 票面字段抽取闭环 | land-vat | LV-2026-003 | waiting_review | parse_uploaded_files → parse_contract → parse_invoice → match_contract_invoice → web_search → check_amount_consistency → generate_workpaper | — | 1 个（上传 2） |
 | 关系图工具嵌入验证 | land-vat | LV-2026-004 | waiting_review | parse_uploaded_files → match_contract_invoice → match_contract_invoice → render_matching_diagram → web_search → search_public_cases → check_amount_consistency → generate_workpaper → fetch_content → fetch_public_document → fetch_public_document → web_search → search_public_cases → fetch_content → get_search_content(!) → get_search_content → get_search_content → fetch_content → fetch_content(!) → fetch_content | — | 1 个 |
 | 回归案例：土增模板映射填列 | land-vat | case-lv-template | completed | parse_uploaded_files → inspect_workpaper_template → match_contract_invoice → fill_land_vat_workpaper → render_matching_diagram → generate_workpaper | — | 2 个（上传 1） |
+| 渲染实测A 加计扣除测算 | rd-audit | DEMO-001 | completed | search_rd_policy → search_rd_policy → calculate_rd_adjustment | — | — |
+| 渲染实测B 双口径对照 | rd-audit | DEMO-001 | completed | search_rd_policy → calculate_rd_adjustment | — | — |
+| 渲染实测C 关系图 | rd-audit | DEMO-001 | completed | — | — | — |
+| 渲染实测D 归属假设演算 | land-vat | DEMO-001 | waiting_review | match_contract_invoice → render_matching_diagram | — | — |
 
 ## 四、准确率统计（记录级比对口径）
 

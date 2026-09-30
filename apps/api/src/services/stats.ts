@@ -104,6 +104,64 @@ export interface EvidenceStats {
   ledger: LedgerRow[];
 }
 
+/** 失败调用清单的条数上限：看板要能逐条点开，但也不必把上千条塞进一次响应 */
+const FAILURE_LIMIT = 50;
+
+/** 一次失败的工具调用（ok=0）。看板上的「失败 N」要能点开看到底是哪几次、错在哪。 */
+export interface ToolFailure {
+  taskId: string;
+  taskTitle: string;
+  agentId: string;
+  toolName: string;
+  /** 工具返回的错误正文（压掉换行并截断），完整内容前端用 title 悬浮给出 */
+  error: string;
+  /** 入参摘要：用来区分「模型传错参数」与「外部资源本身不可用」两类失败 */
+  args: string;
+  startedAt: string;
+}
+
+/** 把工具结果里的错误正文取出来：社区联网工具写在 details.error，别的工具可能整条就是错误文本 */
+function failureError(result: string | null): string {
+  const raw = String(result ?? "").trim();
+  if (!raw) return "(工具没有返回错误正文)";
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed === "string") return parsed;
+    if (parsed && typeof parsed === "object") {
+      const err = (parsed as { error?: unknown }).error;
+      if (typeof err === "string" && err.trim() !== "") return err;
+    }
+  } catch {
+    // 不是 JSON 就当纯文本错误
+  }
+  return raw;
+}
+
+/** 入参摘要：key=value 平铺、长值截断。失败排查第一眼要看的就是「模型到底传了什么」 */
+function failureArgs(args: string | null): string {
+  const raw = String(args ?? "").trim();
+  if (!raw || raw === "null") return "(无入参)";
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return Object.entries(parsed as Record<string, unknown>)
+        .map(([k, v]) => {
+          const s = typeof v === "string" ? v : JSON.stringify(v);
+          return `${k}=${s.length > 60 ? `${s.slice(0, 60)}…` : s}`;
+        })
+        .join(" · ");
+    }
+  } catch {
+    // 入参不是 JSON 就原样截断
+  }
+  return raw.length > 160 ? `${raw.slice(0, 160)}…` : raw;
+}
+
+function oneLine(text: string, max = 400): string {
+  const s = text.replace(/\s+/g, " ").trim();
+  return s.length > max ? `${s.slice(0, max)}…` : s;
+}
+
 export interface PlatformStats {
   tasks: number;
   completed: number;
@@ -121,6 +179,13 @@ export interface PlatformStats {
    * 平台侧此前没接上。
    */
   toolUnfinished: number;
+  /**
+   * 失败调用的逐条清单，按时间倒序，最多 FAILURE_LIMIT 条；总数看 toolFailed。
+   * 有了它，看板上的「失败 7」才不是一个只能干看着的数字：能点开看到是哪几次、传了什么参数、
+   * 错误正文说什么，从而分清「模型传错参数」「外部资源不可用」「本机抓取服务未配置」三类
+   * 完全不同的处置方式。
+   */
+  toolFailures: ToolFailure[];
   artifacts: number;
   compareAccuracy: number | null;
   compareRuns: number;
@@ -185,6 +250,7 @@ export function computePlatformStats(): PlatformStats {
   let toolOk = 0;
   let toolFailed = 0;
   let toolUnfinished = 0;
+  const toolFailures: ToolFailure[] = [];
   let artifacts = 0;
   let compareAccuracy: number | null = null;
   let compareRuns = 0;
@@ -272,6 +338,17 @@ export function computePlatformStats(): PlatformStats {
     toolFailed += failedCount;
     toolUnfinished += unfinishedCount;
     for (const call of calls) {
+      if (call.ok === 0) {
+        toolFailures.push({
+          taskId: task.id,
+          taskTitle: String(task.title ?? task.id),
+          agentId: task.agent_id,
+          toolName: call.tool_name,
+          error: oneLine(failureError(call.result)),
+          args: oneLine(failureArgs(call.args), 220),
+          startedAt: String(call.started_at ?? ""),
+        });
+      }
       let bucket = perToolMap.get(call.tool_name);
       if (!bucket) {
         bucket = { name: call.tool_name, calls: 0, ok: 0 };
@@ -539,6 +616,10 @@ export function computePlatformStats(): PlatformStats {
     toolOk,
     toolFailed,
     toolUnfinished,
+    // 倒序：最近发生的失败排在前面；超出上限的截断，总数仍由 toolFailed 给出
+    toolFailures: toolFailures
+      .sort((a, b) => (a.startedAt < b.startedAt ? 1 : a.startedAt > b.startedAt ? -1 : 0))
+      .slice(0, FAILURE_LIMIT),
     artifacts,
     compareAccuracy,
     compareRuns,

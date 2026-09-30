@@ -81,20 +81,20 @@ flowchart TD
 
 ## 第 8 页 · 现场演示
 
-- 演示 1：回归案例：土增模板映射填列（completed）深链 #/agent/land-vat/task/a351303e-13d6-4ea9-a042-21b4c133413d/tab/result
-- 演示 2：关系图工具嵌入验证（waiting_review）深链 #/agent/land-vat/task/eb75f4fb-8f85-4ef3-8b1d-73d572ef677e/tab/result
-- 演示 3：票面字段抽取闭环（waiting_review）深链 #/agent/land-vat/task/ba72b542-5107-42b1-970a-a98bc7ae9bd8/tab/result
+- 演示 1：渲染实测D 归属假设演算（waiting_review）深链 #/agent/land-vat/task/d1e0a4ab-3ac9-4412-82dc-8e8909244656/tab/result
+- 演示 2：回归案例：土增模板映射填列（completed）深链 #/agent/land-vat/task/a351303e-13d6-4ea9-a042-21b4c133413d/tab/result
+- 演示 3：关系图工具嵌入验证（waiting_review）深链 #/agent/land-vat/task/eb75f4fb-8f85-4ef3-8b1d-73d572ef677e/tab/result
 
 > 讲稿：用深链直达任务页签；执行类镜头现场重新执行展示 SSE 实时事件。
 > 画面：工作台实录（时间线/结论/比对）
 
 ## 第 9 页 · 应用效果
 
-- 累计任务 7 个、已完成 2 个
-- 工具调用 85 次 · 成功 82 · 失败 3 · 成功率 96.47%（分母为有返回结果的 85 次）
+- 累计任务 8 个、已完成 2 个
+- 工具调用 87 次 · 成功 84 · 失败 3 · 成功率 96.55%（分母为有返回结果的 87 次）
 - 生成底稿/产物 10 份
 - 比对准确率：待真实案例
-- 自动化验证 46 项全部 PASS（见测试报告）
+- 自动化验证 47 项全部 PASS（见测试报告）
 - 全平台证据核对台账：每任务一行 19 列，欠账按倒序排列，可导出 MD/CSV 直接当整改清单
 
 > 讲稿：数字全部来自平台数据库与验证脚本，可现场复算。

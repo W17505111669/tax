@@ -30,6 +30,7 @@ import {
   type RingSegmentKey,
   type ToolOutcomeCounts,
 } from "../tool-outcome.ts";
+import { failureSummary, groupFailures } from "../tool-failures.ts";
 
 /** 大数字 odometer：每位数字独立滚轮到目标值，对齐参考片数据页质感。 */
 const DESC_KEYWORDS = ["整数分", "行级", "记录级", "OCR", "mermaid", "联网"];
@@ -281,6 +282,12 @@ export function AgentOverview({
   const [reviewComment, setReviewComment] = useState("");
   const [reviewShowAll, setReviewShowAll] = useState(false);
   const reviewGroups = stats.platform?.reviewGroups ?? [];
+  // 失败调用按归因分组：只有「失败 N」一个数字时，「改提示词」「换出处」「配抓取服务」三件
+  // 处置方式完全不同的事混在一起，结果就是谁也不去处理
+  const [failShowAll, setFailShowAll] = useState(false);
+  const failures = stats.platform?.toolFailures ?? [];
+  const failureGroups = useMemo(() => groupFailures(failures), [failures]);
+  const failSummary = useMemo(() => failureSummary(failures), [failures]);
   const reviewSummary = groupSummary(reviewGroups);
   const armReviewBatch = (
     key: string,
@@ -1037,6 +1044,70 @@ export function AgentOverview({
             ) : (
               <div className="mt-3 rounded-md border border-jade-400/30 bg-jade-400/5 px-3 py-2 text-[11.5px] text-jade-300">
                 全平台复核闭环无缺口：没有「已完成但仍有未复核问题」的任务（待复核态任务尚有 {stats.platform.reviewPendingIssues} 项在处理中）
+              </div>
+            )}
+            {failures.length > 0 && (
+              <div className="mt-3 rounded-md border border-rose-400/35 bg-rose-400/5 px-3 py-2">
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[12px] text-rose-200">
+                  <span className="font-medium">失败的工具调用</span>
+                  <span className="text-[11.5px] text-rose-200/85">
+                    {stats.platform.toolFailed} 次 · 归为 {failSummary.causes} 类
+                    {failSummary.fixableByUs > 0 && `，其中 ${failSummary.fixableByUs} 次可以靠提示词或用法约束减少`}
+                    {failures.length < stats.platform.toolFailed && `（清单只显示最新 ${failures.length} 条）`}
+                  </span>
+                  <span className="text-[11px] text-mist-500">按归因分类，因为几类的处置方式完全不同</span>
+                </div>
+                <div className="mt-2 space-y-2.5">
+                  {(failShowAll ? failureGroups : failureGroups.slice(0, 2)).map((g) => (
+                    <div key={g.cause}>
+                      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                        <span className="shrink-0 rounded border border-rose-400/40 px-1.5 py-0.5 text-[10.5px] text-rose-200">
+                          {g.label}
+                        </span>
+                        <span className="shrink-0 text-[10.5px] text-mist-500">{g.items.length} 次</span>
+                        <span className="min-w-0 flex-1 text-[11px] text-mist-500" title={g.hint}>
+                          {g.hint}
+                        </span>
+                      </div>
+                      <div className="mt-1 space-y-1.5">
+                        {g.items.map((f, i) => (
+                          <div key={`${f.taskId}:${f.startedAt}:${i}`} className="min-w-0 pl-1">
+                            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                              <span className="shrink-0 font-mono text-[10.5px] text-mist-400">{f.toolName}</span>
+                              <button
+                                type="button"
+                                className="action-btn shrink-0 !text-[10.5px]"
+                                title={`${f.taskTitle}：前往该任务查看这次调用的完整上下文`}
+                                onClick={() => onOpenTask(f.taskId)}
+                              >
+                                {f.taskTitle.length > 10 ? `${f.taskTitle.slice(0, 10)}…` : f.taskTitle}
+                              </button>
+                              <span className="shrink-0 text-[10.5px] text-mist-600">{relTime(f.startedAt)}</span>
+                              <span
+                                className="min-w-0 flex-1 truncate text-[11px] text-rose-200/90"
+                                title={`错误正文：${f.error}`}
+                              >
+                                {f.error}
+                              </span>
+                            </div>
+                            <div className="mt-0.5 truncate font-mono text-[10.5px] text-mist-600" title={`入参：${f.args}`}>
+                              入参 {f.args}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {failureGroups.length > 2 && (
+                  <button
+                    type="button"
+                    className="action-btn mt-2 !text-[11px]"
+                    onClick={() => setFailShowAll((v) => !v)}
+                  >
+                    {failShowAll ? "收起" : `展开其余 ${failureGroups.length - 2} 类`}
+                  </button>
+                )}
               </div>
             )}
             {p?.evidence &&
