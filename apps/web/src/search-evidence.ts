@@ -59,8 +59,13 @@ export function urlsOfCall(toolName: string, result: unknown): Array<{ url: stri
   if (!r) return [];
   const out: Array<{ url: string; title: string }> = [];
   const push = (url: unknown, title: unknown): void => {
-    if (typeof url !== "string" || !/^https?:\/\//i.test(url)) return;
-    out.push({ url, title: typeof title === "string" && title.trim() !== "" ? title.trim() : url });
+    if (typeof url !== "string") return;
+    // 工具结果里的地址同样可能带着从页面正文抠出来时黏上的中文尾巴（实测有过
+    // 「…guoshuifa200991.pdf（检索时间 2026-09-29」）。清理规则收在入口处、两条提取路径共用，
+    // 否则假地址会进引用清单：核验必然 404，还会把同一个原文页重复计成两条。
+    const clean = cleanBareUrl(url);
+    if (!/^https?:\/\//i.test(clean)) return;
+    out.push({ url: clean, title: typeof title === "string" && title.trim() !== "" ? title.trim() : clean });
   };
   // search_public_cases：results[] 带 title/url
   if (Array.isArray(r.results)) {
@@ -119,6 +124,31 @@ export const CONCLUSION_VIA = "conclusion";
 
 const OPAQUE_SEGMENT = /^(index|content|main|default|home|t?\d+|details\d*)(\.[a-z]{2,5})?$/i;
 
+/**
+ * 地址终止符：全角标点、中文标点与弯引号破折号。
+ *
+ * 这些字符出现在 URL 里必须百分号转义，所以裸写出来就说明地址到此为止。实测结论正文里的
+ * 「…content.html（检索时间 2026-09-29」「…content.html／2026-09-29」被整段当成了地址，
+ * 后果有三层：核验必然 404、同一个原文页被当成两条独立引用重复计数、路径不以 /content.html
+ * 结尾于是分级认不出它是政策法规库原文页。
+ *
+ * 不按「非 ASCII」一刀切：路径里带未转义中文的地址是真实存在的（`…/p/研发费用指引.html`），
+ * 浏览器与文档里都这么写，切掉就把好地址截坏了。汉字本身不是终止符，只有标点才是。
+ */
+const URL_TERMINATOR = /[\u2013\u2014\u2018-\u201F\u2026\u3000-\u303F\uFF00-\uFFEF]/;
+
+/**
+ * 从正文里切出一条干净的裸地址：先在全角/中文标点处截断，再去掉结尾的半角标点与括号。
+ *
+ * 提取与验证脚本共用这一份实现。此前验证脚本自己抄了一套正则，本轮修正提取口径后两边就对不上了
+ *（20 项失败，全是「结论正文的 URL 未进入引用清单」）——同一件事写两遍，迟早漂。
+ */
+export function cleanBareUrl(raw: string): string {
+  const cut = raw.search(URL_TERMINATOR);
+  const head = cut === -1 ? raw : raw.slice(0, cut);
+  return head.replace(/[)\]>"'）】\],.;:!?，。；：！？、]+$/, "");
+}
+
 /** 没有链接文字时给个可读标签：末段是有意义的文件名就用它，否则用域名 */
 export function labelFromUrl(raw: string): string {
   try {
@@ -144,8 +174,7 @@ export function extractTextCitations(text: string, limit: number = CITATION_LIMI
   const seen = new Set<string>();
   const push = (url: string, title: string): void => {
     if (out.length >= limit) return;
-    // 去掉结尾的中英文标点与括号，避免把句读当成地址的一部分
-    const clean = url.replace(/[)\]>"'）】\],.;:!?，。；：！？、]+$/, "");
+    const clean = cleanBareUrl(url);
     if (!/^https?:\/\//i.test(clean) || seen.has(clean)) return;
     seen.add(clean);
     out.push({

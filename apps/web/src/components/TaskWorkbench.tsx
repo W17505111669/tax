@@ -33,6 +33,7 @@ import {
   freshness,
   linkVerdict,
   summarizeLinkChecks,
+  LINK_CHECK_BATCH,
   VERDICT_HINT,
   VERDICT_TEXT,
   type LinkSummary,
@@ -490,14 +491,26 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     const unique = [...new Set(urls)];
     if (unique.length === 0 || linkBusy) return;
     setLinkBusy(true);
-    void api
-      .checkLinks(task.id, unique)
-      .then((res) => {
-        setLinkChecks(Object.fromEntries(res.results.map((r) => [r.url, r])));
-        setLinkCheckedAt(res.checkedAt);
-      })
-      .catch(() => undefined)
-      .finally(() => setLinkBusy(false));
+    // 服务端单次最多核 LINK_CHECK_BATCH 条，而引用清单已改成全量、条数可能超过它
+    //（实测有一个任务 34 条）。不分块就会被服务端静默截断，少核的那几条在界面上永远显示未核验，
+    // 而清单标题写着总条数——数字对不上。按批顺序跑：每批都会落库，且接口返回的是该任务
+    // 全部已核验记录，所以取最后一批的返回即为全量。
+    const batches: string[][] = [];
+    for (let i = 0; i < unique.length; i += LINK_CHECK_BATCH) batches.push(unique.slice(i, i + LINK_CHECK_BATCH));
+    void (async () => {
+      let last: Awaited<ReturnType<typeof api.checkLinks>> | null = null;
+      try {
+        for (const b of batches) last = await api.checkLinks(task.id, b);
+      } catch {
+        // 某一批失败不抹掉已核到的：last 仍是上一批的全量结果，照样落进状态
+      } finally {
+        if (last !== null) {
+          setLinkChecks(Object.fromEntries(last.results.map((r) => [r.url, r])));
+          setLinkCheckedAt(last.checkedAt);
+        }
+        setLinkBusy(false);
+      }
+    })();
   };
 
   /**
@@ -926,7 +939,13 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   }, [amountTrace, amountChecks]);
 
   // 链接核验汇总：可访问 / 失效 / 拒绝自动访问（反爬）/ 无法核验，四类分开计数
-  const linkSummary = useMemo(() => summarizeLinkChecks(Object.values(linkChecks)), [linkChecks]);
+  // 只汇总当前引用清单里的地址。link_checks 按 (task_id, url) upsert、从不删行，结论改过之后
+  // 旧地址的记录还留在库里；全量汇总会把早已不在清单里的地址算成「失效」，交付自检因此报假警
+  //（实测引用提取修好之前，带中文尾巴的假地址核验必然 404，修好后那些行仍挂在库里）。
+  const linkSummary = useMemo(() => {
+    const live = new Set(allCitations.map((c) => c.url));
+    return summarizeLinkChecks(Object.values(linkChecks).filter((c) => live.has(c.url)));
+  }, [linkChecks, allCitations]);
 
   // 上传资料的解析摘要：来自 parse_uploaded_files 的真实返回，按文件名对应
   const fileParsed = useMemo(

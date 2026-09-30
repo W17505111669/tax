@@ -6,6 +6,7 @@ import {
   CITATION_LIMIT,
   extractCitations,
   extractTextCitations,
+  cleanBareUrl,
   labelFromUrl,
   MERGED_CITATION_LIMIT,
   mergeCitations,
@@ -160,6 +161,41 @@ expect(
 );
 expect("去掉结尾句读", extractTextCitations("见 https://a.cn/x.html。")[0]?.url, "https://a.cn/x.html");
 expect("去掉结尾全角括号", extractTextCitations("（https://a.cn/x.html）")[0]?.url, "https://a.cn/x.html");
+// 裸地址一路吞到空白为止，会把后面的中文说明整段当成地址：实测「…content.html（检索时间 2026-09-29」
+// 与「…content.html／2026-09-29」都进了引用清单，核验必然 404，还把同一个原文页重复计成两条
+expect(
+  "全角括号处截断，不把检索时间说明吞进地址",
+  extractTextCitations("原文页 http://fgk.chinatax.gov.cn/zcfgk/c100012/c5193854/content.html（检索时间 2026-09-29）")[0]
+    ?.url,
+  "http://fgk.chinatax.gov.cn/zcfgk/c100012/c5193854/content.html",
+);
+expect(
+  "全角斜杠也是终止符",
+  extractTextCitations("http://fgk.chinatax.gov.cn/zcfgk/c1/content.html／2026-09-29")[0]?.url,
+  "http://fgk.chinatax.gov.cn/zcfgk/c1/content.html",
+);
+ok(
+  "截断后路径仍以 /content.html 结尾，分级才认得出是政策法规库原文页",
+  (extractTextCitations("见 http://fgk.chinatax.gov.cn/zcfgk/c1/content.html（检索时间 2026-09-29）")[0]?.url ?? "").endsWith(
+    "/content.html",
+  ),
+  extractTextCitations("见 http://fgk.chinatax.gov.cn/zcfgk/c1/content.html（检索时间 2026-09-29）")[0]?.url,
+);
+expect(
+  "同一条地址带尾巴与不带尾巴只算一条",
+  extractTextCitations("http://a.cn/x.html 与 http://a.cn/x.html（检索时间 2026-09-29）").length,
+  1,
+);
+expect(
+  "路径里未转义的中文不被截断（这是真实存在的写法，不能一刀切按非 ASCII 截）",
+  extractTextCitations("https://a.cn/p/研发费用指引.html")[0]?.url,
+  "https://a.cn/p/研发费用指引.html",
+);
+expect(
+  "百分号转义的中文地址不受影响",
+  extractTextCitations("https://baike.baidu.com/item/%E7%A0%94%E5%8F%91/4815440")[0]?.url,
+  "https://baike.baidu.com/item/%E7%A0%94%E5%8F%91/4815440",
+);
 expect("同一地址只留一条", extractTextCitations("https://a.cn/x 与 https://a.cn/x").length, 1);
 expect("markdown 链接优先于裸链接", extractTextCitations("[标题](https://a.cn/x) https://a.cn/x")[0]?.title, "标题");
 expect("表格里的链接也能取到", extractTextCitations("| 依据 | [文号](https://a.gov.cn/y) |").length, 1);
@@ -255,7 +291,8 @@ for (const t of listTasks()) {
   // 结论正文里出现的每条 URL 都必须进入合并后的清单（超上限的除外）：否则引用核验与证据力分级都覆盖不到它
   if (merged.length < MERGED_CITATION_LIMIT) {
     for (const m of text.matchAll(/https?:\/\/[^\s)\]>"'|，。；、]+/g)) {
-      const u = (m[0] ?? "").replace(/[)\]>"'）】\],.;:!?，。；：！？、]+$/, "");
+      // 与提取共用同一份清理实现：这里曾自己抄了一套正则，提取口径一改两边就对不上（实测 20 项失败）
+      const u = cleanBareUrl(m[0] ?? "");
       checks += 1;
       if (!merged.some((x) => x.url === u)) {
         failures.push(`${t.id.slice(0, 8)} 结论正文的 URL 未进入引用清单：${u.slice(0, 80)}`);

@@ -18,6 +18,8 @@ import {
 } from "../services/issues.ts";
 import { listAmountChecks, setAmountCheck } from "../services/amount-checks.ts";
 import { collectBundleEntries, createBundleZip } from "../services/bundle-zip.ts";
+// 单次核验条数上限与前端共用一个定义：前端按它分块，这里用它兜底
+import { LINK_CHECK_BATCH } from "../../../web/src/link-check.ts";
 import { checkLink, listLinkChecks, saveLinkChecks } from "../services/link-checks.ts";
 import {
   BATCH_REF_BUDGET,
@@ -336,8 +338,10 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
   app.post("/api/tasks/:id/check-links", async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = (req.body ?? {}) as { urls?: string[] };
-    const urls = Array.isArray(body.urls) ? body.urls.filter((u) => typeof u === "string").slice(0, 30) : [];
-    if (urls.length === 0) return reply.code(400).send({ error: "需要 urls（1-30 条）" });
+    const urls = Array.isArray(body.urls)
+      ? body.urls.filter((u) => typeof u === "string").slice(0, LINK_CHECK_BATCH)
+      : [];
+    if (urls.length === 0) return reply.code(400).send({ error: `需要 urls（1-${LINK_CHECK_BATCH} 条）` });
     const results = await Promise.all(urls.map((u) => checkLink(u)));
     const checkedAt = saveLinkChecks(id, results);
     appendEvent(

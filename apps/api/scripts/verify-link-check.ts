@@ -33,6 +33,12 @@ expect(
   [linkVerdict({ ok: false, status: 401 }), linkVerdict({ ok: false, status: 405 }), linkVerdict({ ok: false, status: 429 })],
   ["blocked", "blocked", "blocked"],
 );
+expect(
+  "412 归为拒绝自动访问而不是失效：普通 GET 不带 If-* 头却回 412，实测是省级税务机关站点的 WAF 在挡",
+  linkVerdict({ ok: false, status: 412 }),
+  "blocked",
+);
+expect("521 一类非标 5xx 归为无法核验，不算失效", linkVerdict({ ok: false, status: 521 }), "unreachable");
 expect("404 归为失效", linkVerdict({ ok: false, status: 404 }), "dead");
 expect("410 归为失效", linkVerdict({ ok: false, status: 410 }), "dead");
 expect("其他 4xx 归为失效", linkVerdict({ ok: false, status: 400 }), "dead");

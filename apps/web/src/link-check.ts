@@ -19,7 +19,7 @@ export const VERDICT_TEXT: Record<LinkVerdict, string> = {
 
 export const VERDICT_HINT: Record<LinkVerdict, string> = {
   ok: "服务端 GET 返回 2xx/3xx",
-  blocked: "站点返回 401/403/405/429，多为反爬或需登录；链接对人可能仍然有效，请人工点击确认",
+  blocked: "站点返回 401/403/405/412/429，多为反爬或需登录；链接对人可能仍然有效，请人工点击确认",
   dead: "站点返回 4xx（404/410 等），链接大概率已失效，交付前请替换或补充依据",
   unreachable: "网络错误、超时、5xx 或被安全策略拦截，无法判定，请稍后重试或人工确认",
 };
@@ -29,7 +29,11 @@ export function linkVerdict(c: LinkCheckLike): LinkVerdict {
   const s = c.status;
   if (s === null || s === undefined) return "unreachable";
   if (s < 400) return "ok";
-  if (s === 401 || s === 403 || s === 405 || s === 429) return "blocked";
+  // 412 也归「拒绝自动访问」：本项目发的是不带任何 If-* 前置条件头的普通 GET，服务端却回 412，
+  // 实测是省级税务机关站点的 WAF 在挡自动访问（xinjiang / etax.xinjiang / beijing / liaoning
+  // 四个 chinatax.gov.cn 子站全是这个码）。判成「链接失效」会在交付自检里变成假阻断，
+  // 逼人去替换一条其实有效的官方链接——按既定口径，反爬不计入交付风险。
+  if (s === 401 || s === 403 || s === 405 || s === 412 || s === 429) return "blocked";
   if (s >= 500) return "unreachable";
   return "dead";
 }
@@ -46,6 +50,14 @@ export function summarizeLinkChecks(list: LinkCheckLike[]): LinkSummary {
 /** 核验时效阈值：超过 72 小时视为过期，交付前建议重新核验 */
 export const STALE_HOURS = 72;
 
+/**
+ * 单次链接核验的条数上限，前后端共用这一个定义。
+ *
+ * 服务端要按条发 GET（8 秒超时），一次收太多会把请求拖长，因此设上限；但引用清单改成全量后
+ * 条数可能超过它（实测有一个任务 34 条），服务端再静默 slice 就会少核几条——界面上那几条永远
+ * 显示未核验，而清单标题却写着总条数。所以调用方必须按这个常量分块，服务端也用同一个值兜底。
+ */
+export const LINK_CHECK_BATCH = 30;
 /** 距今小时数；时间缺失、不可解析或晚于当前时间都返回 null，不编造数字 */
 export function ageHours(iso: string | null | undefined, now: number = Date.now()): number | null {
   if (!iso) return null;
