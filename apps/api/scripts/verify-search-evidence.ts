@@ -16,6 +16,7 @@ import {
   searchEvidence,
   searchEvidenceNote,
   urlsOfCall,
+  UNCAPPED,
 } from "../../web/src/search-evidence.ts";
 import { db } from "../src/db.ts";
 import { getTask, listTasks } from "../src/services/task-store.ts";
@@ -311,12 +312,19 @@ for (const t of listTasks()) {
   const text = getTask(t.id)?.result ?? "";
   const textCites = extractTextCitations(text);
   const merged = mergeCitations(cites, textCites);
+  // 完整性断言用全量清单：带上限的那份是给界面胶囊用的。一旦某一侧被截断（实测 aabd138a 结论里的
+  // URL 超过 20 条），排在截断线之外的地址就不在清单里，而合并总数仍未触顶、守卫照样放行，
+  // 于是把「显示截断」误报成「提取漏项」。度量按全量、显示才截断，这条口径在验证脚本里同样适用
+  const citesAll = extractCitations(parsed, UNCAPPED);
+  const textCitesAll = extractTextCitations(text, UNCAPPED);
+  const mergedAll = mergeCitations(citesAll, textCitesAll, UNCAPPED);
   const evidence = searchEvidence(parsed);
   taskTotal += 1;
-  citeTotal += merged.length;
-  toolCiteTotal += cites.length;
-  textCiteTotal += textCites.length;
-  officialTotal += merged.filter((c) => isGov(c.url)).length;
+  // 走查报的数也用全量：这行日志会进验证记录，与看板对不上就会被当成两处口径打架
+  citeTotal += mergedAll.length;
+  toolCiteTotal += citesAll.length;
+  textCiteTotal += textCitesAll.length;
+  officialTotal += mergedAll.filter((c) => isGov(c.url)).length;
   if (evidence.calls > 0) withSearch += 1;
   metaOnlyCalls += evidence.metadataOnly;
   checks += 1;
@@ -324,29 +332,27 @@ for (const t of listTasks()) {
     failures.push(`${t.id.slice(0, 8)} 检索留痕两类之和不等于调用数`);
   }
   if (merged.length > MERGED_CITATION_LIMIT) failures.push(`${t.id.slice(0, 8)} 合并后的引用清单超过上限`);
-  // 每个留存过 URL 的检索调用都必须被计入 withUrls，且其地址出现在清单里（超上限的除外）
+  // 每个留存过 URL 的检索调用都必须被计入 withUrls，且其地址出现在全量清单里
   for (const c of parsed) {
     if (!SEARCH_TOOL_NAMES.has(c.toolName)) continue;
     const urls = urlsOfCall(c.toolName, c.result).map((u) => u.url);
     if (urls.length === 0) continue;
-    if (cites.length < CITATION_LIMIT) {
-      for (const u of urls) {
-        checks += 1;
-        if (!cites.some((x) => x.url === u)) failures.push(`${t.id.slice(0, 8)} 留存的 URL 未进入引用清单：${u.slice(0, 80)}`);
+    for (const u of urls) {
+      checks += 1;
+      if (!citesAll.some((x) => x.url === u)) {
+        failures.push(`${t.id.slice(0, 8)} 留存的 URL 未进入引用清单：${u.slice(0, 80)}`);
       }
     }
   }
-  // 结论正文里出现的每条 URL 都必须进入合并后的清单（超上限的除外）：否则引用核验与证据力分级都覆盖不到它
-  if (merged.length < MERGED_CITATION_LIMIT) {
-    for (const m of text.matchAll(/https?:\/\/[^\s)\]>"'|，。；、]+/g)) {
-      // 与提取共用同一份实现：清理规则与「已作废交代」的排除都必须同源。
-      // 这里曾自己抄了一套正则，提取口径一改两边就对不上（实测 20 项失败）
-      if (isRetiredMention(text, m.index ?? 0, (m[0] ?? "").length)) continue;
-      const u = cleanBareUrl(m[0] ?? "");
-      checks += 1;
-      if (!merged.some((x) => x.url === u)) {
-        failures.push(`${t.id.slice(0, 8)} 结论正文的 URL 未进入引用清单：${u.slice(0, 80)}`);
-      }
+  // 结论正文里出现的每条 URL 都必须进入合并后的全量清单：否则引用核验与证据力分级都覆盖不到它
+  for (const m of text.matchAll(/https?:\/\/[^\s)\]>"'|，。；、]+/g)) {
+    // 与提取共用同一份实现：清理规则与「已作废交代」的排除都必须同源。
+    // 这里曾自己抄了一套正则，提取口径一改两边就对不上（实测 20 项失败）
+    if (isRetiredMention(text, m.index ?? 0, (m[0] ?? "").length)) continue;
+    const u = cleanBareUrl(m[0] ?? "");
+    checks += 1;
+    if (!mergedAll.some((x) => x.url === u)) {
+      failures.push(`${t.id.slice(0, 8)} 结论正文的 URL 未进入引用清单：${u.slice(0, 80)}`);
     }
   }
 }

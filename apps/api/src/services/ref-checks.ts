@@ -45,7 +45,12 @@ import {
   type RefCheckVerdict,
 } from "../../../web/src/ref-check.ts";
 import { extractDocRefs, normalizeRef, traceDocRefs } from "../../../web/src/policy-trace.ts";
-import { extractCitations, UNCAPPED } from "../../../web/src/search-evidence.ts";
+import {
+  extractCitations,
+  extractTextCitations,
+  mergeCitations,
+  UNCAPPED,
+} from "../../../web/src/search-evidence.ts";
 import { topicHint } from "../../../web/src/domain-keywords.ts";
 import { getTask } from "./task-store.ts";
 
@@ -256,11 +261,11 @@ export function pendingCitationTargets(taskId: string, limit: number = MAX_REF_C
   // 没有结论的任务不进清单：替代来源必须与这份结论谈同一件事，没有结论就没有主题可比，
   // 跑出来的只能是永久 candidate，白占批量预算（实测失败任务 060b4eea 结论为空，
   // 却贡献了 3 条永远无法判定的待办）。文号侧 pendingRefTargets 早有同一道守卫。
-  if (String(getTask(taskId)?.result ?? "").trim() === "") return [];
+  const result = String(getTask(taskId)?.result ?? "");
+  if (result.trim() === "") return [];
   const rows = db
     .prepare(`SELECT tool_name, result FROM tool_calls WHERE task_id = ?`)
     .all(taskId) as unknown as Array<{ tool_name: string; result: string | null }>;
-  if (rows.length === 0) return [];
   const parsed = rows.map((r) => {
     try {
       return { toolName: r.tool_name, result: r.result ? JSON.parse(r.result) : null };
@@ -270,8 +275,12 @@ export function pendingCitationTargets(taskId: string, limit: number = MAX_REF_C
   });
   // 待办清单按全量取：界面胶囊只列前若干条，但「还有哪些弱证据等着替换」不能跟着截断，
   // 否则排在上限之外的弱证据永远进不了清单，看板上的缺口数也会比实际少
-  const cites = extractCitations(parsed, UNCAPPED).map((c) => ({ ...c, grade: gradeCitation(c.url, c.title).grade }));
-  const result = String(getTask(taskId)?.result ?? "");
+  // 引用清单必须是「工具留存 + 结论正文」合并后的那份，与结果页、平台统计同源。只取工具留存会漏掉
+  // 模型直接写进正文的地址：实测 17a56468 的政策法规库栏目页只在结论里，缺口清单算它一条，
+  // 批量入口却 ran=0——看板上挂着缺口、点批量什么都不做，这条弱引用永远没有修复通道。
+  const cites = mergeCitations(extractCitations(parsed, UNCAPPED), extractTextCitations(result, UNCAPPED), UNCAPPED).map(
+    (c) => ({ ...c, grade: gradeCitation(c.url, c.title).grade }),
+  );
   // 任务主题词有两个用途：作检索补充词，以及判定已有替代来源是否仍与这份结论谈同一件事
   const hint = topicHint(result, 2);
   // 已经处置掉的弱引用不进清单：结论里声明过「仅作背景参考，不作为政策依据」的，以及只在检索留存里、
@@ -279,7 +288,7 @@ export function pendingCitationTargets(taskId: string, limit: number = MAX_REF_C
   // 白占联网预算（实测一轮批量复查 13 次、0 条 matched，多数属于这两种）
   const settled = settledWeakUrls(cites, result);
   return unresolvedTargets(
-    citationTargets(cites, hint, limit).filter((t) => !settled.has(t.excludeUrl ?? "")),
+    citationTargets(cites, hint, limit, settled),
     listRefChecks(taskId),
     (c) => matchedStillValid(c.kind ?? "citation", c.evidence, gradeCitation, c.text, hint),
   );

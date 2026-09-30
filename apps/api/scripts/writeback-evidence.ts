@@ -20,6 +20,7 @@ import {
   buildRevisionInstruction,
   deadLinkTargets,
   pendingRevisionItems,
+  revisionCounts,
   toRevisionItems,
 } from "../../web/src/ref-check.ts";
 import { db } from "../src/db.ts";
@@ -112,16 +113,11 @@ const built = listTasks()
       noConclusion.push(`${t.id.slice(0, 8)} ${t.title}（${t.status}）`);
       return null;
     }
-    // 已经写回的不再进指令，两类判据：
-    // 1. 找到出处的素材——结论正文里出现过这条证据地址，就说明上一轮续跑已经补上了；
-    // 2. 查不到原文的素材——结论里已写明「仅作背景参考，不作为政策依据」，交代过了就不必再交代一遍
-    //   （此前这类素材没有判据，每轮续跑都重复列出，实测 4bb22d34 白跑 300 秒重写同一节表格）。
-    const items = pendingRevisionItems(
-      toRevisionItems(listRefChecks(t.id)).filter(
-        (i) => i.verdict !== "matched" || !i.evidence || !result.includes(i.evidence.url),
-      ),
-      result,
-    );
+    // 已经写回的不再进指令。判据统一交给 pendingRevisionItems（与结果页「生成修订指令」同一份实现）：
+    // 交代过的不再要求交代、原地址不在正文里的不再要求标注、替代地址与原地址都处置完的不再要求替换。
+    // 这里曾自己写一条「结论里出现过证据地址就算已写回」，判据比共享的那份松，结果把只做了一半的
+    // 替换（新地址进来了、旧百科链接还留着）当成已完成，两条弱证据从此没人再提。
+    const items = pendingRevisionItems(toRevisionItems(listRefChecks(t.id)), result);
     // 失效链接也进指令：链接腐烂此前只能被交付自检发现、没法走修复通道，唯一出路是人工改正文。
     // 引用清单按全量取（与平台统计同口径），deadLinkTargets 内部会再按当前清单过滤掉过期核验行。
     const calls = (db.prepare(`SELECT tool_name, result FROM tool_calls WHERE task_id = ?`).all(t.id) ?? []) as Array<{
@@ -162,16 +158,20 @@ if (plans.length === 0) {
 
 console.log(`可写回任务 ${plans.length} 个：`);
 for (const p of plans) {
-  const matched = p.items.filter((i) => i.verdict === "matched").length;
   const docs = p.items.filter((i) => i.kind === "docref" && i.verdict === "matched").length;
   const cites = p.items.filter((i) => i.kind === "citation" && i.verdict === "matched").length;
+  const advice = revisionCounts(p.items, p.dead.length);
   console.log(
-    `  - ${p.task.id.slice(0, 8)} ${p.task.title}（${p.task.status}）：素材 ${p.items.length} 条 · 文号出处 ${docs} · 官方替代 ${cites} · 待人工标注 ${
-      p.items.length - matched
-    } · 失效链接 ${p.dead.length} 条 · 指令 ${p.instruction.length} 字`,
+    `  - ${p.task.id.slice(0, 8)} ${p.task.title}（${p.task.status}）：素材 ${p.items.length} 条 · 文号出处 ${docs} · 官方替代 ${cites} · 待处置 ${
+      advice.unresolved
+    }（删泛词条 ${advice.drop} · 改引具体页 ${advice.narrow} · 标注未取得原文 ${advice.mark}） · 失效链接 ${
+      p.dead.length
+    } 条 · 指令 ${p.instruction.length} 字`,
   );
 }
-console.log("（结论正文里已出现过证据地址的素材视为已写回，不再列入，脚本可重复运行）");
+console.log(
+  "（已写回结论的素材不再列入，脚本可重复运行。判据：证据地址已进正文且原引用已撤下、结论里已写明「仅作背景参考」、或原地址从未进过正文；只补了新地址、旧引用还留着的算没写回，仍会列出）",
+);
 
 if (doPrint) {
   for (const p of plans) console.log(`\n===== ${p.task.title}（${p.task.id}）=====\n${p.instruction}`);

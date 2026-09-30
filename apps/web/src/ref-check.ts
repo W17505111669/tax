@@ -279,14 +279,21 @@ export function refQueryVariants(t: RefCheckTarget): string[] {
   return [full, tight].filter((q, i, arr) => q !== "" && arr.indexOf(q) === i);
 }
 
-/** 需要找替代来源的弱证据引用（门户首页 / 百科词条 / 检索页），按引用清单顺序取前 limit 条 */
+/**
+ * 需要找替代来源的弱证据引用（门户首页 / 百科词条 / 检索页），按引用清单顺序取前 limit 条。
+ *
+ * exclude 里的地址在切片**之前**就剔掉：已处置的项（结论里声明过为背景参考的、只在检索留存里的）
+ * 不该占配额。实测 4bb22d34 有 14 条弱证据、配额 10 条，先切片再过滤的话前 10 条正好全被已处置的
+ * 占满，真正该删的两条百科词条永远进不了清单，批量入口对它就是 ran=0。
+ */
 export function citationTargets(
   citations: Array<{ title: string; url: string; grade: string }>,
   hint: string,
   limit = 10,
+  exclude: ReadonlySet<string> = new Set<string>(),
 ): RefCheckTarget[] {
   return citations
-    .filter((c) => c.grade === "weak")
+    .filter((c) => c.grade === "weak" && !exclude.has(c.url))
     .slice(0, limit)
     .map((c) => ({
       key: refKey("citation", c.url),
@@ -822,11 +829,6 @@ export function toRevisionItems(
 
 const stamp = (iso: string): string => (iso ? iso.replace("T", " ").slice(0, 16) : "");
 
-/**
- * 把复查结果写成一条「续跑」修订指令：人工核对后提交给 Agent 重写依据与引用。
- * 平台不自动改写结论——指令只是填进续跑输入框，改不改、怎么改由税务师决定。
- * 没有可用素材时返回空串，调用方据此禁用按钮。
- */
 /** 结论里「这条不作为依据」的交代用语 */
 const DISCLAIMER_MARKERS = ["仅作背景参考", "不作为政策依据", "未取得公开原文"];
 
@@ -911,19 +913,28 @@ export function settledWeakUrls(
 }
 
 /**
- * 已经交代过的素材不再进修订指令。
+ * 还没写回结论的修订素材。写回脚本与结果页「生成修订指令」共用这一份判据。
  *
- * 此前【标注未取得原文】那一段没有任何「已写回」判据（写回脚本的注释写着「没有地址可比，仍会
- * 列出，由人工决定」），于是每一轮续跑都把同样几条重新交代一遍：实测 4bb22d34 白跑 300 秒，
- * 结论里那节表格被原样重写一遍。指令重复还会挤占模型注意力，真正该改的项反而更容易被漏掉
- * （同一轮里该撤的失效地址就没撤干净）。
+ * 三类都要挡，否则指令会反复催办同一件事：
+ * 1. 查不到原文、但结论里已经交代过「仅作背景参考，不作为政策依据」的——交代过就不必再交代。
+ *    此前这一段没有任何判据（写回脚本的注释写着「没有地址可比，仍会列出，由人工决定」），
+ *    于是每轮续跑都把同样几条重写一遍：实测 4bb22d34 白跑 300 秒，那节表格被原样重抄，
+ *    指令重复还挤占模型注意力，同一轮里该撤的失效地址就没撤干净。
+ * 2. 引用类素材的原地址根本不在结论正文里的——只在检索留存里出现过，没处可标注。
+ * 3. 已找到出处、且证据地址与原地址都处置完的——替代地址写进结论、原地址也从引用清单里消失。
+ *    只认「替代地址在不在正文」会把做了一半的替换当成已完成：实测 4bb22d34 的两条百科词条
+ *    复查判定 matched、替代地址也进了结论，但原百科链接原样留着，弱证据仍挂在交付材料里，
+ *    而写回脚本因为「已写回」再也不提这两条。
  */
 export function pendingRevisionItems(items: RevisionItem[], conclusion: string): RevisionItem[] {
-  // 结论里真在用的地址：只在检索留存里出现过的引用没处可标注，列进指令模型无从下手
+  // 结论里真在用的地址：走同一份提取管线，作废交代里的地址自然不算在用
   const cited = new Set(extractTextCitations(conclusion ?? "", UNCAPPED).map((c) => c.url));
   return items.filter((i) => {
-    // 已找到出处的素材另有判据（结论里出现过证据地址即视为已写回），这里只管查不到原文的那两类
-    if (i.verdict !== "candidate" && i.verdict !== "empty") return true;
+    if (i.verdict !== "candidate" && i.verdict !== "empty") {
+      if (!i.evidence || !cited.has(i.evidence.url)) return true;
+      // 替代地址已进结论：原地址还在就是只替换了一半，得继续催；不在了才算写回
+      return i.kind === "citation" && i.subjectUrl !== undefined && i.subjectUrl !== "" && cited.has(i.subjectUrl);
+    }
     if (i.kind === "citation" && i.subjectUrl !== undefined && i.subjectUrl !== "" && !cited.has(i.subjectUrl)) {
       return false;
     }
@@ -932,6 +943,31 @@ export function pendingRevisionItems(items: RevisionItem[], conclusion: string):
   });
 }
 
+/** 复查后仍没取得出处的素材该怎么处置 */
+export type UnresolvedAdvice = "drop" | "narrow" | "mark";
+
+/**
+ * 按「这条引用到底是什么」分派处置方式。
+ *
+ * 此前不论哪一类都塞进同一段【标注未取得原文】，让模型统一写「仅作背景参考，不作为政策依据」。
+ * 对百科词条这是错的处置：交付自检对同一批引用说的是「这类词条找不到同主题的官方原文，建议直接从
+ * 结论中删掉」，两处建议互相打架；而模型照指令写下的那句交代还会把词条合法化——它从此变成「已声明
+ * 的背景参考」，不再被催办，一条本该删掉的泛词条就这么留在了交付材料里。门户首页与检索结果页也不该
+ * 只标注：站点是官方的，缺的是具体文件页，让模型改引比让它写免责声明有用得多。
+ */
+export function unresolvedAdvice(i: RevisionItem): UnresolvedAdvice {
+  if (i.kind !== "citation" || !i.subjectUrl) return "mark";
+  const weak = gradeCitation(i.subjectUrl, i.text).weak;
+  if (weak === "encyclopedia") return "drop";
+  if (weak === "entry" || weak === "search") return "narrow";
+  return "mark";
+}
+
+/**
+ * 把复查结果写成一条「续跑」修订指令：人工核对后提交给 Agent 重写依据与引用。
+ * 平台不自动改写结论——指令只是填进续跑输入框，改不改、怎么改由税务师决定。
+ * 没有可用素材时返回空串，调用方据此禁用按钮。
+ */
 export function buildRevisionInstruction(
   items: RevisionItem[],
   deadLinks: Array<{ title: string; url: string }> = [],
@@ -940,6 +976,13 @@ export function buildRevisionInstruction(
   const docMatched = items.filter((i) => i.kind === "docref" && i.verdict === "matched");
   const citMatched = items.filter((i) => i.kind === "citation" && i.verdict === "matched");
   const unresolved = items.filter((i) => i.verdict === "candidate" || i.verdict === "empty");
+  const toDrop = unresolved.filter((i) => unresolvedAdvice(i) === "drop");
+  const toNarrow = unresolved.filter((i) => unresolvedAdvice(i) === "narrow");
+  const toMark = unresolved.filter((i) => unresolvedAdvice(i) === "mark");
+  const itemLine = (i: RevisionItem): string =>
+    `- ${i.text}${i.subjectUrl ? ` ${i.subjectUrl}` : ""}（复查判定：${REF_VERDICT_TEXT[i.verdict]}${
+      i.evidence ? `，候选页《${i.evidence.title}》 ${i.evidence.url}，需人工确认` : ""
+    }）`;
   const lines: string[] = [
     "请依据下列联网核对结果修订上一轮结论中的政策依据与联网引用；只改依据与引用部分，不要改动金额、测算过程、差异认定与结论意见。",
     "本轮只修订文字：不要重新调用解析、底稿生成、模板填列或底稿比对一类业务工具，也不要重新生成产物——已有工具结果与比对记录是上一轮的交付证据，重跑会把它们替换掉。",
@@ -957,7 +1000,9 @@ export function buildRevisionInstruction(
   }
   if (citMatched.length > 0) {
     lines.push(
-      "【替换弱证据引用】以下引用原先指向门户首页、百科词条或检索结果页，现已找到官方原文，请在结论正文与联网引用清单中替换：",
+      // 「替换」两个字不够硬：实测同一批百科词条连续三轮都只补不删——官方原文加进来了，
+      // 原来的百科链接还原样挂在引用清单里，弱证据一条没少，而写回脚本一度还把它当「已写回」。
+      "【替换弱证据引用】以下引用原先指向门户首页、百科词条或检索结果页，现已找到官方原文。请把原来那条引用**整条删掉**（正文与联网引用清单里都不留），改用下面的官方原文，并给出标题、URL 与检索时间。不要新旧两条并列保留：并列等于交付材料里仍挂着一条证据力弱的引用，平台会继续把它算作待处置欠账，下一轮修订指令还会再列一次：",
     );
     for (const i of citMatched) {
       lines.push(
@@ -968,17 +1013,25 @@ export function buildRevisionInstruction(
     }
     lines.push("");
   }
-  if (unresolved.length > 0) {
+  if (toDrop.length > 0) {
+    lines.push(
+      "【删掉泛词条引用】以下引用是百科词条、问答社区一类泛词条，既不是政策依据，也永远找不到同主题的官方原文。请从结论正文与联网引用清单中删掉这些条目；确实需要交代背景的，用一句文字说明即可，不要留着地址当依据：",
+    );
+    for (const i of toDrop) lines.push(itemLine(i));
+    lines.push("");
+  }
+  if (toNarrow.length > 0) {
+    lines.push(
+      "【改引具体文件页】以下引用指向门户首页、栏目页或检索结果页，不是可引用的具体文件页。请改引同一站点下的具体文件页（给出标题、URL 与检索时间）；确实找不到具体文件页的，把这条引用删掉，不要留着首页当依据：",
+    );
+    for (const i of toNarrow) lines.push(itemLine(i));
+    lines.push("");
+  }
+  if (toMark.length > 0) {
     lines.push(
       "【标注未取得原文】以下项目联网复查后仍未取得政策原文，请在结论中明确写「未取得公开原文，仅作背景参考，不作为政策依据」，不得据此认定企业处理错误：",
     );
-    for (const i of unresolved) {
-      lines.push(
-        `- ${i.text}${i.subjectUrl ? ` ${i.subjectUrl}` : ""}（复查判定：${REF_VERDICT_TEXT[i.verdict]}${
-          i.evidence ? `，候选页《${i.evidence.title}》 ${i.evidence.url}，需人工确认` : ""
-        }）`,
-      );
-    }
+    for (const i of toMark) lines.push(itemLine(i));
     lines.push("");
   }
   if (deadLinks.length > 0) {
@@ -1037,11 +1090,23 @@ export function deadLinkTargets(
 export function revisionCounts(
   items: RevisionItem[],
   deadLinks = 0,
-): { total: number; replace: number; unresolved: number; deadLinks: number } {
+): {
+  total: number;
+  replace: number;
+  unresolved: number;
+  drop: number;
+  narrow: number;
+  mark: number;
+  deadLinks: number;
+} {
+  const unresolved = items.filter((i) => i.verdict === "candidate" || i.verdict === "empty");
   return {
     total: items.length,
     replace: items.filter((i) => i.verdict === "matched").length,
-    unresolved: items.filter((i) => i.verdict === "candidate" || i.verdict === "empty").length,
+    unresolved: unresolved.length,
+    drop: unresolved.filter((i) => unresolvedAdvice(i) === "drop").length,
+    narrow: unresolved.filter((i) => unresolvedAdvice(i) === "narrow").length,
+    mark: unresolved.filter((i) => unresolvedAdvice(i) === "mark").length,
     deadLinks,
   };
 }

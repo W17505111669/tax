@@ -1087,9 +1087,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     // 已声明为背景参考的、以及从未进结论正文的都不进检索清单：前者找不到同主题的官方原文，
     // 后者没处写回，点一次只是白跑一轮联网检索（与服务端 pendingCitationTargets 同一道过滤）
     () =>
-      citationTargets(weakCitations, topicHint(finalResult, 2), 10).filter(
-        (t) => !weakSettledUrls.has(t.excludeUrl ?? ""),
-      ),
+      citationTargets(weakCitations, topicHint(finalResult, 2), 10, weakSettledUrls),
     [weakCitations, finalResult, weakSettledUrls],
   );
   // 已经找到官方替代来源的弱证据引用（结论没改之前它仍是弱证据，只用于如实标注补救进度）
@@ -1151,9 +1149,11 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     setResumeText(text);
     setResumeOpen(true);
     setRevisionMsg(
-      `修订指令已填入「续跑任务」（${revisionTotal} 项：可替换或补出处 ${revisionCount.replace} · 需标注未取得原文 ${
+      `修订指令已填入「续跑任务」（${revisionTotal} 项：可替换或补出处 ${revisionCount.replace} · 待处置 ${
         revisionCount.unresolved
-      }${revisionCount.deadLinks > 0 ? ` · 失效链接 ${revisionCount.deadLinks}` : ""}），请核对后提交`,
+      }（删泛词条 ${revisionCount.drop}／改引具体页 ${revisionCount.narrow}／标注未取得原文 ${
+        revisionCount.mark
+      }）${revisionCount.deadLinks > 0 ? ` · 失效链接 ${revisionCount.deadLinks}` : ""}），请核对后提交`,
     );
   };
 

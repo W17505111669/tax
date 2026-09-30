@@ -40,6 +40,7 @@ import {
   stripSiteSuffix,
   summarizeRefChecks,
   toRevisionItems,
+  unresolvedAdvice,
   trimEdgeWords,
   topicGapReason,
   uniqueVerifiedDocNum,
@@ -49,7 +50,12 @@ import {
   type RevisionItem,
 } from "../../web/src/ref-check.ts";
 import { traceDocRefs } from "../../web/src/policy-trace.ts";
-import { extractCitations } from "../../web/src/search-evidence.ts";
+import {
+  extractCitations,
+  extractTextCitations,
+  mergeCitations,
+  UNCAPPED,
+} from "../../web/src/search-evidence.ts";
 import { gradeCitation } from "../../web/src/citation-grade.ts";
 import { topicHint } from "../../web/src/domain-keywords.ts";
 import {
@@ -392,7 +398,15 @@ expect(
   revItems.map((i) => i.kind),
   ["docref", "docref", "citation"],
 );
-expect("修订素材计数", revisionCounts(revItems), { total: 3, replace: 2, unresolved: 1, deadLinks: 0 });
+expect("修订素材计数", revisionCounts(revItems), {
+  total: 3,
+  replace: 2,
+  unresolved: 1,
+  drop: 0,
+  narrow: 0,
+  mark: 1,
+  deadLinks: 0,
+});
 expect("空素材返回空指令", buildRevisionInstruction([]), "");
 const instr = buildRevisionInstruction(revItems);
 ok("指令限定只改依据与引用", instr.includes("不要改动金额、测算过程、差异认定与结论意见"), instr.slice(0, 80));
@@ -502,7 +516,9 @@ const rowDisclaimer = [
 expect(
   "同一行写了交代的条目不再进指令，其余照旧",
   pendingRevisionItems(disclaimItems, rowDisclaimer).map((i) => i.text),
-  ["12366纳税服务平台", "2021年第34号", "财税〔2015〕119号"],
+  // 财税〔2015〕119号 是已找到出处的文号，而它的原文地址就写在 rowDisclaimer 第 2 行，
+  // 属于已写回，同样不再进指令
+  ["12366纳税服务平台", "2021年第34号"],
 );
 const sectionDisclaimer = [
   "## 五、未取得公开原文的项目",
@@ -537,7 +553,40 @@ expect("没有交代、地址又确实在正文里时照旧进指令", pendingRe
 expect(
   "从未进结论正文的引用不进指令：正文里没有它，模型无处标注",
   pendingRevisionItems(disclaimItems, "## 联网引用\n\n- 政策原文 https://a.gov.cn/119.html\n").map((i) => i.text),
-  ["2021年第34号", "财税〔2015〕119号"],
+  ["2021年第34号"],
+);
+// 替换只做了一半也要继续催：替代地址进了结论，但原来那条弱证据引用还原样留着。
+// 只认「替代地址在不在正文」会把这种半成品当成已完成——实测 4bb22d34 两条百科词条就此再没人提
+const halfReplaced: RevisionItem[] = [
+  {
+    kind: "citation",
+    verdict: "matched",
+    text: "研发_百度百科",
+    subjectUrl: "https://baike.baidu.com/item/x/1",
+    evidence: { title: "官方原文页", url: "https://a.gov.cn/new.html" },
+    checkedAt: "2026-09-30T02:00:00.000Z",
+  },
+];
+expect(
+  "替代地址已进结论、原引用还在 → 继续列进指令",
+  pendingRevisionItems(halfReplaced, "依据见 https://a.gov.cn/new.html 与 https://baike.baidu.com/item/x/1").length,
+  1,
+);
+expect(
+  "原引用也从清单里消失 → 视为已写回，不再列",
+  pendingRevisionItems(halfReplaced, "依据见 https://a.gov.cn/new.html（检索时间 2026-09-30）").length,
+  0,
+);
+expect(
+  "替代地址还没进结论 → 照旧列进指令",
+  pendingRevisionItems(halfReplaced, "依据见 https://baike.baidu.com/item/x/1").length,
+  1,
+);
+ok(
+  "半成品的替换走【替换弱证据引用】那一段",
+  buildRevisionInstruction(
+    pendingRevisionItems(halfReplaced, "依据见 https://a.gov.cn/new.html 与 https://baike.baidu.com/item/x/1"),
+  ).includes("【替换弱证据引用】"),
 );
 expect("同一行有交代用语即认", isDisclaimedInConclusion(rowDisclaimer, "https://data.stats.gov.cn/"), true);
 expect(
@@ -568,6 +617,92 @@ expect(
   disclaimedWeakUrls([{ url: "https://baike.baidu.com/item/x", title: "研发_百度百科" }], "| 研发_百度百科 | 2026-09-30 |").size,
   0,
 );
+// 未查到出处的素材要按「这条引用到底是什么」分派处置方式：百科词条该删、门户首页该改引具体文件页，
+// 只有一类才该写「仅作背景参考」。此前一律让模型写免责声明，等于把该删的泛词条合法化，
+// 还与交付自检「建议直接从结论中删掉」的说法互相打架
+const adviceItems: RevisionItem[] = [
+  {
+    kind: "citation",
+    verdict: "candidate",
+    text: "研发_百度百科",
+    subjectUrl: "https://baike.baidu.com/item/x/1",
+    evidence: null,
+    checkedAt: "2026-09-30T02:00:00.000Z",
+  },
+  {
+    kind: "citation",
+    verdict: "empty",
+    text: "fgk.chinatax.gov.cn",
+    subjectUrl: "https://fgk.chinatax.gov.cn/",
+    evidence: null,
+    checkedAt: "2026-09-30T02:00:00.000Z",
+  },
+  {
+    kind: "citation",
+    verdict: "empty",
+    text: "研发 - MBA智库百科",
+    subjectUrl: "https://wiki.mbalib.com/view/123456.htm",
+    evidence: null,
+    checkedAt: "2026-09-30T02:00:00.000Z",
+  },
+  {
+    kind: "docref",
+    verdict: "empty",
+    text: "国税发〔2006〕187号",
+    evidence: null,
+    checkedAt: "2026-09-30T02:00:00.000Z",
+  },
+  {
+    kind: "citation",
+    verdict: "candidate",
+    text: "某篇没有原地址的引用",
+    evidence: null,
+    checkedAt: "2026-09-30T02:00:00.000Z",
+  },
+];
+expect(
+  "百科词条判删、门户首页判改引、文号与缺地址的判标注",
+  adviceItems.map((i) => unresolvedAdvice(i)),
+  ["drop", "narrow", "drop", "mark", "mark"],
+);
+const adviceInstr = buildRevisionInstruction(adviceItems);
+ok(
+  "指令按处置方式分段，不再一律让模型写免责声明",
+  adviceInstr.includes("【删掉泛词条引用】") &&
+    adviceInstr.includes("【改引具体文件页】") &&
+    adviceInstr.includes("【标注未取得原文】"),
+);
+ok("删泛词条段要求从结论里删掉条目", adviceInstr.includes("请从结论正文与联网引用清单中删掉这些条目"));
+ok("改引段要求换成同一站点下的具体文件页", adviceInstr.includes("请改引同一站点下的具体文件页"));
+ok("标注段仍保留原来那句话", adviceInstr.includes("仅作背景参考，不作为政策依据"));
+expect(
+  "分段计数与总数对得上",
+  [
+    revisionCounts(adviceItems).drop,
+    revisionCounts(adviceItems).narrow,
+    revisionCounts(adviceItems).mark,
+    revisionCounts(adviceItems).unresolved,
+  ],
+  [2, 1, 2, 5],
+);
+// 配额必须在剔除已处置项之后再切：实测 4bb22d34 有 14 条弱证据、配额 10 条，先切片再过滤时
+// 前 10 条全被已处置项占满，真正该删的两条百科词条永远进不了清单，批量入口对它就是 ran=0
+const quotaCites = [
+  ...Array.from({ length: 10 }, (_, k) => ({
+    title: `已处置词条 ${k}`,
+    url: `https://baike.baidu.com/settled/${k}`,
+    grade: "weak",
+  })),
+  { title: "研发_百度百科", url: "https://baike.baidu.com/open/1", grade: "weak" },
+  { title: "研发 - MBA智库百科", url: "https://wiki.mbalib.com/open/2", grade: "weak" },
+];
+const quotaSettled = new Set(Array.from({ length: 10 }, (_, k) => `https://baike.baidu.com/settled/${k}`));
+expect(
+  "已处置项不占配额，配额之外的待处置项仍能进清单",
+  citationTargets(quotaCites, "研发费用 加计扣除", 10, quotaSettled).map((t) => t.excludeUrl),
+  ["https://baike.baidu.com/open/1", "https://wiki.mbalib.com/open/2"],
+);
+expect("没有已处置项时仍按配额截断", citationTargets(quotaCites, "研发费用 加计扣除", 2).length, 2);
 expect(
   "只存在于检索留存里的弱证据算「未进结论正文」",
   uncitedWeakUrls(
@@ -919,15 +1054,18 @@ for (const t of listTasks()) {
     }
     return { toolName: r.tool_name, result };
   });
-  const citesForTargets = extractCitations(parsedCalls).map((c) => ({
-    ...c,
-    grade: gradeCitation(c.url, c.title).grade,
-  }));
+  // 与服务端、结果页、平台统计同一份引用清单：工具留存 + 结论正文合并。只取工具留存会漏掉模型
+  // 直接写进正文的地址，那种弱引用会在看板上挂着缺口、批量入口却 ran=0，永远没有修复通道
+  const citesForTargets = mergeCitations(
+    extractCitations(parsedCalls, UNCAPPED),
+    extractTextCitations(text, UNCAPPED),
+    UNCAPPED,
+  ).map((c) => ({ ...c, grade: gradeCitation(c.url, c.title).grade }));
   // 与结果页、服务端同一道过滤：已声明「仅作背景参考」的、以及只在检索留存里从未进结论正文的，
   // 都不进检索清单。前者找不到同主题的官方原文，后者没处写回，点一次只是白跑一轮联网检索
   const settled = settledWeakUrls(citesForTargets, text);
   const wantCites = unresolvedTargets(
-    citationTargets(citesForTargets, topicHint(text, 2), 10).filter((c) => !settled.has(c.excludeUrl ?? "")),
+    citationTargets(citesForTargets, topicHint(text, 2), 10, settled),
     recs,
     stillOfficial,
   );
