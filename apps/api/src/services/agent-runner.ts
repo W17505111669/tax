@@ -134,8 +134,22 @@ export async function runTask(
       emit(taskId, "agent_status", `本任务已上传 ${files.length} 份资料：${files.map((f) => f.fileName).join("、")}`);
     }
 
+    // 续跑不能指望会话历史一定还在。会话目录按任务存，早期任务没有留存——实测 c2dda328 的
+    // 目录里只有修订这一轮的 jsonl，原始那轮没留下，continueRecent 找不到历史就开了新会话。
+    // 模型于是拿不到上一轮结论正文，只能交回一份「本轮做了什么」的说明，而那段文本会整体成为
+    // 新的结论：1895 字的「一、测算结论」被换成 3881 字的改动日志，文号 5 处掉到 2 处、
+    // 金额溯源项少 22 个。所以续跑一律把上一轮结论原文带进提示词，不依赖会话恢复。
+    const prevResult = (task.result ?? "").trim();
     const prompt = opts.resume
-      ? `【续跑补充】${instruction.trim()}\n\n请结合本任务此前的核查结论与已生成产物继续处理；如补充了新的上传资料，先调用 parse_uploaded_files 解析新增文件。`
+      ? [
+          `【续跑补充】${instruction.trim()}`,
+          "",
+          prevResult === ""
+            ? "【上一轮结论正文】本任务此前没有结论正文（上一轮未产出或被中断），请按上面的要求直接产出完整结论。"
+            : `【上一轮结论正文（必须在它的基础上改，改完交回完整正文，不要只交改动说明）】\n${prevResult}`,
+          "",
+          "请结合本任务此前的核查结论与已生成产物继续处理；如补充了新的上传资料，先调用 parse_uploaded_files 解析新增文件。",
+        ].join("\n")
       : buildPrompt(instruction, files.map((f) => f.fileName));
     const answer = await session.prompt(prompt);
 
