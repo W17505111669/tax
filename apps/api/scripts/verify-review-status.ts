@@ -14,6 +14,7 @@ import {
 import { getTask, listTasks } from "../src/services/task-store.ts";
 import { computePlatformStats } from "../src/services/stats.ts";
 import { buildDerivedFrom, isTemplateCompare } from "../src/services/compare-stats.ts";
+import { groupPendingIssues, groupSummary } from "../../web/src/review-queue.ts";
 import { db } from "../src/db.ts";
 
 const failures: string[] = [];
@@ -128,6 +129,39 @@ for (const t of tasks) {
 expect("没有结论的任务不列待复核问题", noConclusionViolations, 0);
 expect("比对类问题只来自最近一次与人工底稿的比对", staleCompareIssues, 0);
 
+// 跨任务分组：同一件事在多个任务里各出现一次时，看板上一次处置（实测 58 条里有 7 类跨任务重复，
+// 「研发人员名单尚未取得」一类就在 6 个任务里各出现一次）
+const flat = stats.reviewGroups.flatMap((g) => g.items);
+expect("分组后条数与待复核合计一致", flat.length, stats.reviewPendingIssues);
+expect(
+  "每组内类型与描述一致",
+  stats.reviewGroups.every((g) => g.items.every((i) => i.issueType === g.issueType && i.description === g.description)),
+  true,
+);
+expect(
+  "组间按出现次数倒序",
+  stats.reviewGroups.every((g, i) => i === 0 || stats.reviewGroups[i - 1]!.items.length >= g.items.length),
+  true,
+);
+expect(
+  "同一任务的同一条问题不重复计入",
+  new Set(flat.map((i) => `${i.taskId}|${i.issueId}`)).size,
+  flat.length,
+);
+const grouped = groupPendingIssues([
+  { taskId: "b", taskTitle: "B任务", agentId: "rd-audit", issueId: "b1", issueType: "资料缺失", description: "研发人员名单尚未取得" },
+  { taskId: "a", taskTitle: "A任务", agentId: "rd-audit", issueId: "a1", issueType: "资料缺失", description: "研发人员名单尚未取得" },
+  { taskId: "c", taskTitle: "C任务", agentId: "land-vat", issueId: "c1", issueType: "金额差异", description: "合同 HT-001 差异 100000.00 元" },
+]);
+expect("同一事实跨任务合并为一组", grouped.length, 2);
+expect("出现次数多的组排在前，组内按任务标题排序", grouped[0]?.items.map((i) => i.taskId), ["a", "b"]);
+expect("分组汇总", groupSummary(grouped), { items: 3, groups: 2, recurringGroups: 1, recurringItems: 2 });
+expect("空清单不报错", groupSummary(groupPendingIssues([])), {
+  items: 0,
+  groups: 0,
+  recurringGroups: 0,
+  recurringItems: 0,
+});
 console.log(
   `[verify] 任务数=${tasks.length} 待复核态=${waiting} 完成但仍需重开复核=${reopenable} 待复核问题合计=${totalPending}`,
 );

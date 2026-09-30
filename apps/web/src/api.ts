@@ -192,6 +192,18 @@ export const api = {
       body: JSON.stringify({ ids }),
     }),
 
+  /** 跨任务批量处置同一类待复核问题；服务端会重新核对每条是否仍待复核 */
+  reviewBatch: (items: Array<{ taskId: string; issueId: string }>, decision: "confirm" | "dismiss", comment: string) =>
+    request<{
+      total: number;
+      perTask: Array<{ id: string; title: string; saved: number; pending: number; completed: boolean }>;
+      skipped: Array<{ taskId: string; issueId: string; reason: string }>;
+    }>(`/api/tasks/reviews-batch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items, decision, comment }),
+    }),
+
   listAmountChecks: (taskId: string) =>
     request<{ checks: Array<{ key: string; note: string; createdAt: string }> }>(
       `/api/tasks/${taskId}/amount-checks`,

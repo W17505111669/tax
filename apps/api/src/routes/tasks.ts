@@ -280,6 +280,66 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     return { total: reopened.length, reopened, skipped };
   });
 
+  /**
+   * 跨任务批量处置待复核问题：同一件事在多个任务里各出现一次时，一次判断、一次处置。
+   *
+   * 服务端按任务重新计算当前待复核清单，不信任前端传来的 issueId：已复核过的、或因为口径变化
+   * 已不在清单里的，逐条跳过并在 skipped 里说明原因。每个任务处置完各记一条事件留痕，
+   * 待复核清零且任务处于 waiting_review 时按单条复核同一条规则流转为 completed。
+   */
+  app.post("/api/tasks/reviews-batch", async (req, reply) => {
+    const body = (req.body ?? {}) as {
+      items?: Array<{ taskId?: string; issueId?: string }>;
+      decision?: string;
+      comment?: string;
+    };
+    const decision = body.decision;
+    if (decision !== "confirm" && decision !== "dismiss") {
+      return reply.code(400).send({ error: "需要 decision(confirm|dismiss)", total: 0, perTask: [], skipped: [] });
+    }
+    const comment = typeof body.comment === "string" ? body.comment : "";
+    const byTask = new Map<string, string[]>();
+    for (const item of Array.isArray(body.items) ? body.items : []) {
+      if (typeof item?.taskId !== "string" || typeof item?.issueId !== "string") continue;
+      const list = byTask.get(item.taskId);
+      if (list) list.push(item.issueId);
+      else byTask.set(item.taskId, [item.issueId]);
+    }
+    const perTask: Array<{ id: string; title: string; saved: number; pending: number; completed: boolean }> = [];
+    const skipped: Array<{ taskId: string; issueId: string; reason: string }> = [];
+    let total = 0;
+    for (const [taskId, issueIds] of byTask) {
+      const task = getTask(taskId);
+      if (!task) {
+        for (const issueId of issueIds) skipped.push({ taskId, issueId, reason: "任务不存在" });
+        continue;
+      }
+      const pendingNow = new Set(pendingReviewIssues(taskId).map((i) => i.id));
+      let saved = 0;
+      for (const issueId of issueIds) {
+        if (!pendingNow.has(issueId)) {
+          skipped.push({ taskId, issueId, reason: "已复核过，或该问题已不在当前清单里" });
+          continue;
+        }
+        saveReview(taskId, issueId, decision, comment);
+        saved += 1;
+      }
+      if (saved === 0) continue;
+      total += saved;
+      const pending = pendingReviewIssues(taskId).length;
+      const completed = task.status === "waiting_review" && pending === 0;
+      if (completed) setTaskStatus(taskId, "completed");
+      appendEvent(
+        taskId,
+        "agent_status",
+        `人工复核批量提交：${decision === "confirm" ? "确认列入底稿" : "判定无需处理"} ${saved} 项（剩余待复核 ${pending} 项）${
+          comment === "" ? "" : `，复核意见：${comment}`
+        }`,
+      );
+      perTask.push({ id: taskId, title: String(task.title ?? taskId), saved, pending, completed });
+    }
+    return { total, perTask, skipped };
+  });
   /** 结论金额的人工核对标记清单 */
   app.get("/api/tasks/:id/amount-checks", async (req) => {
     const { id } = req.params as { id: string };

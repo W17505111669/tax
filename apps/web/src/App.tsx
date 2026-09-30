@@ -178,6 +178,21 @@ export default function App() {
     return res;
   };
 
+  /**
+   * 跨任务批量处置同一类待复核问题：处置完刷新平台统计与任务列表
+   *（待复核清零的任务会流转为已完成，两处都得跟着变）。
+   */
+  const handleBatchReview = async (
+    items: Array<{ taskId: string; issueId: string }>,
+    decision: "confirm" | "dismiss",
+    comment: string,
+  ): Promise<number> => {
+    const res = await api.reviewBatch(items, decision, comment);
+    await Promise.all([refreshTasks(), refreshPlatform()]);
+    if (res.total > 0) setReviewNonce((n) => n + 1);
+    return res.total;
+  };
+
   // 任务详情加载 + 运行期间轮询，保证状态与结果以持久化数据为准
   useEffect(() => {
     if (!activeTaskId) {
@@ -360,6 +375,7 @@ export default function App() {
                 setActiveTaskId(id);
               }}
               onBatchReopen={handleBatchReopen}
+              onBatchReview={handleBatchReview}
               onBatchRefCheck={handleBatchRefCheck}
               perAgentCreatedAts={Object.fromEntries(
                 agents.map((a) => [a.id, tasks.filter((t) => t.agentId === a.id).map((t) => t.createdAt)]),

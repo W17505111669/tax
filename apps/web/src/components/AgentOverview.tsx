@@ -21,6 +21,7 @@ import { downloadBlob, downloadText } from "../download.ts";
 import { asSnapshotRecord, KEYS, readJson, writeJson } from "../local-store.ts";
 import { needsUnitSpace, percentFrom, percentOf, percentText, percentValue } from "../format.ts";
 import { dayStamp, relTime } from "../time-format.ts";
+import { groupSummary } from "../review-queue.ts";
 
 /** 大数字 odometer：每位数字独立滚轮到目标值，对齐参考片数据页质感。 */
 const DESC_KEYWORDS = ["整数分", "行级", "记录级", "OCR", "mermaid", "联网"];
@@ -111,6 +112,12 @@ interface Props {
   onShowAll: () => void;
   /** 批量把「已完成但仍有未复核问题」的任务改回待复核，返回成功数量 */
   onBatchReopen?: (ids: string[]) => Promise<number>;
+  /** 跨任务批量处置同一类待复核问题，返回实际处置条数（服务端会重新核对每条是否仍待复核） */
+  onBatchReview?: (
+    items: Array<{ taskId: string; issueId: string }>,
+    decision: "confirm" | "dismiss",
+    comment: string,
+  ) => Promise<number>;
   /** 批量联网复查：kinds 指定复查政策文号还是为弱证据引用找替代来源 */
   onBatchRefCheck?: (
     ids: string[],
@@ -129,6 +136,7 @@ export function AgentOverview({
   onOpenTask,
   onShowAll,
   onBatchReopen,
+  onBatchReview,
   onBatchRefCheck,
   lastAt,
   perAgentCreatedAts,
@@ -239,6 +247,42 @@ export function AgentOverview({
       .then((n) => setBatchMsg(`${label}：已把 ${n} 个任务转为待复核，状态事件已留痕`))
       .catch(() => setBatchMsg(`${label}：批量转换失败，请到各任务复核页逐个处理`))
       .finally(() => setBatchBusy(""));
+  };
+
+  // 跨任务同类待复核问题：同样两步确认，避免误点把一批问题一次判掉；处置意见共用一个输入框
+  const [reviewArmed, setReviewArmed] = useState<string | null>(null);
+  const [reviewBusy, setReviewBusy] = useState("");
+  const [reviewMsg, setReviewMsg] = useState("");
+  const [reviewComment, setReviewComment] = useState("");
+  const [reviewShowAll, setReviewShowAll] = useState(false);
+  const reviewGroups = stats.platform?.reviewGroups ?? [];
+  const reviewSummary = groupSummary(reviewGroups);
+  const armReviewBatch = (
+    key: string,
+    items: Array<{ taskId: string; issueId: string }>,
+    decision: "confirm" | "dismiss",
+  ) => {
+    if (reviewBusy !== "" || !onBatchReview || items.length === 0) return;
+    const armed = `${key}|${decision}`;
+    if (reviewArmed !== armed) {
+      setReviewArmed(armed);
+      setReviewMsg("");
+      window.setTimeout(() => setReviewArmed((v) => (v === armed ? null : v)), 3000);
+      return;
+    }
+    setReviewArmed(null);
+    setReviewBusy(key);
+    void onBatchReview(items, decision, reviewComment.trim())
+      .then(
+        (n) =>
+          setReviewMsg(
+            `已${decision === "confirm" ? "确认列入底稿" : "判定无需处理"} ${n} 项（跨 ${
+              new Set(items.map((i) => i.taskId)).size
+            } 个任务）；每个任务都写了复核记录与状态事件${n < items.length ? `，另有 ${items.length - n} 项已被处置过或不在当前清单里，已跳过` : ""}`,
+          ),
+      )
+      .catch(() => setReviewMsg("批量处置失败，请到各任务复核页逐个处理"))
+      .finally(() => setReviewBusy(""));
   };
 
   /** 批量复查：两步确认，结果按任务落库并写入事件留痕 */
@@ -358,6 +402,9 @@ export function AgentOverview({
       )}）：把「填错」与「范围没对上」混在一个数里，只作参考`,
       `- OCR 平均置信度：${percentFrom(p.ocrAvgConfidence)}（${p.ocrRuns} 次）`,
       `- 复核闭环：待复核问题合计 ${p.reviewPendingIssues} 项；已完成但仍有未复核问题的任务 ${p.reviewBacklog.length} 个`,
+      `- 复核去重：待复核问题按「类型 + 描述」跨任务去重后 ${reviewSummary.groups} 类，其中 ${
+        reviewSummary.recurringGroups
+      } 类在多个任务里重复出现（涉及 ${reviewSummary.recurringItems} 项）；看板上可对同一类一次处置，各任务分别写复核记录与事件留痕`,
       ...(p.reviewBacklog.length > 0
         ? [
             "",
@@ -782,6 +829,99 @@ export function AgentOverview({
                 </div>
               ))}
             </div>
+            {stats.platform.reviewPendingIssues > 0 && (
+              <div className="mt-3 rounded-md border border-line bg-night-850 px-3 py-2">
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[12px] text-mist-300">
+                  <span className="font-medium">全平台待复核问题</span>
+                  <span className="text-[11.5px] text-mist-400">
+                    {reviewSummary.items} 项 · 按「类型 + 描述」去重后 {reviewSummary.groups} 类
+                    {reviewSummary.recurringGroups > 0
+                      ? `，其中 ${reviewSummary.recurringGroups} 类在多个任务里重复出现（涉及 ${reviewSummary.recurringItems} 项）`
+                      : ""}
+                  </span>
+                  <span className="text-[11px] text-mist-500">同一类问题一次处置，各任务分别写复核记录与事件留痕</span>
+                  <label className="ml-auto flex items-center gap-1.5 text-[11px] text-mist-500">
+                    复核意见
+                    <input
+                      value={reviewComment}
+                      onChange={(e) => setReviewComment(e.target.value)}
+                      placeholder="选填，随处置写入每个任务"
+                      className="w-[210px] rounded border border-line bg-night-900 px-1.5 py-0.5 text-[11px] text-mist-200"
+                    />
+                  </label>
+                </div>
+                {reviewMsg && <div className="mt-1 text-[11px] text-jade-300">{reviewMsg}</div>}
+                <div className="mt-1.5 space-y-1">
+                  {(reviewShowAll ? reviewGroups : reviewGroups.slice(0, 8)).map((g) => {
+                    const key = `${g.issueType}|${g.description}`;
+                    const items = g.items.map((i) => ({ taskId: i.taskId, issueId: i.issueId }));
+                    return (
+                      <div
+                        key={key}
+                        className="flex flex-wrap items-center gap-1.5 rounded border border-line/70 px-2 py-1"
+                      >
+                        <span className="shrink-0 rounded border border-line px-1.5 py-0.5 text-[10.5px] text-mist-400">
+                          {g.issueType}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-[11.5px] text-mist-200" title={g.description}>
+                          {g.description}
+                        </span>
+                        <span className="shrink-0 text-[10.5px] text-mist-500">{g.items.length} 个任务</span>
+                        {g.items.slice(0, 4).map((it) => (
+                          <button
+                            key={`${it.taskId}:${it.issueId}`}
+                            type="button"
+                            className="action-btn !text-[10.5px]"
+                            title={`${it.taskTitle}：前往该任务复核页逐项查看`}
+                            onClick={() => onOpenTask(it.taskId)}
+                          >
+                            {it.taskTitle.length > 10 ? `${it.taskTitle.slice(0, 10)}…` : it.taskTitle}
+                          </button>
+                        ))}
+                        {g.items.length > 4 && (
+                          <span className="shrink-0 text-[10.5px] text-mist-600">+{g.items.length - 4}</span>
+                        )}
+                        {onBatchReview && (
+                          <span className="ml-auto flex shrink-0 gap-1.5">
+                            <button
+                              type="button"
+                              className="action-btn !text-[10.5px] disabled:cursor-not-allowed disabled:opacity-40"
+                              disabled={reviewBusy !== ""}
+                              title="把这一类问题在全部涉及的任务里判为「确认列入底稿」：每个任务各写一条复核记录与状态事件，待复核清零且处于待复核态的任务流转为已完成"
+                              onClick={() => armReviewBatch(key, items, "confirm")}
+                            >
+                              {reviewBusy === key
+                                ? "处理中…"
+                                : reviewArmed === `${key}|confirm`
+                                  ? `再点一次确认（${g.items.length} 项）`
+                                  : "全部确认"}
+                            </button>
+                            <button
+                              type="button"
+                              className="action-btn !text-[10.5px] disabled:cursor-not-allowed disabled:opacity-40"
+                              disabled={reviewBusy !== ""}
+                              title="把这一类问题在全部涉及的任务里判为「无需处理」：同样逐任务留痕"
+                              onClick={() => armReviewBatch(key, items, "dismiss")}
+                            >
+                              {reviewArmed === `${key}|dismiss` ? `再点一次驳回（${g.items.length} 项）` : "全部驳回"}
+                            </button>
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {reviewGroups.length > 8 && (
+                  <button
+                    type="button"
+                    className="action-btn mt-1.5 !text-[11px]"
+                    onClick={() => setReviewShowAll((v) => !v)}
+                  >
+                    {reviewShowAll ? "收起" : `展开其余 ${reviewGroups.length - 8} 类`}
+                  </button>
+                )}
+              </div>
+            )}
             {stats.platform.reviewBacklog.length > 0 ? (
               <div className="mt-3 rounded-md border border-amber-400/40 bg-amber-400/10 px-3 py-2">
                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[12px] text-amber-200">

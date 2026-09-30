@@ -233,6 +233,8 @@ export interface PlatformStats {
   ocrAvgConfidence: number | null;
   /** 全平台待复核问题总数 */
   reviewPendingIssues: number;
+  /** 待复核问题按「类型 + 描述」跨任务分组，出现次数多的在前；同一件事多任务重复时可一次处置 */
+  reviewGroups: import("./review-queue.ts").IssueGroup[];
   /** 已完成但仍有待复核问题的任务（复核闭环缺口） */
   reviewBacklog: Array<{ id: string; title: string; agentId: string; pending: number }>;
   /** 证据可信度：联网检索与引用的质量口径（与任务结果页同一套纯函数算出） */

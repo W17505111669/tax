@@ -2,7 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { db } from "../db.ts";
 import { dirs } from "../config.ts";
-import { pendingReviewCount } from "./issues.ts";
+import { pendingReviewCount, pendingReviewIssues } from "./issues.ts";
+import { groupPendingIssues, type PendingIssueRow } from "../../../web/src/review-queue.ts";
 import { filterSearchResults, minRelevanceScore, type WebSearchResult } from "@tax/business-tools";
 import { compareRates } from "@tax/document-tools";
 // 证据口径必须与界面完全一致，因此直接复用前端那套纯函数，不在服务端另写一份
@@ -140,6 +141,11 @@ export interface PlatformStats {
   perTool: Array<{ name: string; calls: number; ok: number }>;
   /** 全平台待复核问题总数（含 waiting_review 任务在内的未复核项） */
   reviewPendingIssues: number;
+  /**
+   * 待复核问题按「类型 + 描述原文」跨任务分组，出现次数多的在前。
+   * 同一件事在多个任务里各出现一次时，复核的人一次看清、一次处置，不必逐任务点六遍「全部确认」。
+   */
+  reviewGroups: import("../../../web/src/review-queue.ts").IssueGroup[];
   /** 复核闭环缺口：已标记完成但仍有待复核问题的任务，可在复核页一键转为待复核 */
   reviewBacklog: Array<{ id: string; title: string; agentId: string; pending: number }>;
   /** 证据可信度缺口：弱证据引用与待复查文号，可在结果页一键复查或替换 */
@@ -181,6 +187,7 @@ export function computePlatformStats(): PlatformStats {
   let ocrRuns = 0;
   let reviewPendingIssues = 0;
   const reviewBacklog: Array<{ id: string; title: string; agentId: string; pending: number }> = [];
+  const reviewRows: PendingIssueRow[] = [];
   // 台账行单独收集，返回时排序后并入
   const evidence: Omit<EvidenceStats, "ledger"> = {
     searchCalls: 0,
@@ -250,6 +257,18 @@ export function computePlatformStats(): PlatformStats {
     // 复核闭环：待复核问题数走缓存（签名失效），列表与统计共用同一口径
     const pending = pendingReviewCount(task.id);
     reviewPendingIssues += pending;
+    if (pending > 0) {
+      for (const i of pendingReviewIssues(task.id)) {
+        reviewRows.push({
+          taskId: task.id,
+          taskTitle: String(task.title ?? task.id),
+          agentId: task.agent_id,
+          issueId: i.id,
+          issueType: i.issueType,
+          description: i.description,
+        });
+      }
+    }
     if (task.status === "completed" && pending > 0) {
       reviewBacklog.push({
         id: task.id,
@@ -507,6 +526,7 @@ export function computePlatformStats(): PlatformStats {
     perAgent: [...perAgentMap.values()],
     perTool: [...perToolMap.values()].sort((a, b) => b.calls - a.calls),
     reviewPendingIssues,
+    reviewGroups: groupPendingIssues(reviewRows),
     reviewBacklog: reviewBacklog.sort((a, b) => b.pending - a.pending),
     evidence: {
       ...evidence,
