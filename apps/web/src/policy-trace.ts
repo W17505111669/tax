@@ -9,6 +9,23 @@
  */
 
 import { plainContext } from "./md-text.ts";
+import { urlsOfCall } from "./search-evidence.ts";
+
+/**
+ * 只在留存网页正文里找到出处的文号，附上它来自哪一页。
+ *
+ * 带地址是因为「仅正文提到」这一档要能**行动**：复核人真正要做的是点开那一页，确认这个文号是
+ * 该页主题还是被顺带提到（侧栏的相关文件列表、正文里一句「同时废止 2020年第24号」）。
+ * 只给一个计数的话，这一档就只是个装饰性数字。
+ */
+export type BodyTracedRef = DocRef & {
+  /** 命中该文号的留存正文所属页面地址；那份结果里没有可归属的地址时为空串 */
+  sourceUrl: string;
+  /** 同一份结果里的标题（取不到时 urlsOfCall 会退回用地址本身） */
+  sourceTitle: string;
+  /** 有几份留存正文里出现了这个文号。多份互不相同的来源同时提到，比一份更站得住 */
+  sourceCount: number;
+};
 
 export type DocRef = {
   core: string;
@@ -47,7 +64,7 @@ export type RefTraceResult = {
    * 只给个数字，复核人还是不知道要去点哪一条——「依据可见」得能看到是哪几处、在结论里怎么写的。
    * 与 untraced / unverifiableRefs 一样带上下文，界面上直接列出来。
    */
-  bodyTracedRefs: DocRef[];
+  bodyTracedRefs: BodyTracedRef[];
   /** 其中靠联网复查取得出处的条数（工具留存里没有，但 ref_checks 里有可点开的原文与检索时间） */
   tracedByRecheck: number;
   /** 找不到出处，但本任务用过「只持久化元数据」的联网检索工具，因此无法从留存数据核验 */
@@ -168,6 +185,11 @@ export function collectRefStrings(results: unknown[], kind: RefPoolKind = "all")
  *
  * `recheckedSources` 传复查判定为 matched 的文号原文清单（按任务），为空时行为与旧版一致。
  *
+ * `toolNames` 是**一袋名字**，只用来判断「本任务有没有用过只留元数据的检索工具」，与 `results`
+ * 不按下标配对——三个生产调用点传的都是「全部调用的名字」配「只有成功调用的结果」，长度就不相等。
+ * 想按结果取信息（比如留存正文属于哪个页面）请直接从 result 对象上取，别指望 toolNames[i] 对得上
+ * results[i]。
+ *
  * 三种依据的优先级是 **元数据 > 留存正文 > 联网复查**：一条文号只算在它最强的那类依据上，
  * 三个计数相加恒等于 traced，不会因为「正文里也有、复查也判过」而被重复计数。
  */
@@ -179,10 +201,16 @@ export function traceDocRefs(
 ): RefTraceResult {
   const refs = extractDocRefs(text);
   const metaPool = collectRefStrings(results, "meta");
-  const bodyPool = collectRefStrings(results, "body");
+  // 正文池按「一次工具调用一份」保留，命中时能回指是哪个页面。地址走 urlsOfCall 的形状识别
+  //（它的 toolName 参数是显式弃用的，函数体里 `void toolName`），因此不依赖上面那袋名字的下标。
+  const bodyEntries = results
+    .map((r) => ({ pool: collectRefStrings([r], "body"), urls: urlsOfCall("", r) }))
+    .filter((e) => e.pool.length > 0);
   const rechecked = recheckedSources.map((s) => normalizeRef(s)).filter((s) => s !== "");
   const inMeta = (core: string): boolean => metaPool.some((s) => s.includes(core));
-  const inBody = (core: string): boolean => bodyPool.some((s) => s.includes(core));
+  const bodyHits = (core: string): Array<{ pool: string[]; urls: Array<{ url: string; title: string }> }> =>
+    bodyEntries.filter((e) => e.pool.some((s) => s.includes(core)));
+  const inBody = (core: string): boolean => bodyHits(core).length > 0;
   const inRecheck = (core: string): boolean => rechecked.some((s) => s === core || s.includes(core));
   const missing = refs.filter((r) => !inMeta(r.core) && !inBody(r.core) && !inRecheck(r.core));
   const bodyOnly = refs.filter((r) => !inMeta(r.core) && inBody(r.core));
@@ -191,7 +219,14 @@ export function traceDocRefs(
     total: refs.length,
     traced: refs.length - missing.length,
     tracedByBody: bodyOnly.length,
-    bodyTracedRefs: bodyOnly,
+    bodyTracedRefs: bodyOnly.map((r) => {
+      const hits = bodyHits(r.core);
+      // 命中的往往不止一份，而 web_search 那类只留查询词、结果里没有地址。归属时优先挑带地址的
+      // 那一份，否则复核人根本点不开原文——实测两处「仅正文提到」都因为先撞上 web_search 而拿到空
+      // 地址，功能等于白做。都不带地址时如实给空串，不硬凑一个。
+      const u = hits.find((e) => e.urls.length > 0)?.urls[0];
+      return { ...r, sourceUrl: u?.url ?? "", sourceTitle: u?.title ?? "", sourceCount: hits.length };
+    }),
     tracedByRecheck: refs.filter((r) => !inMeta(r.core) && !inBody(r.core) && inRecheck(r.core)).length,
     unverifiable: metadataOnly ? missing.length : 0,
     unverifiableRefs: metadataOnly ? missing : [],

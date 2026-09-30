@@ -1505,11 +1505,18 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
           "",
           `- 其中 ${refTrace.bodyTracedRefs.length} 处仅在留存网页正文中出现（工具结果的结构化字段里没有），依据弱于元数据，建议再点开原文确认：`,
           "",
-          "| # | 文号 | 结论中的上下文 |",
-          "| --- | --- | --- |",
-          ...refTrace.bodyTracedRefs
-            .slice(0, 20)
-            .map((r, i) => `| ${i + 1} | ${mdCell(r.text)} | ${mdCell(r.context)} |`),
+          "| # | 文号 | 结论中的上下文 | 留存正文出处 |",
+          "| --- | --- | --- | --- |",
+          // 出处那一列给可点开的地址：这一档要能行动，复核人点开就能判断文号是该页主题还是被顺带提到
+          ...refTrace.bodyTracedRefs.slice(0, 20).map((r, i) => {
+            const link =
+              r.sourceUrl === ""
+                ? "（命中的留存正文来自只留查询词的检索结果，没有地址可点）"
+                : `[${mdCell(r.sourceTitle === "" ? r.sourceUrl : r.sourceTitle)}](${r.sourceUrl})`;
+            // 命中份数一起给：多份互不相关的来源同时提到，比孤零零一份更站得住
+            const src = r.sourceCount > 1 ? `${link} · 共 ${r.sourceCount} 份留存正文提到` : link;
+            return `| ${i + 1} | ${mdCell(r.text)} | ${mdCell(r.context)} | ${src} |`;
+          }),
         ]
       : []),
     ...(refSummary.total > 0

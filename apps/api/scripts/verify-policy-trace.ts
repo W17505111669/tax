@@ -104,6 +104,7 @@ let total = 0;
 let traced = 0;
 let byRecheck = 0;
 let byBody = 0;
+let bodyWithUrl = 0;
 let unverifiable = 0;
 let untraced = 0;
 for (const t of listTasks()) {
@@ -147,6 +148,11 @@ for (const t of listTasks()) {
   if (res.bodyTracedRefs.length !== res.tracedByBody) {
     failures.push(`${t.id} 仅正文提到的明细 ${res.bodyTracedRefs.length} 条与计数 ${res.tracedByBody} 不一致`);
   }
+  for (const r of res.bodyTracedRefs) {
+    if (r.sourceUrl !== "") bodyWithUrl += 1;
+    checks += 1;
+    if (r.sourceCount < 1) failures.push(`${t.id} 文号 ${r.text} 的留存正文命中份数 ${r.sourceCount} < 1`);
+  }
   total += res.total;
   traced += res.traced;
   byRecheck += res.tracedByRecheck;
@@ -155,7 +161,7 @@ for (const t of listTasks()) {
   untraced += res.untraced.length;
 }
 console.log(
-  `[verify] 真实文号=${total} 有出处=${traced}（元数据=${traced - byBody - byRecheck} · 仅留存正文=${byBody} · 复查取得=${byRecheck}）无法核验=${unverifiable} 待确认=${untraced}`,
+  `[verify] 真实文号=${total} 有出处=${traced}（元数据=${traced - byBody - byRecheck} · 仅留存正文=${byBody}（其中 ${bodyWithUrl} 处带可点开的原文地址） · 复查取得=${byRecheck}）无法核验=${unverifiable} 待确认=${untraced}`,
 );
 // 留存正文参与文号溯源：这是一次**有意的语义放宽**，必须用断言钉住。
 // agent-factory 给联网类工具留存了网页正文（retainedText），而 collectRefStrings 是通用字符串遍历，
@@ -241,6 +247,60 @@ expect(
   "只有元数据时明细为空",
   traceDocRefs(CONCLUSION, [META_ONLY], ["fetch_public_document"]).bodyTracedRefs.length,
   0,
+);
+// 这一档要能**行动**：只给计数，复核人还是不知道去点哪一页确认文号是主题还是被顺带提到
+expect(
+  "明细带上留存正文所属页面地址",
+  traceDocRefs(CONCLUSION, [WITH_BODY], ["fetch_public_document"]).bodyTracedRefs.map((r) => r.sourceUrl),
+  [META_ONLY.url],
+);
+expect(
+  "同时带标题，交付 MD 里能写成可读的链接",
+  traceDocRefs(CONCLUSION, [WITH_BODY], ["fetch_public_document"]).bodyTracedRefs[0]?.sourceTitle.includes(
+    "2021年第28号",
+  ),
+  true,
+);
+expect(
+  "结果里没有可归属的地址时给空串，不硬凑一个",
+  traceDocRefs(CONCLUSION, [{ retainedText: BODY_TEXT }], ["fetch_public_document"]).bodyTracedRefs.map(
+    (r) => r.sourceUrl,
+  ),
+  [""],
+);
+expect(
+  "地址不属于元数据那一档：只在元数据里命中的文号不进明细",
+  traceDocRefs(CONCLUSION, [WITH_BODY], ["fetch_public_document"]).bodyTracedRefs.every(
+    (r) => !collectRefStrings([WITH_BODY], "meta").some((s) => s.includes(r.core)),
+  ),
+  true,
+);
+// 归属要挑对那一份：同一文号常在多份留存正文里都出现，而 web_search 那类只留查询词、结果里没有
+// 地址。第一版按下标取第一个命中，实测两处「仅正文提到」都先撞上 web_search，地址全空——
+// 复核人还是点不开原文，这一档就仍只是个装饰性数字。
+const MIXED_BODY = [
+  { queries: ["研发费用加计扣除"], retainedText: BODY_TEXT }, // web_search 的形状：有正文、没地址
+  { url: "https://gov.cn/a.html", title: "官方解读", retainedText: BODY_TEXT },
+];
+expect(
+  "多份正文都提到时归属到带地址的那份",
+  traceDocRefs(CONCLUSION, MIXED_BODY, ["web_search", "fetch_public_document"]).bodyTracedRefs.map((r) => r.sourceUrl),
+  ["https://gov.cn/a.html"],
+);
+expect(
+  "并报出命中份数（多份互不相关的来源同时提到，比一份更站得住）",
+  traceDocRefs(CONCLUSION, MIXED_BODY, ["web_search", "fetch_public_document"]).bodyTracedRefs.map(
+    (r) => r.sourceCount,
+  ),
+  [2],
+);
+expect(
+  "全都不带地址时份数照实给、地址留空",
+  traceDocRefs(CONCLUSION, [{ retainedText: BODY_TEXT }], ["web_search"]).bodyTracedRefs.map((r) => [
+    r.sourceUrl,
+    r.sourceCount,
+  ]),
+  [["", 1]],
 );
 // 两池分开遍历、各有一份字符串预算：共用一份时长正文会把元数据挤出预算，
 // 出现「元数据里明明有，却判成只靠正文才溯到」
