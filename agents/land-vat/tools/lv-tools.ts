@@ -177,6 +177,12 @@ export const matchContractInvoiceTool: ToolDefinition = {
         noInvoice: matched.filter((m) => m.status === "no_invoice").length,
         unmatchedInvoiceCount: unmatchedInvoices.length,
         duplicateCount: duplicates.length,
+        // 总计也由程序给出：本工具的原则就是「金额汇总由程序完成」。此前只有逐份合同的数，
+        // 结论里那张合计行（合同额合计 / 发票额合计 / 差异合计）要模型自己加，加出来的三个数
+        // 在工具结果里找不到出处，金额溯源就把它们判成待人工确认（实测 ff4c9a3c 4 处全是合计行）
+        totalContractAmountYuan: centsToYuan(sumCents(matched.map((m) => yuanToCents(m.contractAmountYuan)))),
+        totalInvoiceYuan: centsToYuan(sumCents(matched.map((m) => yuanToCents(m.invoiceTotalYuan)))),
+        totalDifferenceYuan: centsToYuan(sumCents(matched.map((m) => yuanToCents(m.differenceYuan)))),
       },
     };
 
@@ -185,6 +191,7 @@ export const matchContractInvoiceTool: ToolDefinition = {
       `- 合同 ${details.contractCount} 份，发票 ${details.invoiceCount} 张`,
       `- 金额一致: ${details.summary.consistent} 份；存在差异待核查: ${details.summary.differencePending} 份；无发票: ${details.summary.noInvoice} 份`,
       `- 未匹配发票: ${details.summary.unmatchedInvoiceCount} 张；疑似重复: ${details.summary.duplicateCount} 组`,
+      `- 合计：合同金额 ${details.summary.totalContractAmountYuan} 元 · 发票金额 ${details.summary.totalInvoiceYuan} 元 · 差异 ${details.summary.totalDifferenceYuan} 元`,
       ...matched.map(
         (m) =>
           `  · ${m.contractNo} ${m.contractName} | 合同 ${m.contractAmountYuan} | 发票 ${m.invoiceCount} 张合计 ${m.invoiceTotalYuan} | 差异 ${m.differenceYuan} | ${m.status}`,

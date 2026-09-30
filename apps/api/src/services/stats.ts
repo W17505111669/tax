@@ -24,7 +24,7 @@ import {
   type RefCheckVerdict,
 } from "../../../web/src/ref-check.ts";
 import { refKey } from "../../../web/src/ref-check.ts";
-import { traceAmounts, amountKey } from "../../../web/src/amount-trace.ts";
+import { traceAmounts, amountKey, TEXT_AMOUNT_TOOLS } from "../../../web/src/amount-trace.ts";
 import { deltaVerdict, evidenceDelta, evidenceSnapshot } from "../../../web/src/revision-impact.ts";
 import { ledgerSort, type LedgerRow } from "../../../web/src/evidence-ledger.ts";
 import { listAmountChecks } from "./amount-checks.ts";
@@ -394,6 +394,8 @@ export function computePlatformStats(): PlatformStats {
       String(task.result ?? ""),
       parsedCalls.map((c) => c.result),
       String(task.instruction ?? ""),
+      // OCR / 文档解析的结果里，金额藏在识别出的正文字符串里，只按 JSON 数值收会一条也收不到
+      parsedCalls.filter((c) => TEXT_AMOUNT_TOOLS.has(c.toolName)).map((c) => c.result),
     );
     const amountPending = amounts.untraced.filter((u) => !acked.has(amountKey(u))).length;
     const conclusions = listConclusions(task.id);

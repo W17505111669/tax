@@ -30,7 +30,7 @@ import {
   refKey,
   summarizeRefChecks,
 } from "../../web/src/ref-check.ts";
-import { amountKey, traceAmounts } from "../../web/src/amount-trace.ts";
+import { amountKey, TEXT_AMOUNT_TOOLS, traceAmounts } from "../../web/src/amount-trace.ts";
 import { deliveryCheck } from "../../web/src/delivery-check.ts";
 import { deltaDetail, deltaVerdict, evidenceDelta, evidenceSnapshot } from "../../web/src/revision-impact.ts";
 import {
@@ -287,7 +287,12 @@ function sheetOf(taskId: string): SheetInput | null {
   // 结论里已标注「未取得公开原文，仅作背景参考」的文号：与结果页、看板、台账同一份判据
   const labeledTexts = labeledDocRefTexts([...tr.untraced, ...tr.unverifiableRefs], text);
   const labeled = [...tr.untraced, ...tr.unverifiableRefs].filter((r) => labeledTexts.has(r.text)).length;
-  const amounts = traceAmounts(text, calls.map((c) => c.result), task.instruction ?? "");
+  const amounts = traceAmounts(
+    text,
+    calls.map((c) => c.result),
+    task.instruction ?? "",
+    calls.filter((c) => TEXT_AMOUNT_TOOLS.has(c.toolName)).map((c) => c.result),
+  );
   const acked = new Set(listAmountChecks(taskId).map((c) => c.key));
   const amountPending = amounts.untraced.filter((u) => !acked.has(amountKey(u))).length;
   const conclusions = listConclusions(taskId);

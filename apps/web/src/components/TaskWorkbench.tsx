@@ -24,7 +24,7 @@ import { matchToolCalls } from "../timeline-calls.ts";
 import { artifactsOfRun, artifactTable, fmtBytes, runWindows, unattributedArtifacts } from "../run-artifacts.ts";
 import { artifactSources } from "../artifact-sources.ts";
 import { callStats, callsByRun, durationMs, fmtDuration, mdCell, summarizeArgs } from "../run-tools.ts";
-import { amountKey, traceAmounts } from "../amount-trace.ts";
+import { amountKey, TEXT_AMOUNT_TOOLS, traceAmounts } from "../amount-trace.ts";
 import { reviewSection } from "../review-export.ts";
 import { deliveryCheck, deliverySection, type CheckInput, type CheckResult } from "../delivery-check.ts";
 import {
@@ -894,6 +894,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
         finalResult,
         toolCalls.filter((c) => c.ok !== false).map((c) => c.result),
         task.instruction ?? "",
+        // OCR / 文档解析结果里的金额是正文字符串，与平台统计、交付包走查同一口径地按正文扫一遍
+        toolCalls.filter((c) => c.ok !== false && TEXT_AMOUNT_TOOLS.has(c.toolName)).map((c) => c.result),
       ),
     [finalResult, toolCalls, task.instruction],
   );

@@ -33,8 +33,14 @@ export type TraceResult = {
   untraced: Amount[];
 };
 
-/** 数字后面跟这些字符时不视为金额（量词、日期、百分比） */
-const REJECT_SUFFIX = /^[%％年月日份条项次个大类人天]/;
+/**
+ * 数字后面跟这些字符时不视为金额（量词、日期、百分比、篇幅与行列计数）。
+ *
+ * 后面这组是实测补的：结论里写「PDF 共 37 页、28,263 字符，已解析」，`28,263` 带千分位、
+ * 位数也够长，两道「不像金额」的守卫都拦不住，于是被当成一笔待人工确认的金额挂在缺口清单上。
+ * 金额后面不会跟「字 / 页 / 行 / 列 / 张 / 笔」，收进来不会误杀真金额。
+ */
+const REJECT_SUFFIX = /^[%％年月日份条项次个大类人天字页行列张笔]/;
 
 const AMOUNT_RE = /([+\-−])?\s*(￥|¥)?\s*(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*(万元|元|人民币)?/g;
 
@@ -83,8 +89,18 @@ export function extractAmounts(text: string): Amount[] {
 
 const MAX_NODES = 20000;
 
+/**
+ * 结果里的金额以「识别出的正文文本」形式存在的工具：OCR 与文档解析把整页文字放进一个字符串字段，
+ * 数值不是 JSON 数字，只按数值收集就一条也收不到（实测 cc644639 的「人员人工 860000 元」在
+ * textPreview 里，结论引用它却被判为待人工确认）。
+ *
+ * 只收客户自己上传资料的解析结果。**不收联网类工具**：网页正文里满是别人页面上的数字，
+ * 一律收进来等于结论里写任何金额都能找到「出处」，这道核对就形同虚设。
+ */
+export const TEXT_AMOUNT_TOOLS = new Set(["parse_uploaded_files"]);
+
 /** 递归收集工具结果里的数值，同时登记「元」与「分」两种量纲（键为分） */
-export function collectToolCents(results: unknown[]): Set<number> {
+export function collectToolCents(results: unknown[], options: { scanText?: boolean } = {}): Set<number> {
   const set = new Set<number>();
   const budget = { n: 0 };
   const walk = (v: unknown, depth: number): void => {
@@ -104,6 +120,14 @@ export function collectToolCents(results: unknown[]): Set<number> {
         if (Number.isFinite(n)) {
           set.add(Math.round(n * 100));
           set.add(Math.round(n));
+        }
+        return;
+      }
+      // 整段正文：用与结论侧同一个提取器扫，量纲与守卫（千分位、单位、拒绝后缀）自然一致
+      if (options.scanText === true) {
+        for (const a of extractAmounts(v)) {
+          set.add(a.cents);
+          set.add(Math.round(a.cents / 100));
         }
       }
       return;
@@ -138,9 +162,16 @@ function inPool(cents: number, pool: Set<number>): boolean {
  * 结论金额溯源：先查工具调用结果，再查客户指令原文，两边都没有的才列为未溯源。
  * 三级口径避免把「转述客户提供的合同金额」误判成模型口算。
  */
-export function traceAmounts(text: string, results: unknown[], instruction = ""): TraceResult {
+export function traceAmounts(
+  text: string,
+  results: unknown[],
+  instruction = "",
+  /** 需要按正文扫描金额的工具结果（见 TEXT_AMOUNT_TOOLS），与 results 取并集 */
+  textResults: unknown[] = [],
+): TraceResult {
   const amounts = extractAmounts(text);
   const pool = collectToolCents(results);
+  for (const c of collectToolCents(textResults, { scanText: true })) pool.add(c);
   const inputPool = new Set(extractAmounts(instruction).map((a) => a.cents));
   let traced = 0;
   let fromInput = 0;

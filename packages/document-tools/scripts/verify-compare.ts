@@ -60,6 +60,9 @@ const okEmpty = empty.matchRatePercent === null && empty.coveragePercent === nul
 const mismatch = sheet.diffs.find((d) => d.kind === "mismatch");
 const okMismatchCell =
   mismatch?.address === "直接投入/金额（元）" && mismatch?.a === 420000 && mismatch?.b === 425000;
+// 差额由工具算好一起给出：结论里最常引用的就是「差多少」，让模型自己减，减出来的金额在工具结果里
+// 找不到出处，金额溯源就把它判成待人工确认（实测 aabd138a 的 5,000.00 元差额出现 4 次、4 次全挂待确认）
+const okDelta = mismatch?.deltaYuan === "5000.00";
 
 // 容差 5000 元（500000 分）时该差异应判为一致
 const tolerant = await compareWorkbooks(a, b, { toleranceCents: 500000 });
@@ -74,7 +77,7 @@ console.log(
   `[verify] compared=${t.compared} matched=${t.matched} mismatched=${t.mismatched} onlyA=${t.onlyA} onlyB=${t.onlyB} accuracy=${t.accuracyPercent}%`,
 );
 console.log(
-  `[verify] totals=${okTotals} accuracy=${okAccuracy} mismatchCell=${okMismatchCell}(${mismatch?.address}) tolerance=${okTolerance}`,
+  `[verify] totals=${okTotals} accuracy=${okAccuracy} mismatchCell=${okMismatchCell}(${mismatch?.address}) delta=${okDelta}(${mismatch?.deltaYuan}) tolerance=${okTolerance}`,
 );
 console.log(
   `[verify] rates=${okRates}(一致率 ${t.matchRatePercent}% / 覆盖率 ${t.coveragePercent}%) scopeOnly=${okScopeOnly} noOverlap=${okNoOverlap} empty=${okEmpty}`,
@@ -82,7 +85,16 @@ console.log(
 console.log(`[verify] addressMode mismatched=${addr.totals.mismatched} mode=${addr.sheets[0]?.mode} ok=${okAddress}`);
 
 const pass =
-  okTotals && okAccuracy && okRates && okScopeOnly && okNoOverlap && okEmpty && okMismatchCell && okTolerance && okAddress;
+  okTotals &&
+  okAccuracy &&
+  okRates &&
+  okScopeOnly &&
+  okNoOverlap &&
+  okEmpty &&
+  okMismatchCell &&
+  okDelta &&
+  okTolerance &&
+  okAddress;
 console.log(pass ? "\n[PASS] 底稿逐格比对统计口径正确。" : "\n[FAIL] 比对工具验证未通过。");
 
 fs.rmSync(dir, { recursive: true, force: true });

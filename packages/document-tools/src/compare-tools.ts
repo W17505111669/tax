@@ -2,7 +2,7 @@ import path from "node:path";
 import ExcelJS from "exceljs";
 import { Type } from "typebox";
 import type { ToolDefinition } from "@tax/agent-core";
-import { yuanToCents } from "@tax/shared-schemas";
+import { centsToYuan, yuanToCents } from "@tax/shared-schemas";
 import type { TaskDocumentContext } from "./task-tools.ts";
 
 export interface CellDiff {
@@ -10,6 +10,14 @@ export interface CellDiff {
   a: string | number | null;
   b: string | number | null;
   kind: "mismatch" | "only_a" | "only_b";
+  /**
+   * 两侧都是数值时给出差额（b − a，元）。
+   *
+   * 结论里最常引用的恰恰是「差多少」，而这个数此前要模型自己减：减出来的金额在工具结果里找不到，
+   * 金额溯源就把它判成待人工确认（实测 aabd138a 结论里 5,000.00 元差额出现 4 次，4 次全挂待确认）。
+   * 工具算好一起给出，引用它才有出处。
+   */
+  deltaYuan?: string;
 }
 
 export interface SheetCompare {
@@ -202,7 +210,17 @@ function compareRecords(a: SheetRecords, b: SheetRecords, toleranceCents: number
       if (sameValue(va, vb, toleranceCents)) matched += 1;
       else {
         mismatched += 1;
-        if (diffs.length < maxDiffs) diffs.push({ address: `${key}/${col}`, a: va, b: vb, kind: "mismatch" });
+        const ca = toCents(va);
+        const cb = toCents(vb);
+        if (diffs.length < maxDiffs) {
+          diffs.push({
+            address: `${key}/${col}`,
+            a: va,
+            b: vb,
+            kind: "mismatch",
+            ...(ca !== null && cb !== null ? { deltaYuan: centsToYuan(cb - ca) } : {}),
+          });
+        }
       }
     }
   }

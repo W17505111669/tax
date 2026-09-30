@@ -2,7 +2,13 @@
  * 验证脚本：结论金额溯源（提取规则 / 工具数值收集 / 三级口径 / 真实任务走查）。
  * 运行：pnpm verify:amounts
  */
-import { amountKey, collectToolCents, extractAmounts, traceAmounts } from "../../web/src/amount-trace.ts";
+import {
+  amountKey,
+  collectToolCents,
+  extractAmounts,
+  TEXT_AMOUNT_TOOLS,
+  traceAmounts,
+} from "../../web/src/amount-trace.ts";
 import { db } from "../src/db.ts";
 import { getTask, listTasks } from "../src/services/task-store.ts";
 import { listAmountChecks, setAmountCheck } from "../src/services/amount-checks.ts";
@@ -32,6 +38,12 @@ expect("无单位但带千分位/位数足够时计入", extractAmounts("金额 
   120000000, 86000000,
 ]);
 expect("上下文片段非空", extractAmounts("辅助账 860,000.00 元")[0]?.context.includes("860,000.00"), true);
+// 篇幅与行列计数不是金额：实测结论里「PDF 共 37 页、28,263 字符，已解析」的 28,263 带千分位、
+// 位数也够长，两道「不像金额」的守卫都拦不住，被当成一笔待人工确认的金额挂进了缺口清单
+expect("字符数不计入", extractAmounts("PDF 共 37 页、28,263 字符，已解析").length, 0);
+expect("页数、行数、列数不计入", extractAmounts("正文 1,200 页、3,400 行、5,600 列").length, 0);
+expect("张数、笔数不计入", extractAmounts("发票 1,200 张、记账凭证 3,400 笔").length, 0);
+expect("带单位的金额不因新增后缀被误杀", extractAmounts("直接投入 420,000 元").map((a) => a.cents), [42000000]);
 
 // 2) 工具数值收集（元 / 分双量纲）
 const pool = collectToolCents([{ amountYuan: "5,000,000.00", cents: 420000, nested: [{ v: 860000 }] }, "不是数字"]);
@@ -39,6 +51,37 @@ expect("字符串金额按元登记", pool.has(500000000), true);
 expect("数值同时登记元与分", [pool.has(42000000), pool.has(420000)], [true, true]);
 expect("嵌套数组可收集", pool.has(86000000), true);
 expect("非数值字符串忽略", pool.size > 0 && !pool.has(Number.NaN), true);
+// OCR 与文档解析把整页文字放进一个字符串字段，金额不是 JSON 数值：默认不收，开了 scanText 才按正文扫。
+// 实测 cc644639「OCR 扫描件解析验证」的「人员人工 860000 元」就在 textPreview 里，
+// 结论如实引用它却被判成待人工确认（4/4 全部待确认）
+const ocr = [{ textPreview: "研发费用辅助账\n人员人工 860000 元\n直接投入 420000 元\n", ocrProvider: "tesseract" }];
+expect(
+  "默认不把正文里的数字当出处：联网结果里满是别人网页上的数字，一律收进来这道核对就形同虚设",
+  collectToolCents(ocr).has(86000000),
+  false,
+);
+expect("开了 scanText 就能从正文里取到金额", collectToolCents(ocr, { scanText: true }).has(86000000), true);
+expect("scanText 同样登记元与分两种量纲", collectToolCents(ocr, { scanText: true }).has(860000), true);
+expect(
+  "正文里的篇幅计数不会被 scanText 当成金额",
+  collectToolCents([{ textPreview: "PDF 共 37 页、28,263 字符" }], { scanText: true }).has(2826300),
+  false,
+);
+expect(
+  "正文类工具名单只含资料解析",
+  [...TEXT_AMOUNT_TOOLS],
+  ["parse_uploaded_files"],
+);
+expect(
+  "traceAmounts 第四参收正文类结果：OCR 金额可溯源",
+  traceAmounts("识别出人员人工 860000 元", [], "", ocr).traced,
+  1,
+);
+expect(
+  "不传第四参时仍判为待确认（默认口径不变）",
+  traceAmounts("识别出人员人工 860000 元", ocr).untraced.length,
+  1,
+);
 
 // 3) 三级口径
 const results = [{ diff: 460000, total: "12,000,000.00" }];
@@ -72,17 +115,21 @@ for (const t of listTasks()) {
   const detail = getTask(t.id);
   const text2 = detail?.result ?? "";
   if (!text2.trim()) continue;
-  const rows = db.prepare(`SELECT result FROM tool_calls WHERE task_id = ? AND ok = 1`).all(t.id) as Array<{
+  const rows = db.prepare(`SELECT tool_name, result FROM tool_calls WHERE task_id = ? AND ok = 1`).all(t.id) as Array<{
+    tool_name: string;
     result: string | null;
   }>;
-  const parsed = rows.map((r) => {
+  const parsedAll = rows.map((r) => {
     try {
       return r.result ? JSON.parse(r.result) : null;
     } catch {
       return null;
     }
   });
-  const res = traceAmounts(text2, parsed, detail?.instruction ?? "");
+  const parsed = parsedAll;
+  // OCR / 文档解析结果里的金额是正文字符串：与平台统计、结果页、交付包走查同一口径地按正文再扫一遍
+  const textParsed = rows.filter((r) => TEXT_AMOUNT_TOOLS.has(r.tool_name)).map((r, i) => parsedAll[i] ?? null);
+  const res = traceAmounts(text2, parsed, detail?.instruction ?? "", textParsed);
   tasks += 1;
   total += res.total;
   explained += res.traced + res.fromInput;

@@ -8,7 +8,7 @@ import { buildManifest, MANIFEST_SCHEMA, MANIFEST_VERSION, manifestIssues, type 
 import { deliveryCheck } from "../../web/src/delivery-check.ts";
 import { artifactSources } from "../../web/src/artifact-sources.ts";
 import { artifactsOfRun, runWindows } from "../../web/src/run-artifacts.ts";
-import { traceAmounts, amountKey } from "../../web/src/amount-trace.ts";
+import { traceAmounts, amountKey, TEXT_AMOUNT_TOOLS } from "../../web/src/amount-trace.ts";
 import { parseDetail, parsedByFileName } from "../../web/src/file-parse.ts";
 import { reviewCounts } from "../../web/src/review-export.ts";
 import { normalizeRef, traceDocRefs } from "../../web/src/policy-trace.ts";
@@ -375,7 +375,12 @@ for (const t of listTasks()) {
   const wins = runWindows(events);
   const parsed = parsedByFileName(calls);
   const acked = new Set(listAmountChecks(t.id).map((c) => c.key));
-  const amounts = traceAmounts(detail?.result ?? "", calls.map((c) => c.result), detail?.instruction ?? "");
+  const amounts = traceAmounts(
+    detail?.result ?? "",
+    calls.map((c) => c.result),
+    detail?.instruction ?? "",
+    calls.filter((c) => TEXT_AMOUNT_TOOLS.has(c.toolName)).map((c) => c.result),
+  );
   const amountPending = amounts.untraced.filter((u) => !acked.has(amountKey(u))).length;
   const rc = reviewCounts(extractIssues(t.id), listReviews(t.id));
   const refRecs = listRefChecks(t.id);
