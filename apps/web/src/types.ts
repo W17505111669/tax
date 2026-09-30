@@ -278,6 +278,8 @@ export interface PlatformStats {
     citationsFromConclusion: number;
     docRefs: number;
     docRefTraced: number;
+    /** 有出处的文号里只靠留存网页正文取得的条数（结构化元数据里没有），依据强度弱于元数据 */
+    docRefTracedByBody: number;
     /** 有出处的文号里靠联网复查取得的条数 */
     docRefTracedByRecheck: number;
     docRefPending: number;

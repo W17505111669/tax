@@ -1246,6 +1246,11 @@ export function AgentOverview({
                     <span
                       className="ml-2 text-[11px] text-mist-600"
                       title={
+                        "文号「有出处」按依据强度分三档，一档只算一次、相加恒等于有出处总数：\n" +
+                        "· 元数据——文号出现在工具结果的结构化字段里（标题、文号列表、政策库条目），基本就是那条结果的主题。\n" +
+                        "· 仅正文提到——结构化字段里没有，只在我们抓下来的网页正文里出现过。可能只是页面侧栏的相关文件列表，或正文里一句「同时废止 2020年第24号」，这几处值得再点开原文确认一次。\n" +
+                        "· 复查取得——工具留存里没有，靠联网复查判定 matched，有可点开的原文与检索时间。\n" +
+                        "此前只有一个「有出处」，看不出哪几处依据偏弱；拆开后复核人不必把所有文号都重查一遍。\n\n" +
                         "金额待确认分两类，含义不同：\n" +
                         "· 引自联网正文——摘引政策原文或案例里的数字。溯源池按既定口径不收联网正文（否则任何金额都能声称有出处），所以要核对的是「引用抄得准不准」。\n" +
                         "· 三处均无出处——工具结果、客户指令、联网正文都找不到。这一类混了两种情况：模型确实口算了，以及该任务运行时还没留存网页正文因而无从核对，所以不断言是口算。\n" +
@@ -1253,7 +1258,7 @@ export function AgentOverview({
                       }
                     >
                       文号 {totals.docRefTraced}/{totals.docRefTotal} 有出处（其中复查取得{" "}
-                      {totals.docRefTracedByRecheck}）· 待复查{" "}
+                      {totals.docRefTracedByRecheck} · 仅正文提到 {totals.docRefTracedByBody}）· 待复查{" "}
                       {Math.max(0, totals.docRefPending - totals.docRefLabeled)}
                       {totals.docRefLabeled > 0 ? `（已标注 ${totals.docRefLabeled}）` : ""} · 引用{" "}
                       {totals.citations} 条（官方 {totals.official} · 弱 {totals.weak}

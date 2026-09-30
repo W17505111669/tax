@@ -44,6 +44,8 @@ const row = (over: Partial<LedgerRow> = {}): LedgerRow => ({
   docRefPending: 1,
   docRefLabeled: 0,
   docRefMatched: 1,
+  // 与 docRefTraced: 2 自洽：复查取得 1 + 仅正文提到 1，元数据那一档为 0
+  docRefTracedByBody: 1,
   docRefTracedByRecheck: 1,
   citations: 6,
   official: 3,
@@ -136,12 +138,24 @@ const t = ledgerTotals([
     weak: 0,
     docRefPending: 0,
     docRefTracedByRecheck: 0,
+    docRefTracedByBody: 0,
     citations: 2,
     official: 2,
     replaced: 0,
     revision: "证据质量退步，请核对本次修订",
   }),
-  row({ taskId: "c", weak: 1, docRefPending: 0, docRefTracedByRecheck: 2, citations: 0, official: 0, replaced: 0, revision: null }),
+  row({
+    taskId: "c",
+    weak: 1,
+    docRefPending: 0,
+    docRefTraced: 3,
+    docRefTracedByRecheck: 2,
+    docRefTracedByBody: 1,
+    citations: 0,
+    official: 0,
+    replaced: 0,
+    revision: null,
+  }),
 ]);
 expect("任务数", t.tasks, 3);
 expect("弱证据合计", t.weak, 3);
@@ -153,6 +167,8 @@ expect("替代来源就绪合计", t.replaced, 1);
 expect("待复查文号合计", t.docRefPending, 1);
 expect("已标注文号合计", t.docRefLabeled, 0);
 expect("复查取得出处合计", t.docRefTracedByRecheck, 3);
+expect("仅正文提到合计", t.docRefTracedByBody, 2);
+expect("空台账的仅正文提到也是 0", ledgerTotals([]).docRefTracedByBody, 0);
 expect("欠账任务数", t.withGaps, 2);
 expect("修订可比任务数", t.revisionCompared, 2);
 expect("修订改善任务数", t.revisionImproved, 1);
@@ -181,6 +197,12 @@ expect("已声明条数单独成列", cell(row({ weakDisclaimed: 2 }), "已声�
 expect("未进结论条数单独成列", cell(row({ weakUncited: 3 }), "未进结论正文"), "3");
 expect("文号列写成 有出处/总数", cell(row(), "文号 有出处/总数"), "2/4");
 expect("复查取得单独成列", cell(row(), "其中复查取得"), "1");
+expect("仅正文提到单独成列", cell(row(), "其中仅正文提到"), "1");
+expect(
+  "「其中仅正文提到」紧跟在「其中复查取得」后面（两档依据并排，便于对照）",
+  LEDGER_COLUMNS.indexOf("其中仅正文提到"),
+  LEDGER_COLUMNS.indexOf("其中复查取得") + 1,
+);
 expect("金额列写成 待确认/总数", cell(row(), "金额 待确认/总数"), "2/10");
 expect("修订影响为空时用破折号", cell(row(), "修订影响"), "—");
 expect("修订影响原样透出", cell(row({ revision: "证据质量改善" }), "修订影响"), "证据质量改善");
@@ -246,6 +268,12 @@ expect("复查到出处合计与看板一致", sum((r) => r.docRefMatched), ev.d
 expect("文号总数合计与看板一致", sum((r) => r.docRefTotal), ev.docRefs);
 expect("文号可溯源合计与看板一致", sum((r) => r.docRefTraced), ev.docRefTraced);
 expect("复查取得出处合计与看板一致", sum((r) => r.docRefTracedByRecheck), ev.docRefTracedByRecheck);
+expect("仅正文提到合计与看板一致", sum((r) => r.docRefTracedByBody), ev.docRefTracedByBody);
+expect(
+  "看板与台账的「有出处」都能被三类依据解释（元数据 + 仅正文 + 复查 ≤ 有出处）",
+  ev.docRefTracedByBody + ev.docRefTracedByRecheck <= ev.docRefTraced,
+  true,
+);
 expect("检索调用合计与看板一致", sum((r) => r.searchCalls), ev.searchCalls);
 expect("仅元数据检索合计与看板一致", sum((r) => r.searchMetadataOnly), ev.searchMetadataOnly);
 expect("欠账任务数与缺口清单一致", ledgerTotals(led).withGaps, ev.gaps.length);
@@ -301,7 +329,9 @@ expect(
       r.docRefMatched >= 0 &&
       // 复查取得的出处已计入 traced，两个数不能再各扣一遍：有出处 + 待复查 恒等于总数
       r.docRefTraced + r.docRefPending === r.docRefTotal &&
-      r.docRefTracedByRecheck <= r.docRefTraced,
+      r.docRefTracedByRecheck <= r.docRefTraced &&
+      // 三类依据按优先级各算一次，两档弱依据相加不能超过「有出处」
+      r.docRefTracedByBody + r.docRefTracedByRecheck <= r.docRefTraced,
   ),
   true,
 );
@@ -311,6 +341,29 @@ ok(
   "台账 MD 含全部任务标题",
   led.every((r) => ledgerMarkdown(led).join("\n").includes(r.title.slice(0, 12))),
 );
+// MD 合计行必须与表头同列数。此前它比 CSV 合计行少两个值（漏了「其中引自联网正文」「其中三处均无
+// 出处」），19 个值摆在 21 列下面：「可比 N · 改善 M」被顶到金额列，最后两列空着。合计行是交付台账
+// 里最常被引用的一行，错位比缺列更难发现——每一格都有值，只是都不是那一列的值。
+const mdTotalLine = ledgerMarkdown(led).find((l) => l.startsWith("| **合计"));
+ok("台账 MD 有合计行", mdTotalLine !== undefined);
+const mdTotalCells = (mdTotalLine ?? "").split("|").slice(1, -1).map((c) => c.trim());
+expect("MD 合计行的列数与表头一致", mdTotalCells.length, LEDGER_COLUMNS.length);
+const ledTotals = ledgerTotals(led);
+const totCol = (name: (typeof LEDGER_COLUMNS)[number]): string => mdTotalCells[LEDGER_COLUMNS.indexOf(name)] ?? "";
+expect("MD 合计行「其中复查取得」对得上", totCol("其中复查取得"), String(ledTotals.docRefTracedByRecheck));
+expect("MD 合计行「其中仅正文提到」对得上", totCol("其中仅正文提到"), String(ledTotals.docRefTracedByBody));
+expect("MD 合计行「其中引自联网正文」对得上", totCol("其中引自联网正文"), String(ledTotals.amountPendingWeb));
+expect(
+  "MD 合计行「其中三处均无出处」对得上",
+  totCol("其中三处均无出处"),
+  String(ledTotals.amountPendingUnexplained),
+);
+expect(
+  "MD 合计行「修订影响」落在最后一列（错位就会跑到金额列去）",
+  totCol("修订影响"),
+  `可比 ${ledTotals.revisionCompared} · 改善 ${ledTotals.revisionImproved}`,
+);
+expect("MD 合计行的金额列对得上", totCol("金额 待确认/总数"), `${ledTotals.amountPending}/${ledTotals.amountTotal}`);
 console.log(
   `[verify] 真实台账：${led.length} 行 · 欠账任务 ${ledgerTotals(led).withGaps} 个 · 文号 ${sum((r) => r.docRefTraced)}/${sum(
     (r) => r.docRefTotal,

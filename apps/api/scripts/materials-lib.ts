@@ -31,7 +31,9 @@ export function evidenceSnapshotText(): string {
       ev.weakUncited > 0 ? `，${ev.weakUncited} 条只在检索留存里、未进入结论正文` : ""
     }）`,
     `拦下 ${ev.searchDropped + ev.searchDroppedReplay} 条`,
-    `文号 ${ev.docRefs} 处（有出处 ${ev.docRefTraced}，其中复查取得 ${ev.docRefTracedByRecheck} · 待复查 ${Math.max(
+    `文号 ${ev.docRefs} 处（有出处 ${ev.docRefTraced}，其中复查取得 ${ev.docRefTracedByRecheck} · 仅留存正文提到 ${
+      ev.docRefTracedByBody
+    } · 待复查 ${Math.max(
       0,
       ev.docRefPending - ev.docRefLabeled,
     )}${
@@ -50,7 +52,7 @@ export function evidenceSnapshotText(): string {
  */
 export function docRefSnapshotText(): string {
   const ev = computePlatformStats().evidence;
-  return `文号 ${ev.docRefs} 处（有出处 ${ev.docRefTraced}，其中复查取得 ${ev.docRefTracedByRecheck} · 待复查 ${ev.docRefPending} · 复查判定 matched ${ev.docRefMatched}）`;
+  return `文号 ${ev.docRefs} 处（有出处 ${ev.docRefTraced}，其中复查取得 ${ev.docRefTracedByRecheck} · 仅留存正文提到 ${ev.docRefTracedByBody} · 待复查 ${ev.docRefPending} · 复查判定 matched ${ev.docRefMatched}）`;
 }
 
 /**

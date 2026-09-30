@@ -3,14 +3,19 @@
  * 运行：pnpm verify:policy
  */
 import {
+  collectRefStrings,
   extractDocRefs,
   METADATA_ONLY_SEARCH_TOOLS,
   normalizeRef,
+  RETAINED_TEXT_KEY,
   traceDocRefs,
 } from "../../web/src/policy-trace.ts";
 import { extractCitations, UNCAPPED } from "../../web/src/search-evidence.ts";
 import { db } from "../src/db.ts";
 import { getTask, listTasks } from "../src/services/task-store.ts";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const failures: string[] = [];
 let checks = 0;
@@ -97,6 +102,7 @@ expect("元数据检索工具清单", [...METADATA_ONLY_SEARCH_TOOLS].sort(), ["
 let total = 0;
 let traced = 0;
 let byRecheck = 0;
+let byBody = 0;
 let unverifiable = 0;
 let untraced = 0;
 for (const t of listTasks()) {
@@ -132,14 +138,23 @@ for (const t of listTasks()) {
   if (res.tracedByRecheck > res.traced) {
     failures.push(`${t.id} 复查取得的出处 ${res.tracedByRecheck} 超过有出处总数 ${res.traced}`);
   }
+  checks += 1;
+  if (res.tracedByBody + res.tracedByRecheck > res.traced) {
+    failures.push(`${t.id} 两档弱依据 ${res.tracedByBody}+${res.tracedByRecheck} 超过有出处总数 ${res.traced}`);
+  }
+  checks += 1;
+  if (res.bodyTracedRefs.length !== res.tracedByBody) {
+    failures.push(`${t.id} 仅正文提到的明细 ${res.bodyTracedRefs.length} 条与计数 ${res.tracedByBody} 不一致`);
+  }
   total += res.total;
   traced += res.traced;
   byRecheck += res.tracedByRecheck;
+  byBody += res.tracedByBody;
   unverifiable += res.unverifiable;
   untraced += res.untraced.length;
 }
 console.log(
-  `[verify] 真实文号=${total} 有出处=${traced}（其中复查取得=${byRecheck}）无法核验=${unverifiable} 待确认=${untraced}`,
+  `[verify] 真实文号=${total} 有出处=${traced}（元数据=${traced - byBody - byRecheck} · 仅留存正文=${byBody} · 复查取得=${byRecheck}）无法核验=${unverifiable} 待确认=${untraced}`,
 );
 // 留存正文参与文号溯源：这是一次**有意的语义放宽**，必须用断言钉住。
 // agent-factory 给联网类工具留存了网页正文（retainedText），而 collectRefStrings 是通用字符串遍历，
@@ -172,6 +187,83 @@ expect(
   traceDocRefs(CONCLUSION, [WITH_BODY], ["fetch_public_document"]).total,
   2,
 );
+// 依据分档：元数据 > 留存正文 > 联网复查，一条文号只算在它最强的那一档上，三个数相加恒等于 traced
+expect(
+  "只有元数据时「仅正文提到」为 0",
+  traceDocRefs(CONCLUSION, [META_ONLY], ["fetch_public_document"]).tracedByBody,
+  0,
+);
+expect(
+  "留存正文后，只靠正文溯到的那一处单独计数",
+  traceDocRefs(CONCLUSION, [WITH_BODY], ["fetch_public_document"]).tracedByBody,
+  1, // 2023年第8号 只在正文里；2021年第28号 在标题（元数据）里
+);
+expect(
+  "元数据里也有的文号不算「仅正文提到」",
+  traceDocRefs(
+    CONCLUSION,
+    [{ ...WITH_BODY, retainedText: `${BODY_TEXT} 另见 2021年第28号 公告。` }],
+    ["fetch_public_document"],
+  ).tracedByBody,
+  1,
+);
+expect(
+  "正文里已溯到的文号不再算「复查取得」",
+  traceDocRefs(CONCLUSION, [WITH_BODY], ["fetch_public_document"], ["2023年第8号"]).tracedByRecheck,
+  0,
+);
+const SPLIT = traceDocRefs(CONCLUSION, [WITH_BODY], ["fetch_public_document"], ["2023年第8号"]);
+expect(
+  "两档弱依据相加不超过有出处总数（不会重复计数）",
+  SPLIT.tracedByBody + SPLIT.tracedByRecheck <= SPLIT.traced,
+  true,
+);
+// 明细与计数必须同源：只给数字，复核人还是不知道该点开哪一条
+expect(
+  "「仅正文提到」的明细就是那一处只靠正文溯到的文号",
+  traceDocRefs(CONCLUSION, [WITH_BODY], ["fetch_public_document"]).bodyTracedRefs.map((r) => r.text),
+  ["2023年第8号"],
+);
+expect(
+  "明细里的文号确实不在元数据池里（否则就该算元数据那一档）",
+  traceDocRefs(CONCLUSION, [WITH_BODY], ["fetch_public_document"]).bodyTracedRefs.every(
+    (r) => !collectRefStrings([WITH_BODY], "meta").some((s) => s.includes(r.core)),
+  ),
+  true,
+);
+expect(
+  "明细带上下文，复核人能看出结论里是怎么写的",
+  traceDocRefs(CONCLUSION, [WITH_BODY], ["fetch_public_document"]).bodyTracedRefs.every((r) => r.context.length > 0),
+  true,
+);
+expect(
+  "只有元数据时明细为空",
+  traceDocRefs(CONCLUSION, [META_ONLY], ["fetch_public_document"]).bodyTracedRefs.length,
+  0,
+);
+// 两池分开遍历、各有一份字符串预算：共用一份时长正文会把元数据挤出预算，
+// 出现「元数据里明明有，却判成只靠正文才溯到」
+expect(
+  "meta 池不含留存正文",
+  collectRefStrings([WITH_BODY], "meta").some((s) => s.includes(normalizeRef("2023年第8号"))),
+  false,
+);
+expect("body 池只含留存正文", collectRefStrings([WITH_BODY], "body"), [normalizeRef(BODY_TEXT)]);
+expect(
+  "默认 all 池是两池之和",
+  collectRefStrings([WITH_BODY]).length,
+  collectRefStrings([WITH_BODY], "meta").length + collectRefStrings([WITH_BODY], "body").length,
+);
+expect("meta 池仍收得到标题里的文号", collectRefStrings([WITH_BODY], "meta").some((s) => s.includes(normalizeRef("2021年第28号"))), true);
+// 键名两边各存一份（agent-core 落库时写、web 侧认键拆池），改了一边不会报错，
+// 只会静默退化成「全部算元数据」，所以用静态走查盯着
+const here = path.dirname(fileURLToPath(import.meta.url));
+const agentFactory = fs.readFileSync(
+  path.resolve(here, "..", "..", "..", "packages", "agent-core", "src", "agent-factory.ts"),
+  "utf8",
+);
+expect("agent-factory 仍用同一个键名留存正文", agentFactory.includes(RETAINED_TEXT_KEY), true);
+expect("留存正文字段名没有被改窄或改名", RETAINED_TEXT_KEY, "retainedText");
 // 反向保险：正文里出现的其它地址不得混进引用清单。extractCitations 走 urlsOfCall，
 // 只读 results[] / url / urls[] 三个结构化字段，不对整段 JSON 盲扫——这条断言守住这个前提，
 // 否则 18000 字的页面正文里随便一个链接都会变成一条「结论引用」，引用分级与官方来源统计全被污染。

@@ -1474,9 +1474,15 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     "",
     "## 政策文号溯源",
     "",
+    // 三类依据分开写：元数据（结构化字段里有）是最强的一档，剩下的两档各报一个数，
+    // 相加恒等于「有公开出处」。复核人据此知道哪几处需要再点开原文确认一次。
     `- 结论中出现政策文号 ${refTrace.total} 处：有公开出处 ${refTrace.traced} 处（其中联网复查取得 ${
       refTrace.tracedByRecheck
-    } 处）· 无法从留存数据核验 ${refTrace.unverifiable} 处 · 待人工确认 ${refTrace.untraced.length} 处`,
+    } 处 · 仅留存正文提到 ${
+      refTrace.tracedByBody
+    } 处，其余出自工具结果的结构化字段）· 无法从留存数据核验 ${refTrace.unverifiable} 处 · 待人工确认 ${
+      refTrace.untraced.length
+    } 处`,
     ...(refTrace.untraced.length > 0
       ? [
           "",
@@ -1491,6 +1497,21 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
             ? "（联网检索扩展只持久化查询元数据，上述「无法核验」的文号建议改用政策快照检索或附检索页面截图）"
             : "（全部政策文号都能在工具结果中找到出处）",
         ]),
+    // 「仅留存正文提到」单独列一张表：这几处**有**出处，但依据只在我们抓下来的网页正文里，
+    // 可能只是被顺带提到（页面侧栏的相关文件列表、正文里一句「同时废止 2020年第24号」）。
+    // 混在「有出处」的总数里就看不见了，交付时也就没人会去点开原文再确认一次。
+    ...(refTrace.bodyTracedRefs.length > 0
+      ? [
+          "",
+          `- 其中 ${refTrace.bodyTracedRefs.length} 处仅在留存网页正文中出现（工具结果的结构化字段里没有），依据弱于元数据，建议再点开原文确认：`,
+          "",
+          "| # | 文号 | 结论中的上下文 |",
+          "| --- | --- | --- |",
+          ...refTrace.bodyTracedRefs
+            .slice(0, 20)
+            .map((r, i) => `| ${i + 1} | ${mdCell(r.text)} | ${mdCell(r.context)} |`),
+        ]
+      : []),
     ...(refSummary.total > 0
       ? [
           "",
@@ -2329,7 +2350,11 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                                 ? "bg-amber-400/15 text-amber-300 hover:bg-amber-400/25"
                                 : "bg-jade-400/15 text-jade-300 hover:bg-jade-400/25"
                             }`}
-                            title={`政策文号溯源：共 ${refTrace.total} 处，工具结果可溯源 ${refTrace.traced} 处，无法从留存数据核验 ${
+                            title={`政策文号溯源：共 ${refTrace.total} 处，工具结果可溯源 ${refTrace.traced} 处${
+                              refTrace.tracedByBody > 0
+                                ? `（其中 ${refTrace.tracedByBody} 处仅在留存网页正文中出现，依据弱于结构化字段）`
+                                : ""
+                            }，无法从留存数据核验 ${
                               refTrace.unverifiable
                             } 处（联网检索扩展只持久化查询元数据），待人工确认 ${refTrace.untraced.length} 处${
                               refTrace.untraced.length > 0
@@ -2337,6 +2362,13 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                                     .slice(0, 5)
                                     .map((r) => `· ${r.text}：…${r.context}…`)
                                     .join("\n")}`
+                                : ""
+                            }${
+                              refTrace.bodyTracedRefs.length > 0
+                                ? `\n仅正文提到：${refTrace.bodyTracedRefs
+                                    .slice(0, 3)
+                                    .map((r) => r.text)
+                                    .join(" · ")}`
                                 : ""
                             }${
                               docRefLabeledTotal > 0

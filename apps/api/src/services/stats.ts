@@ -84,6 +84,11 @@ export interface EvidenceStats {
   /** 政策文号：总数 / 有出处（工具留存或联网复查）/ 仍无出处 / 复查判定 matched */
   docRefs: number;
   docRefTraced: number;
+  /**
+   * 有出处的文号里，只靠留存网页正文取得出处的条数（结构化元数据里没有）。
+   * 依据强度弱于元数据：正文里出现可能只是被顺带提到，看板与台账据此单列，便于复核人再点开原文确认。
+   */
+  docRefTracedByBody: number;
   /** 有出处的文号里，靠联网复查取得出处的条数（看板据此说明两个来源各占多少） */
   docRefTracedByRecheck: number;
   docRefPending: number;
@@ -291,6 +296,7 @@ export function computePlatformStats(): PlatformStats {
     weakWithReplacement: 0,
     docRefs: 0,
     docRefTraced: 0,
+    docRefTracedByBody: 0,
     docRefTracedByRecheck: 0,
     docRefPending: 0,
     docRefLabeled: 0,
@@ -499,6 +505,7 @@ export function computePlatformStats(): PlatformStats {
     evidence.weakUncited += uncitedCount;
     evidence.docRefs += tr.total;
     evidence.docRefTraced += tr.traced;
+    evidence.docRefTracedByBody += tr.tracedByBody;
     evidence.docRefTracedByRecheck += tr.tracedByRecheck;
     evidence.docRefPending += docRefPending;
     evidence.docRefLabeled += docRefLabeled;
@@ -557,6 +564,7 @@ export function computePlatformStats(): PlatformStats {
       docRefPending,
       docRefLabeled,
       docRefMatched: rc.matched,
+      docRefTracedByBody: tr.tracedByBody,
       docRefTracedByRecheck: tr.tracedByRecheck,
       // 与上面的累加同一口径：没有结论的任务不计引用，台账欠账（弱证据 + 待复查）因此为 0，
       // 不会和缺口清单相互矛盾（两者的一致性是 verify:ledger 的断言项）

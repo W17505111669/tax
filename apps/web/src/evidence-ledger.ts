@@ -18,13 +18,21 @@ export type LedgerRow = {
   title: string;
   agentId: string;
   status: string;
-  /** 政策文号：总数 / 有出处 / 仍无出处 / 复查判定 matched / 有出处中靠复查取得的 */
+  /** 政策文号：总数 / 有出处 / 仍无出处 / 复查判定 matched / 有出处中靠复查取得的、只靠留存正文的 */
   docRefTotal: number;
   docRefTraced: number;
   docRefPending: number;
   /** docRefPending 中已在结论里标注「未取得公开原文，仅作背景参考」的处数，不算欠账 */
   docRefLabeled: number;
   docRefMatched: number;
+  /**
+   * docRefTraced 里只靠留存网页正文取得出处的条数（结构化元数据里没有该文号），已含在 docRefTraced 内。
+   *
+   * 单列是因为依据强度不同：元数据里的文号基本就是那条结果的主题，正文里出现则可能只是被顺带提到
+   *（页面侧栏的「相关文件」列表、正文里一句「同时废止 2020年第24号」）。混在一个「有出处」里，
+   * 复核人看不出哪几处需要再点开原文确认一次。
+   */
+  docRefTracedByBody: number;
   /** docRefTraced 里靠联网复查取得出处的条数（工具留存结果里没有该文号），已含在 docRefTraced 内 */
   docRefTracedByRecheck: number;
   /** 联网引用：总数 / 官方来源（含官方解读页）/ 证据力弱 / 弱证据中已找到替代来源 */
@@ -66,6 +74,7 @@ export type LedgerTotals = {
   docRefPending: number;
   docRefLabeled: number;
   docRefMatched: number;
+  docRefTracedByBody: number;
   docRefTracedByRecheck: number;
   citations: number;
   official: number;
@@ -115,6 +124,7 @@ export function ledgerTotals(rows: LedgerRow[]): LedgerTotals {
     docRefPending: 0,
     docRefLabeled: 0,
     docRefMatched: 0,
+    docRefTracedByBody: 0,
     docRefTracedByRecheck: 0,
     citations: 0,
     official: 0,
@@ -139,6 +149,7 @@ export function ledgerTotals(rows: LedgerRow[]): LedgerTotals {
     t.docRefPending += r.docRefPending;
     t.docRefLabeled += r.docRefLabeled;
     t.docRefMatched += r.docRefMatched;
+    t.docRefTracedByBody += r.docRefTracedByBody;
     t.docRefTracedByRecheck += r.docRefTracedByRecheck;
     t.citations += r.citations;
     t.official += r.official;
@@ -168,6 +179,7 @@ export const LEDGER_COLUMNS = [
   "状态",
   "文号 有出处/总数",
   "其中复查取得",
+  "其中仅正文提到",
   "待复查",
   "已标注未取得原文",
   "复查到出处",
@@ -194,6 +206,7 @@ export function ledgerCells(r: LedgerRow, agentName: (id: string) => string): st
     r.status,
     `${r.docRefTraced}/${r.docRefTotal}`,
     String(r.docRefTracedByRecheck),
+    String(r.docRefTracedByBody),
     String(r.docRefPending),
     String(r.docRefLabeled),
     String(r.docRefMatched),
@@ -225,6 +238,7 @@ export function ledgerCsv(rows: LedgerRow[], agentName: (id: string) => string =
       "",
       `${t.docRefTraced}/${t.docRefTotal}`,
       t.docRefTracedByRecheck,
+      t.docRefTracedByBody,
       t.docRefPending,
       t.docRefLabeled,
       t.docRefMatched,
@@ -258,7 +272,7 @@ export function ledgerMarkdown(
     "",
     ...(generatedAt === "" ? [] : [`- 生成时间：${generatedAt}`]),
     `- 任务数：${t.tasks}　仍有证据欠账的任务：${t.withGaps}`,
-    `- 政策文号：${t.docRefTotal} 处（有出处 ${t.docRefTraced}，其中复查取得 ${t.docRefTracedByRecheck} · 仍无出处 ${t.docRefPending}${
+    `- 政策文号：${t.docRefTotal} 处（有出处 ${t.docRefTraced}，其中复查取得 ${t.docRefTracedByRecheck} · 仅留存正文提到 ${t.docRefTracedByBody} · 仍无出处 ${t.docRefPending}${
       t.docRefLabeled > 0 ? `，其中 ${t.docRefLabeled} 处已在结论中标注「未取得公开原文，仅作背景参考」` : ""
     } · 复查判定 matched ${t.docRefMatched}）`,
     `- 联网引用：${t.citations} 条（官方来源 ${t.official} · 证据力弱 ${t.weak}，其中 ${t.replaced} 条已找到替代来源待写回结论${
@@ -282,6 +296,7 @@ export function ledgerMarkdown(
       "",
       `${t.docRefTraced}/${t.docRefTotal}`,
       String(t.docRefTracedByRecheck),
+      String(t.docRefTracedByBody),
       String(t.docRefPending),
       String(t.docRefLabeled),
       String(t.docRefMatched),
@@ -295,6 +310,10 @@ export function ledgerMarkdown(
       String(t.searchMetadataOnly),
       String(t.searchDropped),
       `${t.amountPending}/${t.amountTotal}`,
+      // 这两列此前只在 CSV 合计行里有、MD 合计行漏了：19 个值摆在 21 列下面，
+      // 「可比 N · 改善 M」被顶到「其中引自联网正文」那一列，最后两列空着。
+      String(t.amountPendingWeb),
+      String(t.amountPendingUnexplained),
       `可比 ${t.revisionCompared} · 改善 ${t.revisionImproved}`,
     ]
       .map(mdCell)
@@ -306,6 +325,8 @@ export function ledgerMarkdown(
     "",
     "- 「文号 有出处/总数」按政策文号溯源口径：结论中的文号核心部分归一化后，能在工具留存结果里找到出处，或联网复查已判定 matched；",
     "- 「其中复查取得」是工具留存里没有、靠联网复查才拿到出处的处数，已包含在「有出处」内，不再另计；",
+    "- 「其中仅正文提到」是工具结果的结构化字段（标题、文号列表、政策库条目）里没有、只在我们抓下来的网页正文里出现过的处数，同样已包含在「有出处」内。依据强度弱于元数据：正文里出现可能只是被顺带提到，这几处值得再点开原文确认；",
+    "- 三类依据按「元数据 > 留存正文 > 联网复查」的优先级各算一次，相加恒等于「有出处」，不会因为正文里也有、复查也判过而重复计数；",
     "- 「待复查」是仍然没有出处的处数，「复查到出处」是联网复查判定为 matched 的处数（含原本就能从工具留存溯源的）；",
     "- 「证据力弱」指引用指向门户首页、百科词条或检索结果页，不能替代政策原文；「替代来源就绪」是已检索到官方原文、等人工写回结论的条数；",
     "- 「拦下无关」是检索结果里被相关度门槛与入口页规则过滤掉的条数（含历史记录按现行规则回算的部分）；",
