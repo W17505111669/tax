@@ -54,18 +54,35 @@ const line = (s: Snapshot): string =>
 
 const delta = (a: number, b: number): string => (b > a ? `+${b - a}` : b < a ? `${b - a}` : "0");
 
-const plans = listTasks()
+// 没有结论的任务不进清单，但要如实报出来而不是静默丢掉。
+// 写回是「把已核实的出处补进结论正文」，结论为空时无处可补；此时续跑只会让 Agent 凭空
+// 生成一份新结论，那不叫写回，叫重写。与 pendingCitationTargets 同一道守卫——实测失败任务
+// 060b4eea 结论为空，此前却照样列出 4 条素材、生成 923 字指令，照着 --run 就是让模型编结论。
+const noConclusion: string[] = [];
+const built = listTasks()
   .filter((t) => taskFilter === "" || t.id.startsWith(taskFilter))
   .map((t) => {
+    const result = getTask(t.id)?.result ?? "";
+    if (result.trim() === "") {
+      noConclusion.push(`${t.id.slice(0, 8)} ${t.title}（${t.status}）`);
+      return null;
+    }
     // 已经写回的不再进指令：结论正文里出现过这条证据地址，就说明上一轮续跑已经补上了。
     // 只对有证据地址的素材这样判断（「标注未取得原文」那类没有地址可比，仍会列出，由人工决定）。
-    const result = getTask(t.id)?.result ?? "";
     const items = toRevisionItems(listRefChecks(t.id)).filter(
       (i) => i.verdict !== "matched" || !i.evidence || !result.includes(i.evidence.url),
     );
     return { task: t, items, instruction: buildRevisionInstruction(items) };
-  })
-  .filter((p) => p.instruction !== "");
+  });
+const plans = built.filter((p): p is NonNullable<typeof p> => p !== null && p.instruction !== "");
+
+if (noConclusion.length > 0) {
+  console.log(
+    `已跳过 ${noConclusion.length} 个没有结论的任务（写回要补进结论正文，结论为空时无处可补；续跑只会让模型凭空生成一份结论）：`,
+  );
+  for (const s of noConclusion) console.log(`  - ${s}`);
+  console.log("");
+}
 
 if (plans.length === 0) {
   console.log(taskFilter ? `没有匹配 ${taskFilter} 且可写回的任务` : "没有可写回的复查结果（各任务都还没有出结果的联网复查）");
