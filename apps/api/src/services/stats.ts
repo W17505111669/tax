@@ -12,6 +12,7 @@ import {
   mergeCitations,
   searchEvidence,
   searchFiltering,
+  UNCAPPED,
 } from "../../../web/src/search-evidence.ts";
 import { gradeCitation, summarizeGrades } from "../../../web/src/citation-grade.ts";
 import { traceDocRefs } from "../../../web/src/policy-trace.ts";
@@ -236,8 +237,15 @@ export function computePlatformStats(): PlatformStats {
       }
       return { toolName: c.tool_name, result };
     });
-    // 引用清单与任务结果页同口径：工具留存 + 结论正文里直接引用的地址
-    const cites = mergeCitations(extractCitations(parsedCalls), extractTextCitations(String(task.result ?? "")));
+    // 引用清单与任务结果页同口径：工具留存 + 结论正文里直接引用的地址。
+    // 统计按全量算，不套用界面清单上限——上限是胶囊列表的显示需要，度量跟着截断的话，
+    // 结论一变长窗口就整体挪动，官方与弱证据条数会凭空涨跌（实测有过真加了 2 条官方原文
+    // 却被算成 official 11 → 10、判为「证据质量退步」）。界面另有一份截断清单并注明总条数。
+    const cites = mergeCitations(
+      extractCitations(parsedCalls, UNCAPPED),
+      extractTextCitations(String(task.result ?? ""), UNCAPPED),
+      UNCAPPED,
+    );
     const grades = summarizeGrades(cites);
     const se = searchEvidence(parsedCalls);
     const sf = searchFiltering(parsedCalls);

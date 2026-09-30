@@ -44,7 +44,7 @@ import {
   type RefCheckVerdict,
 } from "../../../web/src/ref-check.ts";
 import { extractDocRefs, normalizeRef, traceDocRefs } from "../../../web/src/policy-trace.ts";
-import { extractCitations } from "../../../web/src/search-evidence.ts";
+import { extractCitations, UNCAPPED } from "../../../web/src/search-evidence.ts";
 import { topicHint } from "../../../web/src/domain-keywords.ts";
 import { getTask } from "./task-store.ts";
 
@@ -267,7 +267,9 @@ export function pendingCitationTargets(taskId: string, limit: number = MAX_REF_C
       return { toolName: r.tool_name, result: null };
     }
   });
-  const cites = extractCitations(parsed).map((c) => ({ ...c, grade: gradeCitation(c.url, c.title).grade }));
+  // 待办清单按全量取：界面胶囊只列前若干条，但「还有哪些弱证据等着替换」不能跟着截断，
+  // 否则排在上限之外的弱证据永远进不了清单，看板上的缺口数也会比实际少
+  const cites = extractCitations(parsed, UNCAPPED).map((c) => ({ ...c, grade: gradeCitation(c.url, c.title).grade }));
   // 任务主题词有两个用途：作检索补充词，以及判定已有替代来源是否仍与这份结论谈同一件事
   const hint = topicHint(getTask(taskId)?.result ?? "", 2);
   return unresolvedTargets(

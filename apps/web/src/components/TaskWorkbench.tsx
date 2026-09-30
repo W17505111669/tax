@@ -77,10 +77,12 @@ import {
   extractCitations,
   extractTextCitations,
   mergeCitations,
+  MERGED_CITATION_LIMIT,
   SEARCH_TOOL_NAMES as SEARCH_TOOLS,
   searchEvidence,
   searchEvidenceNote,
   searchFiltering,
+  UNCAPPED,
   type SearchEvidence,
 } from "../search-evidence.ts";
 import {
@@ -632,23 +634,32 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
 
   // 联网引用：工具留存的来源 + 结论正文里直接引用的地址（政策快照链接、修订后写入的替代来源）
   // 提取口径与交付包 manifest 走查、平台看板共用 search-evidence.ts
-  const citations = useMemo<Citation[]>(
+  //
+  // 两份清单，分工明确：allCitations 不截断，供分级汇总、交付自检、整页 MD、manifest 与链接核验用；
+  // citations 按界面清单上限截断，只用于渲染胶囊。度量若跟着截断，结论一变长窗口就整体挪动、
+  // 构成凭空涨跌——实测有过一个任务真加了 2 条官方原文，却被算成 official 11 → 10 判为「证据质量退步」。
+  const allCitations = useMemo<Citation[]>(
     () =>
-      mergeCitations(extractCitations(toolCalls), extractTextCitations(finalResult)).map((c) => {
+      mergeCitations(
+        extractCitations(toolCalls, UNCAPPED),
+        extractTextCitations(finalResult, UNCAPPED),
+        UNCAPPED,
+      ).map((c) => {
         const g = gradeCitation(c.url, c.title);
         return { title: c.title, url: c.url, via: c.via, grade: g.grade, gradeReason: g.reason };
       }),
     [toolCalls, finalResult],
   );
+  const citations = useMemo<Citation[]>(() => allCitations.slice(0, MERGED_CITATION_LIMIT), [allCitations]);
 
   // 检索留痕：区分「留下了来源」与「只留下查询元数据」，避免把后者误报成没有联网核验
   const searches = useMemo(() => searchEvidence(toolCalls), [toolCalls]);
-  const searchNote = useMemo(() => searchEvidenceNote(searches, citations.length), [searches, citations.length]);
+  const searchNote = useMemo(() => searchEvidenceNote(searches, allCitations.length), [searches, allCitations.length]);
   // 检索时被过滤掉的条数（落库在工具结果的 details.dropped 里），证据核对表用
   const filtering = useMemo(() => searchFiltering(toolCalls), [toolCalls]);
 
-  // 引用证据力汇总：交付自检、整页 MD 与交付包清单共用同一口径
-  const citationGrades = useMemo(() => summarizeGrades(citations), [citations]);
+  // 引用证据力汇总：交付自检、整页 MD 与交付包清单共用同一口径（按全量算，不按界面截断算）
+  const citationGrades = useMemo(() => summarizeGrades(allCitations), [allCitations]);
 
   // 步骤时间线：提问 → 工具核验 → 联网检索 → 结论生成 → 交付
   const totalDuration = useMemo(() => {
@@ -1041,7 +1052,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   const refPending = useMemo(() => refTrace.untraced.length + refTrace.unverifiable, [refTrace]);
 
   // 弱证据引用（门户首页 / 百科词条 / 检索页）找可替换的官方原文
-  const weakCitations = useMemo(() => citations.filter((c) => c.grade === "weak"), [citations]);
+  const weakCitations = useMemo(() => allCitations.filter((c) => c.grade === "weak"), [allCitations]);
   const weakTargets = useMemo(
     () => citationTargets(weakCitations, topicHint(finalResult, 2), 10),
     [weakCitations, finalResult],
@@ -1120,10 +1131,10 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     toolFailed: toolCalls.filter((c) => c.ok === false).length,
     toolRunning: toolCalls.filter((c) => c.ok === null).length,
     pendingReview: pendingReviews,
-    citations: citations.length,
-    citationGrades: citations.length > 0 ? citationGrades : null,
+    citations: allCitations.length,
+    citationGrades: allCitations.length > 0 ? citationGrades : null,
     // 与业务主题无关的泛词条引用：这类引用找不到同主题的官方原文，该删而不是该替换
-    offTopicCitations: offTopicCitationTitles(citations, finalResult),
+    offTopicCitations: offTopicCitationTitles(allCitations, finalResult),
     searches: searches.calls > 0 ? searches : null,
     linkCheck: linkCheckedAt ? linkSummary : null,
     linkCheckAgeHours: ageHours(linkCheckedAt),
@@ -1160,7 +1171,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       artSrc,
       toolCalls,
       pendingReviews,
-      citations,
+      allCitations,
       citationGrades,
       searches,
       linkSummary,
@@ -1198,8 +1209,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       official: citationGrades.official,
       professional: citationGrades.professional,
       weak: citationGrades.weak,
-      fromTools: citations.filter((c) => c.via !== "conclusion").length,
-      fromConclusion: citations.filter((c) => c.via === "conclusion").length,
+      fromTools: allCitations.filter((c) => c.via !== "conclusion").length,
+      fromConclusion: allCitations.filter((c) => c.via === "conclusion").length,
       replaced: weakReplaced,
     },
     citationChecks: {
@@ -1293,7 +1304,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
           "",
         ]
       : []),
-    ...(citations.length > 0
+    ...(allCitations.length > 0
       ? [
           `- 证据力分级：官方来源 ${citationGrades.official} 条 · 专业来源 ${citationGrades.professional} 条 · 证据力弱 ${citationGrades.weak} 条`,
           ...(citationGrades.weak > 0
@@ -1305,7 +1316,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
               ]
             : []),
           "",
-          ...citations.map(
+          ...allCitations.map(
             (c, i) => `${i + 1}. ${c.title}\n   ${c.url}\n   证据力：${GRADE_TEXT[c.grade]}（${c.gradeReason}）`,
           ),
           ...(citationSummary.total > 0
@@ -1497,7 +1508,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
         };
       }),
       tools: { total: st.total, ok: st.ok, failed: st.failed, running: st.running, avgMs: st.avgMs },
-      citations: citations.map((c) => {
+      citations: allCitations.map((c) => {
         const chk = linkChecks[c.url];
         return {
           title: c.title,
@@ -2022,9 +2033,10 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                 {key === "review" && liveStatus === "waiting_review" && (
                   <span className="ml-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
                 )}
-                {key === "result" && citations.length > 0 && (
+                {/* 页签角标是计数不是清单，按全量报，与交付自检和整页 MD 同一口径 */}
+                {key === "result" && allCitations.length > 0 && (
                   <span className="ml-1.5 rounded bg-glow-500/15 px-1 py-0.5 text-[10px] text-glow-300">
-                    {citations.length}
+                    {allCitations.length}
                   </span>
                 )}
                 {key === "compare" && compares.length > 0 && (
@@ -2411,6 +2423,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                 error={task.error}
                 status={liveStatus}
                 citations={citations}
+                allCitations={allCitations}
                 searches={searches}
                 searchNote={searchNote}
                 citationRecheck={{
@@ -2429,7 +2442,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                 linkBusy={linkBusy}
                 linkCheckedAt={linkCheckedAt}
                 linkSummary={linkSummary}
-                onCheckLinks={() => checkCitationLinks(citations.map((c) => c.url))}
+                onCheckLinks={() => checkCitationLinks(allCitations.map((c) => c.url))}
                 onDownloadReport={() => download(`${task.title}-审查报告.md`, finalResult)}
                 onDownloadSheet={() =>
                   download(`${task.title}-证据核对表.md`, `${evidenceSheetDocument(sheet).join("\n")}\n`)
@@ -2440,15 +2453,16 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                 onDownloadCitations={() =>
                   download(
                     `${task.title}-引用清单.md`,
-                    citations.map((c, i) => `${i + 1}. ${c.title}\n   ${c.url}`).join("\n") || "（本次任务无联网引用）",
+                    allCitations.map((c, i) => `${i + 1}. ${c.title}\n   ${c.url}`).join("\n") ||
+                      "（本次任务无联网引用）",
                   )
                 }
                 onDownloadBibtex={() =>
-                  download(
-                    "references.bib",
-                    citations
-                      .map(
-                        (c, i) =>
+                   download(
+                     "references.bib",
+                    allCitations
+                       .map(
+                         (c, i) =>
                           `@misc{ref${i + 1},\n  title = {${c.title.replace(/[{}]/g, "")}},\n  howpublished = {\\url{${c.url}}},\n  note = { Accessed: ${dayStamp()} }\n}`,
                       )
                       .join("\n\n") || "% 本次任务无联网引用\n",
@@ -2456,10 +2470,10 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                 }
                 onCopyBibtex={() =>
                   void navigator.clipboard
-                    ?.writeText(
-                      citations
-                        .map(
-                          (c, i) =>
+                     ?.writeText(
+                      allCitations
+                         .map(
+                           (c, i) =>
                             `@misc{ref${i + 1},\n  title = {${c.title.replace(/[{}]/g, "")}},\n  howpublished = {\\url{${c.url}}},\n  note = { Accessed: ${dayStamp()} }\n}`,
                         )
                         .join("\n\n") || "% 本次任务无联网引用\n",
@@ -3565,6 +3579,7 @@ function ResultView({
   error,
   status,
   citations,
+  allCitations,
   searches,
   searchNote,
   citationRecheck,
@@ -3598,6 +3613,8 @@ function ResultView({
   error: string | null;
   status: string;
   citations: Citation[];
+  /** 不截断的全量引用清单：分级汇总与「共 N 条」按它算，capsule 列表仍只渲染上面那份截断清单 */
+  allCitations: Citation[];
   /** 联网检索留痕汇总（用于「检索过但没留下来源清单」的如实说明） */
   searches: SearchEvidence;
   searchNote: string | null;
@@ -3646,7 +3663,9 @@ function ResultView({
   onCheckLinks: () => void;
 }) {
   // 引用证据力汇总（与整页 MD、交付自检同一口径）
-  const grades = summarizeGrades(citations);
+  // 分级按全量算：界面胶囊只列前若干条，但「官方来源 X 条」不能跟着截断，
+  // 否则它与交付自检、整页 MD、平台看板上的同一个数字对不上
+  const grades = summarizeGrades(allCitations);
   if (error) {
     return (
       <div className="rounded-md border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-[13px] text-rose-300">
@@ -3845,6 +3864,12 @@ function ResultView({
           </div>
           <p className="mt-1.5 text-[11px] text-mist-600">
             证据力：官方来源 {grades.official} · 专业来源 {grades.professional}
+            {allCitations.length > citations.length && (
+              <span title="界面只列前若干条，分级与交付自检按全量计算">
+                {" "}
+                · 共 {allCitations.length} 条，下方列出前 {citations.length} 条
+              </span>
+            )}
             {grades.weak > 0 ? (
               <span className="text-amber-300" title={GRADE_HINT.weak}>
                 {" "}
