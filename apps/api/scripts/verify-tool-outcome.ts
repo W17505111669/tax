@@ -17,7 +17,11 @@ import {
   successRate,
   type ToolOutcomeCounts,
 } from "../../web/src/tool-outcome.ts";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { computePlatformStats } from "../src/services/stats.ts";
+import { db } from "../src/db.ts";
 
 const failures: string[] = [];
 let checks = 0;
@@ -29,7 +33,12 @@ function expect(name: string, actual: unknown, want: unknown): void {
   if (a !== w) failures.push(`${name}: 实际 ${a}，期望 ${w}`);
 }
 
-/** 平台真实数据的那一组：233 成功、0 失败、37 次未返回 */
+function ok(name: string, cond: boolean, detail = ""): void {
+  checks += 1;
+  if (!cond) failures.push(`${name}${detail ? `: ${detail}` : ""}`);
+}
+
+/** 修复前的平台真实快照：233 成功、0 失败、37 行没有结果落库。留作固定样例，不随库变动 */
 const REAL: ToolOutcomeCounts = { calls: 270, ok: 233, failed: 0, unfinished: 37 };
 const MIXED: ToolOutcomeCounts = { calls: 10, ok: 8, failed: 2, unfinished: 0 };
 const ALL_UNFINISHED: ToolOutcomeCounts = { calls: 5, ok: 0, failed: 0, unfinished: 5 };
@@ -79,8 +88,12 @@ expect(
 const line = outcomeLine(REAL);
 expect("正文含成功与失败计数", [line.includes("成功 233"), line.includes("失败 0")], [true, true]);
 expect("正文写明成功率分母", line.includes("分母为有返回结果的 233 次"), true);
-expect("正文说明未返回的性质与处置", line.includes("37 次发起后未返回结果") && line.includes("服务重启打断"), true);
-expect("没有未返回时不提这一句", outcomeLine(MIXED).includes("未返回"), false);
+expect(
+  "正文说明无结果的性质与处置",
+  line.includes("37 次调用没有结果落库") && line.includes("不计入成功率分子分母"),
+  true,
+);
+expect("没有无结果调用时不提这一句", outcomeLine(MIXED).includes("没有结果落库"), false);
 expect("算不出成功率时给「—」而不是 0%", outcomeLine(ALL_UNFINISHED).includes("成功率 —"), true);
 expect("算不出成功率时不写成 100%", outcomeLine(ALL_UNFINISHED).includes("100%"), false);
 
@@ -94,18 +107,76 @@ expect(
 expect("各作品三态之和等于该作品调用总数", s.perAgent.every((a) => a.toolOk + a.toolFailed + a.toolUnfinished === a.toolCalls), true);
 expect("各作品成功数之和等于平台成功数", s.perAgent.reduce((n, a) => n + a.toolOk, 0), s.toolOk);
 expect("各作品未返回数之和等于平台未返回数", s.perAgent.reduce((n, a) => n + a.toolUnfinished, 0), s.toolUnfinished);
-expect("真实数据里确实有未返回的调用", s.toolUnfinished > 0, true);
+// 分母口径的差异只在「有无结果调用」时才显现，因此用固定样例断言，不依赖库里当下有没有孤儿行
 expect(
-  "成功率按有结果的调用算，与旧口径不同（否则说明没接上）",
-  successRate({ calls: s.toolCalls, ok: s.toolOk, failed: s.toolFailed, unfinished: s.toolUnfinished }) !==
-    (s.toolCalls > 0 ? Math.round((s.toolOk / s.toolCalls) * 10000) / 100 : null),
+  "有无结果调用时，成功率必须不同于按调用总数算的旧口径",
+  successRate(REAL) !== Math.round((REAL.ok / REAL.calls) * 10000) / 100,
   true,
 );
+expect("真实数据三态里成功数不超过调用总数", s.toolOk <= s.toolCalls && s.toolOk >= 0, true);
+
+// 7) 配对不变量：每次调用都收到了结束事件时，就不该有结果没落库的行。
+// 按工具名配对的那版实测 tool_start / tool_end 各 270 条一一成对，却有 37 行永远停在 ok IS NULL。
+const endEvents = (
+  db.prepare(`SELECT COUNT(*) n FROM events WHERE kind = 'tool_end'`).get() as { n: number }
+).n;
+const startEvents = (
+  db.prepare(`SELECT COUNT(*) n FROM events WHERE kind = 'tool_start'`).get() as { n: number }
+).n;
+expect("tool_start 与 tool_end 事件一一成对", startEvents, endEvents);
+expect("结束事件数与调用行数一致", endEvents, s.toolCalls);
+expect(
+  "结束事件齐全时不该有结果没落库的调用行（配对回归就会红）",
+  endEvents === s.toolCalls ? s.toolUnfinished : 0,
+  0,
+);
+expect(
+  "有结果的行都写了 ok 与 ended_at",
+  (
+    db
+      .prepare(
+        `SELECT COUNT(*) n FROM tool_calls WHERE result IS NOT NULL AND result <> '' AND (ok IS NULL OR ended_at IS NULL)`,
+      )
+      .get() as { n: number }
+  ).n,
+  0,
+);
+expect(
+  "失败行都带了可读的错误结果（否则「失败 N」点进去什么也看不到）",
+  (
+    db.prepare(`SELECT COUNT(*) n FROM tool_calls WHERE ok = 0 AND (result IS NULL OR result = '' OR result = 'null')`).get() as {
+      n: number;
+    }
+  ).n,
+  0,
+);
+
+// 8) 静态走查：两处修复不能被改回去
+const here = path.dirname(fileURLToPath(import.meta.url));
+const apiSrc = path.resolve(here, "..", "src");
+const coreSrc = path.resolve(here, "..", "..", "..", "packages", "agent-core", "src");
+const runner = fs.readFileSync(path.join(apiSrc, "services", "agent-runner.ts"), "utf8");
+const factory = fs.readFileSync(path.join(coreSrc, "agent-factory.ts"), "utf8");
+ok(
+  "运行器按 SDK 的 toolCallId 配对开始与结束事件",
+  runner.includes("pendingToolCalls.set(event.toolCallId, callId)") &&
+    runner.includes("pendingToolCalls.get(event.toolCallId)"),
+);
+ok("运行器不再按工具名配对（同名工具并发或连续调用会互相覆盖）", !runner.includes("pendingToolCalls.set(event.toolName"));
+ok(
+  "归一化事件从事件顶层读 isError（ToolExecutionEndEvent.isError），不只读 result.isError",
+  factory.includes("e.isError === true"),
+);
+ok(
+  "结果里带非空 error 字符串同样算失败（社区联网工具用 details.error 报失败而不置 isError）",
+  factory.includes("detailsError"),
+);
+ok("归一化事件带上 toolCallId", factory.includes('kind: "tool_end"') && factory.includes("toolCallId: e.toolCallId"));
 
 console.log(
-  `[verify] 工具调用三态：总 ${s.toolCalls} · 成功 ${s.toolOk} · 失败 ${s.toolFailed} · 未返回 ${s.toolUnfinished} · 成功率 ${
+  `[verify] 工具调用三态：总 ${s.toolCalls} · 成功 ${s.toolOk} · 失败 ${s.toolFailed} · 无结果 ${s.toolUnfinished} · 成功率 ${
     successRate({ calls: s.toolCalls, ok: s.toolOk, failed: s.toolFailed, unfinished: s.toolUnfinished })
-  }%（旧口径 ${Math.round((s.toolOk / s.toolCalls) * 1000) / 10}%）`,
+  }%（按调用总数算的旧口径 ${Math.round((s.toolOk / s.toolCalls) * 1000) / 10}%）`,
 );
 console.log(`[verify] 三态口径检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
@@ -113,4 +184,4 @@ if (failures.length > 0) {
   console.log("[FAIL] 工具调用三态口径不符");
   process.exit(1);
 }
-console.log("[PASS] 工具调用三态口径正确（分母只取有结果的调用 / 环图三段 / 文字口径 / 平台数据自洽）");
+console.log("[PASS] 工具调用三态口径正确（分母只取有结果的调用 / 环图三段 / 文字口径 / 配对不变量 / 静态走查）");

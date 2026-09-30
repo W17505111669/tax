@@ -81,7 +81,14 @@ export async function runTask(
     if (removed.length > 0) console.log(`[revision] ${taskId} 停用工具：${removed.join("、")}`);
   }
 
+  // 按 SDK 的 toolCallId 配对开始与结束事件。此前按**工具名**配对：同名工具在上一次还没结束就
+  // 再次开始时，后一次的行 id 会覆盖前一次，于是前一行永远停在 ok IS NULL、result 为空，而结束时
+  // 取到的又是另一次的行 id——结果被挂到错误的调用上。实测 270 次 tool_start / 270 次 tool_end
+  // 一一成对，却只有 233 行写了结果，丢掉的 37 行恰好等于「同名工具未结束就再次开始」的次数 37。
+  // 工具可以并发执行（ToolDefinition.executionMode 支持 "parallel"），按名配对根本站不住。
   const pendingToolCalls = new Map<string, string>();
+  /** 兜底：SDK 没给 toolCallId 时才退回按工具名配对 */
+  const pendingByName = new Map<string, string>();
   let session: Awaited<ReturnType<typeof createTaxAgentSession>> | undefined;
 
   try {
@@ -102,15 +109,19 @@ export async function runTask(
             break;
           case "tool_start": {
             const callId = recordToolCall({ taskId, toolName: event.toolName, args: event.args });
-            pendingToolCalls.set(event.toolName, callId);
+            if (event.toolCallId) pendingToolCalls.set(event.toolCallId, callId);
+            else pendingByName.set(event.toolName, callId);
             emit(taskId, "tool_start", `调用工具 ${event.toolName}`, { toolName: event.toolName, args: event.args, callId });
             break;
           }
           case "tool_end": {
-            const callId = pendingToolCalls.get(event.toolName);
+            const callId =
+              (event.toolCallId ? pendingToolCalls.get(event.toolCallId) : undefined) ??
+              pendingByName.get(event.toolName);
             if (callId) {
               finishToolCall(callId, event.ok, event.result);
-              pendingToolCalls.delete(event.toolName);
+              if (event.toolCallId) pendingToolCalls.delete(event.toolCallId);
+              if (pendingByName.get(event.toolName) === callId) pendingByName.delete(event.toolName);
             }
             if (event.toolName === "parse_uploaded_files" && event.ok) markFilesParsed(taskId);
             emit(taskId, "tool_end", `工具 ${event.toolName} 执行${event.ok ? "完成" : "失败"}`, {

@@ -520,7 +520,7 @@ export function AgentOverview({
       `已完成\t${p.completed}`,
       `工具成功率\t${percentFrom(successRate(outcomeOf(p)))}`,
       `工具调用失败（工具返回错误）\t${p.toolFailed}`,
-      `工具调用未返回（服务重启打断）\t${p.toolUnfinished}`,
+      `工具调用无结果（结果未落库）\t${p.toolUnfinished}`,
       `底稿产物\t${p.artifacts}`,
       `记录级比对准确率（最近一次）\t${percentFrom(p.compareAccuracy)}`,
       `记录级比对准确率（累计）\t${percentFrom(p.compareAccuracyOverall)}`,
@@ -815,7 +815,7 @@ export function AgentOverview({
                     outcomeOf(stats.platform),
                   )} 次（成功 ${stats.platform.toolOk} + 失败 ${stats.platform.toolFailed}）${
                     stats.platform.toolUnfinished > 0
-                      ? `；另有 ${stats.platform.toolUnfinished} 次调用发起后未返回结果（服务重启打断，result 与 ended_at 均为空），既不进分子也不进分母，不与工具报错混为一谈`
+                      ? `；另有 ${stats.platform.toolUnfinished} 次调用没有结果落库（result 与 ended_at 均为空：结束事件未配对回该行，或进程在工具返回前结束），既不进分子也不进分母，不与工具报错混为一谈`
                       : ""
                   }`,
                   value: percentValue(stats.platform.toolOk, resolvedCalls(outcomeOf(stats.platform))),
@@ -1348,14 +1348,14 @@ export function AgentOverview({
                   <span className="font-mono text-rose-300">{c.failed}</span>
                   {c.unfinished > 0 ? (
                     <>
-                      {" · 未返回 "}
+                      {" · 无结果 "}
                       <span className="font-mono text-amber-300">{c.unfinished}</span>
                     </>
                   ) : null}
                 </div>
                 <div className="text-[10.5px] text-mist-600">
                   成功率分母为有返回结果的 {resolvedCalls(c)} 次
-                  {c.unfinished > 0 ? `；${c.unfinished} 次发起后未返回（服务重启打断），不计入` : ""}
+                  {c.unfinished > 0 ? `；${c.unfinished} 次调用没有结果落库（结束事件未配对回该行），不计入` : ""}
                 </div>
               </div>
             </div>

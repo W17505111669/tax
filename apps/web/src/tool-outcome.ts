@@ -2,9 +2,16 @@
  * 工具调用的三态口径：成功 / 失败 / 未返回。
  *
  * `ok=1` 成功、`ok=0` 工具确实返回了错误、`ok IS NULL` 是调用行在工具发起时落了库、但 `result`
- * 与 `ended_at` 都为空——进程在工具返回之前就没了，服务重启是最常见的原因。这批孤儿调用行来自
- * 早先被打断的那一轮，任务往往在后续某一轮跑完了，所以任务状态上看不出中断，只有平台指标还带着
- * 它们；也正因如此，把它们算成「失败」一直没被发现。
+ * 与 `ended_at` 都为空——工具的结果没能写回这一行。
+ *
+ * 实测这 37 行的成因不是进程中断，而是 agent-runner 按**工具名**配对开始与结束事件：同名工具在
+ * 上一次还没结束就再次开始时，后一次的行 id 覆盖前一次，前一行就永远停在 ok IS NULL，而结束时
+ * 取到的又是另一次的行 id——结果被挂到错误的调用上。证据是事件表里 tool_start 与 tool_end 各
+ * 270 条一一成对，说明每次调用都收到了结束事件，只是没配对上。配对已改为按 SDK 的 toolCallId，
+ * 存量数据由 `pnpm repair:toolcalls` 按「结果回显入参」的硬证据恢复。
+ *
+ * 任务往往在后续某一轮跑完了，所以任务状态上看不出异常，只有平台指标还带着这批行；也正因如此，
+ * 把它们算成「失败」一直没被发现。
  *
  * 第三态此前在平台看板上被 `总数 - 成功数` 一律算成「失败」：实测 37 次全属这一类，且集中在
  * 联网类慢工具上（get_search_content 15 · fetch_public_document 9 · search_public_cases 6）。
@@ -25,7 +32,7 @@ export interface ToolOutcomeCounts {
   ok: number;
   /** ok=0：工具返回了错误 */
   failed: number;
-  /** ok IS NULL：发起了但从未返回 */
+  /** ok IS NULL：调用行没有结果落库（结束事件未配对回该行，或进程在工具返回前结束） */
   unfinished: number;
 }
 
@@ -62,8 +69,8 @@ export interface RingSegment {
 }
 
 /**
- * 环图三段弧：按调用总数分配，顺序为 成功 → 失败 → 未返回。
- * 未返回那段用中性色而不是失败的红——它不是错误，颜色也不该替它认错。
+ * 环图三段弧：按调用总数分配，顺序为 成功 → 失败 → 无结果。
+ * 无结果那段用中性色而不是失败的红——它不是错误，颜色也不该替它认错。
  * calls 为 0 时返回三段长度全 0，调用方不必再挡除零。
  */
 export function ringSegments(c: ToolOutcomeCounts, circumference: number): RingSegment[] {
@@ -84,6 +91,6 @@ export function outcomeLine(c: ToolOutcomeCounts): string {
   const rateText = rate === null ? "—" : `${rate}%`;
   const base = `工具调用 ${c.calls} 次 · 成功 ${c.ok} · 失败 ${c.failed} · 成功率 ${rateText}（分母为有返回结果的 ${resolvedCalls(c)} 次）`;
   return c.unfinished > 0
-    ? `${base} · 另有 ${c.unfinished} 次发起后未返回结果（服务重启打断，不计入成功率分子分母）`
+    ? `${base} · 另有 ${c.unfinished} 次调用没有结果落库（结束事件未配对回该行，或进程在工具返回前结束；不计入成功率分子分母）`
     : base;
 }

@@ -45,7 +45,7 @@ export interface AgentStats {
   toolOk: number;
   /** ok=0：工具确实返回了错误 */
   toolFailed: number;
-  /** ok IS NULL：调用发起了但从未返回（服务重启打断），既不是成功也不是失败 */
+  /** ok IS NULL：调用发起了但结果没能写回该行，既不是成功也不是失败 */
   toolUnfinished: number;
   artifacts: number;
 }
@@ -112,12 +112,13 @@ export interface PlatformStats {
   /** ok=0：工具确实返回了错误 */
   toolFailed: number;
   /**
-   * ok IS NULL：调用行在工具发起时落了库，但 result 与 ended_at 都是空——进程在工具返回前就没了。
-   * 实测 37 次全是这一类，且集中在联网类慢工具上（get_search_content 15 · fetch_public_document 9 ·
-   * search_public_cases 6），慢调用最容易被重启撞个正着。这批孤儿行来自早先被打断的那一轮，任务
-   * 往往在后续某一轮跑完了，状态上看不出中断。此前被 `toolCalls - toolOk` 一律算成「失败」，把
-   * 「没有结果」和「结果是错误」混成一个数：成功率被低估（86.3% 对 100%），性质也标错了。
-   * 口径见 web/src/tool-outcome.ts，任务页的 callStats 一直是三态，平台侧此前没接上。
+   * ok IS NULL：调用行在工具发起时落了库，但 result 与 ended_at 都是空——工具结果没能写回这一行。
+   * 实测 37 行的成因不是进程中断：事件表里 tool_start 与 tool_end 各 270 条一一成对，每次调用都
+   * 收到了结束事件，是 agent-runner 按**工具名**配对把它们弄丢了（同名工具未结束就再次开始时，后一次
+   * 的行 id 覆盖前一次）。配对已改为按 SDK 的 toolCallId，存量由 `pnpm repair:toolcalls` 恢复。
+   * 此前这一态被 `toolCalls - toolOk` 一律算成「失败」，把「没有结果」和「结果是错误」混成一个数：
+   * 成功率被低估，性质也标错了。口径见 web/src/tool-outcome.ts，任务页的 callStats 一直是三态，
+   * 平台侧此前没接上。
    */
   toolUnfinished: number;
   artifacts: number;

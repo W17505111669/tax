@@ -205,7 +205,7 @@ export interface PlatformStats {
   toolOk: number;
   /** ok=0：工具确实返回了错误 */
   toolFailed: number;
-  /** ok IS NULL：调用发起了但从未返回（服务重启打断），不是失败 */
+  /** ok IS NULL：调用发起了但结果没能写回该行，既不是成功也不是失败（口径见 tool-outcome.ts） */
   toolUnfinished: number;
   artifacts: number;
   compareAccuracy: number | null;
