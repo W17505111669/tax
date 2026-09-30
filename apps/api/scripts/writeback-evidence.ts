@@ -9,10 +9,11 @@
  *      pnpm writeback:evidence --print                   打印完整修订指令（人工核对用）
  *      pnpm writeback:evidence --task aabd138 --run      只续跑指定任务（id 前缀）
  *      pnpm writeback:evidence --run                     逐个续跑全部可写回任务（耗时，慎用）
+ *      pnpm writeback:evidence --restore aabd138         把该任务的结论回滚到上一轮（续跑改坏时用）
  */
 import { runTask } from "../src/services/agent-runner.ts";
 import { listRefChecks } from "../src/services/ref-checks.ts";
-import { getTask, listTasks } from "../src/services/task-store.ts";
+import { appendEvent, getTask, listConclusions, listTasks, setTaskStatus } from "../src/services/task-store.ts";
 import { computePlatformStats } from "../src/services/stats.ts";
 import { buildRevisionInstruction, toRevisionItems } from "../../web/src/ref-check.ts";
 
@@ -21,6 +22,8 @@ const doRun = args.includes("--run");
 const doPrint = args.includes("--print");
 const at = args.indexOf("--task");
 const taskFilter = at >= 0 ? (args[at + 1] ?? "") : "";
+const rt = args.indexOf("--restore");
+const restoreFilter = rt >= 0 ? (args[rt + 1] ?? "") : "";
 
 type Snapshot = {
   docRefs: number;
@@ -53,6 +56,40 @@ const line = (s: Snapshot): string =>
   `文号 ${s.docRefTraced}/${s.docRefs} 有出处 · 待复查 ${s.docRefPending} · 复查到出处 ${s.docRefMatched} · 引用 ${s.citations}（官方 ${s.official} · 弱 ${s.weak}）· 金额待确认 ${s.amountPending}/${s.amountTotal}`;
 
 const delta = (a: number, b: number): string => (b > a ? `+${b - a}` : b < a ? `${b - a}` : "0");
+
+// 回滚出口：续跑把结论改坏时（实测模型交回过一份改动报告，文号 5 → 2、金额溯源项少 22 个），
+// 不必手改数据库。事件流只增不改，每一轮结论都能重建，因此可以反复回滚。
+if (restoreFilter !== "") {
+  const target = listTasks().find((x) => x.id.startsWith(restoreFilter));
+  if (target === undefined) {
+    console.log(`没有匹配 ${restoreFilter} 的任务`);
+    process.exit(1);
+  }
+  const runs = listConclusions(target.id);
+  if (runs.length < 2) {
+    console.log(`${target.id.slice(0, 8)}「${target.title}」只有一轮结论，无从回滚`);
+    process.exit(1);
+  }
+  const prev = runs[runs.length - 2]!;
+  const dropped = runs[runs.length - 1]!;
+  const round = runs.length;
+  // 事件流是唯一事实来源，verify:revimpact 盯着一条不变量：重组出的最后一轮结论必须等于 tasks.result。
+  // 所以回滚不能只改 result——那等于让数据库与事件流各说一套，门禁当场就抓出来了（第一版正是这么写的）。
+  // 这里把回滚如实记成一轮，事件形状与正常一轮完全一致，时间线、运行次数与结论重组才都对得上。
+  appendEvent(target.id, "run_started", `人工回滚：把结论恢复到第 ${round - 1} 轮（换下第 ${round} 轮）`, {
+    rollback: true,
+    restoredChars: prev.length,
+    droppedChars: dropped.length,
+  });
+  appendEvent(target.id, "agent_text_delta", prev);
+  appendEvent(target.id, "agent_text", prev);
+  setTaskStatus(target.id, target.status, { result: prev });
+  appendEvent(target.id, "run_completed", "人工回滚完成", { result: prev, rollback: true });
+  console.log(
+    `已把 ${target.id.slice(0, 8)}「${target.title}」的结论回滚到第 ${round - 1} 轮（${prev.length} 字）；被换下的第 ${round} 轮（${dropped.length} 字）仍留在事件流里，回滚本身也记为一轮，状态保持 ${target.status} 不变`,
+  );
+  process.exit(0);
+}
 
 // 没有结论的任务不进清单，但要如实报出来而不是静默丢掉。
 // 写回是「把已核实的出处补进结论正文」，结论为空时无处可补；此时续跑只会让 Agent 凭空
@@ -112,6 +149,8 @@ if (!doRun) {
 }
 
 const before = snapshot();
+// 逐任务留一份写回前的台账行：平台合计只能说明「总体变少了」，指不出是哪个任务改坏的
+const beforeRows = new Map(computePlatformStats().evidence.ledger.map((r) => [r.taskId, r]));
 console.log(`\n写回前：${line(before)}`);
 for (const p of plans) {
   const started = Date.now();
@@ -130,6 +169,16 @@ for (const p of plans) {
       row?.docRefTotal ?? 0
     } 有出处 · 引用 ${row?.citations ?? 0}（官方 ${row?.official ?? 0}）· 修订影响「${row?.revision ?? "无可比轮次"}」`,
   );
+  const prevRow = beforeRows.get(p.task.id);
+  const lostDocs = (prevRow?.docRefTotal ?? 0) - (row?.docRefTotal ?? 0);
+  const lostAmounts = (prevRow?.amountTotal ?? 0) - (row?.amountTotal ?? 0);
+  if (lostDocs > 0 || lostAmounts > 0) {
+    // 写回只该增加出处，绝不该让文号或金额溯源项变少；变少就说明结论被整体重写了
+    console.log(`  [警告] 这个任务的证据被改少了：文号 -${lostDocs} 处、金额溯源 -${lostAmounts} 项。`);
+    console.log(
+      `         多半是模型交回了改动说明而不是修订后的完整结论。回滚：pnpm writeback:evidence --restore ${p.task.id.slice(0, 8)}`,
+    );
+  }
 }
 const done = snapshot();
 console.log(`\n写回后：${line(done)}`);
