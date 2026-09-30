@@ -6,6 +6,8 @@ import { dirs } from "../src/config.ts";
 import { computePlatformStats } from "../src/services/stats.ts";
 import {
   aggregatePeerCompares,
+  buildDerivedFrom,
+  isTemplateCompare,
   summarizeTaskCompares,
   type PeerCompare,
 } from "../src/services/compare-stats.ts";
@@ -249,19 +251,55 @@ export interface CompareLike {
 }
 
 /** 取该智能体最近一次记录级比对结果，供作品说明附录展示差异明细。 */
-export function latestCompareFor(agentId: string): CompareLike | null {
-  const row = db
+export type LatestCompare = { compare: CompareLike; bName: string };
+
+/**
+ * 演示用的人工参考底稿样例：由 packages/document-tools/scripts/make-compare-sample.ts 生成，
+ * 其中「直接投入」被故意写成与案例输入不同的数，用来验证比对确实抓得出差异。
+ * 作品说明据此说明该差异是预埋的演示差异，而不是系统取数错误。
+ */
+export const DEMO_REFERENCE_SAMPLE = "人工参考底稿-样例.xlsx";
+
+/**
+ * 取该智能体最近一次**与人工底稿的记录级比对**，供作品说明附录展示差异明细。
+ *
+ * 两道筛选与平台统计同源：逐格（address）模式与记录级不是同一个量纲，不能当记录级比对展示；
+ * 「填列产物 vs 它自己的原始模板」也不是与人工底稿比对。此前只取时间上最后一条、不是记录级就返回
+ * null——实测土增智填最后一次是逐格比对，附录于是整段消失，明明有可用的记录级结果。
+ */
+export function latestCompareFor(agentId: string): LatestCompare | null {
+  const rows = db
     .prepare(
-      `SELECT tc.result FROM tool_calls tc JOIN tasks t ON t.id = tc.task_id
+      `SELECT tc.task_id AS taskId, tc.args AS args, tc.result AS result FROM tool_calls tc
+         JOIN tasks t ON t.id = tc.task_id
        WHERE t.agent_id = ? AND tc.tool_name = 'compare_workpapers' AND tc.ok = 1 AND tc.result IS NOT NULL
-       ORDER BY tc.started_at DESC LIMIT 1`,
+       ORDER BY tc.started_at DESC`,
     )
-    .get(agentId) as { result: string } | undefined;
-  if (!row) return null;
-  try {
-    const parsed = JSON.parse(row.result) as CompareLike & { sheets?: Array<{ mode?: string }> };
-    return parsed.sheets?.[0]?.mode === "record" ? (parsed as CompareLike) : null;
-  } catch {
-    return null;
+    .all(agentId) as unknown as Array<{ taskId: string; args: string | null; result: string }>;
+  const argsCache = new Map<string, Array<{ args: string | null }>>();
+  for (const row of rows) {
+    let parsed: CompareLike & { sheets?: Array<{ mode?: string }> };
+    try {
+      parsed = JSON.parse(row.result) as typeof parsed;
+    } catch {
+      continue;
+    }
+    if (parsed.sheets?.[0]?.mode !== "record") continue;
+    let taskCalls = argsCache.get(row.taskId);
+    if (!taskCalls) {
+      taskCalls = (db.prepare(`SELECT args FROM tool_calls WHERE task_id = ?`).all(row.taskId) ?? []) as Array<{
+        args: string | null;
+      }>;
+      argsCache.set(row.taskId, taskCalls);
+    }
+    if (isTemplateCompare(row.args, buildDerivedFrom(taskCalls))) continue;
+    let bName = "";
+    try {
+      bName = String((JSON.parse(row.args ?? "{}") as { b?: { name?: unknown } }).b?.name ?? "");
+    } catch {
+      bName = "";
+    }
+    return { compare: parsed as CompareLike, bName };
   }
+  return null;
 }

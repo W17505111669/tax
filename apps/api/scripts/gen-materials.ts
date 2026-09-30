@@ -8,13 +8,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { LEDGER_COLUMNS } from "../../web/src/evidence-ledger.ts";
 import { CITATION_LIMIT, MERGED_CITATION_LIMIT } from "../../web/src/search-evidence.ts";
-import { createTaskDocumentTools, createTemplateTools } from "@tax/document-tools";
+import { compareRates, createTaskDocumentTools, createTemplateTools } from "@tax/document-tools";
 import rdAuditAgent from "@tax/agent-rd-audit";
 import landVatAgent from "@tax/agent-land-vat";
 import type { TaxAgentConfig } from "@tax/agent-core";
 import {
   BACKGROUND,
   batchBudgetText,
+  DEMO_REFERENCE_SAMPLE,
   docRefSnapshotText,
   evidenceSnapshotText,
   FLOWS,
@@ -180,14 +181,29 @@ function build(agent: TaxAgentConfig, extra: Array<{ name: string; label: string
   );
   lines.push(`- 自动化验证：verify:pi / verify:docs / verify:template / verify:policy / verify:compare / verify:ocr / verify:agents 全部 PASS（见 docs/testing/test-report-*.md）`);
   lines.push("");
-  const cmp = latestCompareFor(agent.id);
-  if (cmp) {
+  const latest = latestCompareFor(agent.id);
+  if (latest) {
+    const cmp = latest.compare;
+    const rates = compareRates(cmp.totals.matched, cmp.totals.mismatched, cmp.totals.onlyA);
     lines.push(`### 附录：与人工底稿差异明细（最近一次记录级比对）`);
     lines.push("");
     lines.push(
-      `- 总准确率 ${cmp.totals.accuracyPercent}%（比对 ${cmp.totals.compared}：一致 ${cmp.totals.matched}、差异 ${cmp.totals.mismatched}、仅系统 ${cmp.totals.onlyA}、仅人工 ${cmp.totals.onlyB}）`,
+      `- 参照物：${latest.bName === "" ? "（调用入参未记录文件名）" : `人工底稿 ${latest.bName}`}；比对 ${
+        cmp.totals.compared
+      } 项，一致 ${cmp.totals.matched}、差异 ${cmp.totals.mismatched}、仅系统 ${cmp.totals.onlyA}、仅人工 ${
+        cmp.totals.onlyB
+      }`,
     );
-    lines.push(`- 差异项一律列为待核查事项，系统不按人工底稿自动"改正"。`);
+    lines.push(
+      `- 一致率 ${rateText(rates.matchRatePercent)}（只看两边都有的项，回答「填得对不对」）· 覆盖率 ${rateText(
+        rates.coveragePercent,
+      )}（人工底稿有的项自动填到了多少，回答「填得全不全」）。不再报「总准确率」：它把这两类问题混进一个数，实测有过填错 0 项、仅范围差异 48 项却显示准确率 0% 的一次`,
+    );
+    lines.push(
+      latest.bName === DEMO_REFERENCE_SAMPLE
+        ? `- 这份人工参考底稿是**演示样例**，由 packages/document-tools/scripts/make-compare-sample.ts 生成，其中一处金额被故意写成与案例输入不同的数，用来验证比对确实抓得出差异；系统底稿一侧取自任务指令里的辅助账归集数。因此下表这条差异是预埋的演示差异，不是系统取数错误。接入真实案例后，差异项即为需要人工核查的口径差异，系统一律不按人工底稿自动「改正」`
+        : `- 差异项一律列为待核查事项，系统不按人工底稿自动"改正"。`,
+    );
     lines.push("");
     lines.push(`| 类型 | 位置 | 系统底稿 | 人工底稿 |`);
     lines.push(`| --- | --- | --- | --- |`);
