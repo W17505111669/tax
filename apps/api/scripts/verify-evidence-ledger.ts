@@ -42,6 +42,7 @@ const row = (over: Partial<LedgerRow> = {}): LedgerRow => ({
   docRefTotal: 4,
   docRefTraced: 2,
   docRefPending: 1,
+  docRefLabeled: 0,
   docRefMatched: 1,
   docRefTracedByRecheck: 1,
   citations: 6,
@@ -69,6 +70,10 @@ expect("只声明了一部分时按剩下待处置的算", rowGap(row({ weak: 5,
 expect("声明数超过弱证据数也不会算出负欠账", rowGap(row({ weak: 1, weakDisclaimed: 4, docRefPending: 0 })), 0);
 // 只在检索留存里、从未进入结论正文的弱证据同样不是欠账：不是这份交付材料的依据，也没处补标注
 expect("未进结论正文的弱证据不算欠账", rowGap(row({ weak: 4, weakUncited: 4, docRefPending: 0 })), 0);
+// 结论里已标注「未取得公开原文，仅作背景参考」的文号同样不算欠账：查不到原文时如实标注就是设计好的收口
+expect("已标注为背景参考的文号不算欠账", rowGap(row({ weak: 0, docRefPending: 3, docRefLabeled: 3 })), 0);
+expect("只标注了一部分时按剩下的算", rowGap(row({ weak: 0, docRefPending: 5, docRefLabeled: 2 })), 3);
+expect("标注数超过待复查数也不会算出负欠账", rowGap(row({ weak: 0, docRefPending: 1, docRefLabeled: 4 })), 0);
 expect(
   "两类都不算欠账时只剩待复查文号",
   rowGap(row({ weak: 6, weakDisclaimed: 2, weakUncited: 3, docRefPending: 1 })),
@@ -82,6 +87,11 @@ expect(
 expect(
   "弱证据全部未进结论正文的任务也不算欠账任务",
   ledgerTotals([row({ weak: 3, weakUncited: 3, docRefPending: 0 })]).withGaps,
+  0,
+);
+expect(
+  "文号全部已标注的任务不算欠账任务",
+  ledgerTotals([row({ weak: 0, docRefPending: 3, docRefLabeled: 3 })]).withGaps,
   0,
 );
 const unsorted = [
@@ -139,6 +149,7 @@ expect("引用合计", t.citations, 8);
 expect("官方原文合计", t.official, 5);
 expect("替代来源就绪合计", t.replaced, 1);
 expect("待复查文号合计", t.docRefPending, 1);
+expect("已标注文号合计", t.docRefLabeled, 0);
 expect("复查取得出处合计", t.docRefTracedByRecheck, 3);
 expect("欠账任务数", t.withGaps, 2);
 expect("修订可比任务数", t.revisionCompared, 2);
@@ -158,11 +169,12 @@ expect("列数与表头一致", ledgerCells(row(), (x) => x).length, LEDGER_COLU
 // 界面按列名给欠账两列上色，列名一改就会静默失去高亮：这里替它盯着
 expect(
   "欠账相关列的列名仍在表头里",
-  (["待复查", "证据力弱", "已声明背景参考", "未进结论正文"] as const).every((c) =>
+  (["待复查", "已标注未取得原文", "证据力弱", "已声明背景参考", "未进结论正文"] as const).every((c) =>
     (LEDGER_COLUMNS as readonly string[]).includes(c),
   ),
   true,
 );
+expect("已标注文号单独成列", cell(row({ docRefLabeled: 2 }), "已标注未取得原文"), "2");
 expect("已声明条数单独成列", cell(row({ weakDisclaimed: 2 }), "已声明背景参考"), "2");
 expect("未进结论条数单独成列", cell(row({ weakUncited: 3 }), "未进结论正文"), "3");
 expect("文号列写成 有出处/总数", cell(row(), "文号 有出处/总数"), "2/4");
@@ -226,6 +238,8 @@ expect(
 );
 expect("替代来源就绪合计与看板一致", sum((r) => r.replaced), ev.weakWithReplacement);
 expect("待复查文号合计与看板一致", sum((r) => r.docRefPending), ev.docRefPending);
+expect("已标注文号合计与看板一致", sum((r) => r.docRefLabeled), ev.docRefLabeled);
+expect("已标注数不超过待复查数", sum((r) => r.docRefLabeled) <= sum((r) => r.docRefPending), true);
 expect("复查到出处合计与看板一致", sum((r) => r.docRefMatched), ev.docRefMatched);
 expect("文号总数合计与看板一致", sum((r) => r.docRefTotal), ev.docRefs);
 expect("文号可溯源合计与看板一致", sum((r) => r.docRefTraced), ev.docRefTraced);
@@ -264,7 +278,8 @@ expect(
       r.weak === g.weakCitations &&
       r.weakDisclaimed === g.weakDisclaimed &&
       r.weakUncited === g.weakUncited &&
-      r.docRefPending === g.docRefPending
+      r.docRefPending === g.docRefPending &&
+      r.docRefLabeled === g.docRefLabeled
     );
   }),
   true,

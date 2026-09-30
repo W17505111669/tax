@@ -926,6 +926,21 @@ export function settledWeakUrls(
  *    复查判定 matched、替代地址也进了结论，但原百科链接原样留着，弱证据仍挂在交付材料里，
  *    而写回脚本因为「已写回」再也不提这两条。
  */
+/**
+ * 结论里已标注「未取得公开原文，仅作背景参考，不作为政策依据」的文号原文集合。
+ *
+ * 与弱证据同理：交代过的不该继续算欠账。查不到公开原文的文号，设计好的收口就是在结论里如实标注；
+ * 标注完还把它算成待复查，认真照做的任务就永远出不了缺口清单（实测 aabd138a 三处已全部标注，
+ * 缺口清单仍挂着它）。判据复用 isDisclaimedInConclusion，与引用侧同一套窗口与词表。
+ */
+export function labeledDocRefTexts(refs: Array<{ text: string }>, conclusion: string): Set<string> {
+  const out = new Set<string>();
+  for (const r of refs) {
+    if (isDisclaimedInConclusion(conclusion, r.text)) out.add(r.text);
+  }
+  return out;
+}
+
 export function pendingRevisionItems(items: RevisionItem[], conclusion: string): RevisionItem[] {
   // 结论里真在用的地址：走同一份提取管线，作废交代里的地址自然不算在用
   const cited = new Set(extractTextCitations(conclusion ?? "", UNCAPPED).map((c) => c.url));

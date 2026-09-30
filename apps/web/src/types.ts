@@ -255,6 +255,8 @@ export interface PlatformStats {
     /** 有出处的文号里靠联网复查取得的条数 */
     docRefTracedByRecheck: number;
     docRefPending: number;
+    /** docRefPending 中已在结论里标注「未取得公开原文，仅作背景参考」的处数，不算待复查欠账 */
+    docRefLabeled: number;
     docRefMatched: number;
     /** 仍有证据缺口的任务：存在弱证据引用或待复查文号 */
     gaps: Array<{
@@ -265,6 +267,7 @@ export interface PlatformStats {
       weakDisclaimed: number;
       weakUncited: number;
       docRefPending: number;
+      docRefLabeled: number;
     }>;
     /** 全平台证据核对台账：每任务一行，按欠账倒序，可直接导出 MD / CSV 归档 */
     ledger: import("./evidence-ledger.ts").LedgerRow[];

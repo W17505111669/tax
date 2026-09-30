@@ -30,6 +30,7 @@ import {
   uncitedWeakUrls,
   gradeRefCheck,
   isDisclaimedInConclusion,
+  labeledDocRefTexts,
   pendingRevisionItems,
   refCheckTargets,
   refKey,
@@ -589,6 +590,25 @@ ok(
   ).includes("【替换弱证据引用】"),
 );
 expect("同一行有交代用语即认", isDisclaimedInConclusion(rowDisclaimer, "https://data.stats.gov.cn/"), true);
+// 文号侧同一条原则：查不到公开原文时，设计好的收口就是在结论里如实标注；标注完还继续算待复查，
+// 认真照做的任务就永远出不了缺口清单
+expect(
+  "同一行标注过「未取得公开原文」的文号算已标注",
+  [
+    ...labeledDocRefTexts(
+      [{ text: "国税发〔2006〕187号" }, { text: "财税〔2015〕119号" }],
+      "| 国税发〔2006〕187号 | 未取得公开原文，仅作背景参考，不作为政策依据 |\n财税〔2015〕119号 见 https://a.gov.cn/119.html",
+    ),
+  ],
+  ["国税发〔2006〕187号"],
+);
+expect(
+  "整节声明之下的文号也算已标注",
+  labeledDocRefTexts([{ text: "2021年第34号" }], "## 未取得公开原文的项目\n\n- 2021年第34号：仅见于来源文件引用\n")
+    .size,
+  1,
+);
+expect("没有标注时一条也不算", labeledDocRefTexts([{ text: "2021年第34号" }], "依据 2021年第34号 计算").size, 0);
 expect(
   "交代写在别的行不算：不跨行认，否则密集表格里会错认成一片",
   isDisclaimedInConclusion("引用 https://data.stats.gov.cn/\n下一行才写 仅作背景参考", "https://data.stats.gov.cn/"),

@@ -176,6 +176,7 @@ expect("官方引用不多于引用总数", ev.officialCitations <= ev.citations
 expect("弱证据引用不多于引用总数", ev.weakCitations <= ev.citations, true);
 expect("已找到替代来源的不多于弱证据数", ev.weakWithReplacement <= ev.weakCitations, true);
 expect("已声明为背景参考的不多于弱证据数", ev.weakDisclaimed <= ev.weakCitations, true);
+expect("已标注的文号不超过待复查数", ev.docRefLabeled <= ev.docRefPending, true);
 expect("未进结论正文的不多于弱证据数", ev.weakUncited <= ev.weakCitations, true);
 expect(
   "已声明与未进结论两类不重叠，加起来不超过弱证据总数",
@@ -212,7 +213,10 @@ expect("缺口任务都有弱引用或待复查文号", ev.gaps.every((g) => g.w
 // 却仍挂在缺口清单里，缺口任务数因此虚报 5 个而不是 4 个）
 expect(
   "缺口任务都还有待处置的弱引用或待复查文号",
-  ev.gaps.every((g) => g.weakCitations - g.weakDisclaimed - g.weakUncited > 0 || g.docRefPending > 0),
+  ev.gaps.every(
+    (g) =>
+      g.weakCitations - g.weakDisclaimed - g.weakUncited > 0 || g.docRefPending - g.docRefLabeled > 0,
+  ),
   true,
 );
 expect("缺口构成里的已声明数不超过该任务弱引用数", ev.gaps.every((g) => g.weakDisclaimed <= g.weakCitations), true);

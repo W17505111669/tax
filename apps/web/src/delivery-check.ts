@@ -64,6 +64,12 @@ export type CheckInput = {
   } | null;
   /** 复查之后仍没有出处的文号处数（待确认 + 无法核验 − 已找到公开出处） */
   docRefPending: number;
+  /**
+   * docRefPending 中已在结论里标注「未取得公开原文，仅作背景参考，不作为政策依据」的处数，按类别拆开，
+   * 好让两类提醒各自只报还没标注的。查不到公开原文时，设计好的收口就是如实标注；标注过还继续提醒，
+   * 认真照做的任务就永远出不了「谨慎交付」。
+   */
+  docRefLabeled?: { untraced: number; unverifiable: number };
   /** 弱证据引用的替代来源检索汇总；null 表示从未检索 */
   citationRecheck: {
     total: number;
@@ -165,16 +171,28 @@ export function deliveryCheck(i: CheckInput): CheckResult {
   // 所以这里剩下的都是确实还没有出处的，直接提醒即可。原先「已全部复查到出处」的降级分支
   // 在新口径下不可能触发（docRefPending 就是两者之和，为 0 时两个计数必然都为 0），
   // 留着会让人以为还存在第三种状态。
-  if (i.docRefUntraced > 0) {
+  const labUntraced = i.docRefLabeled?.untraced ?? 0;
+  const labUnverifiable = i.docRefLabeled?.unverifiable ?? 0;
+  const labeledTotal = labUntraced + labUnverifiable;
+  const untracedOpen = Math.max(0, i.docRefUntraced - labUntraced);
+  const unverifiableOpen = Math.max(0, i.docRefUnverifiable - labUnverifiable);
+  const pendingOpen = Math.max(0, i.docRefPending - labeledTotal);
+  if (untracedOpen > 0) {
     items.push({
       level: "warn",
-      text: `${i.docRefUntraced} 处政策文号未找到公开出处，需人工确认依据后再交付`,
+      text: `${untracedOpen} 处政策文号未找到公开出处，需人工确认依据后再交付`,
     });
   }
-  if (i.docRefUnverifiable > 0) {
+  if (unverifiableOpen > 0) {
     items.push({
       level: "info",
-      text: `${i.docRefUnverifiable} 处政策文号无法从留存数据核验（联网检索扩展只持久化查询元数据），建议改用政策快照检索、联网复查或附检索页面截图`,
+      text: `${unverifiableOpen} 处政策文号无法从留存数据核验（联网检索扩展只持久化查询元数据），建议改用政策快照检索、联网复查或附检索页面截图`,
+    });
+  }
+  if (labeledTotal > 0) {
+    items.push({
+      level: "ok",
+      text: `另有 ${labeledTotal} 处政策文号已在结论中标注「未取得公开原文，仅作背景参考，不作为政策依据」，不需再补出处`,
     });
   }
   if (i.docRefTotal > 0 && i.docRefUntraced === 0 && i.docRefUnverifiable === 0) {
@@ -189,7 +207,7 @@ export function deliveryCheck(i: CheckInput): CheckResult {
       items.push({
         level: "ok",
         text: `${r.matched} 处政策文号已联网复查到公开出处${
-          i.docRefPending > 0 ? `，复查后仍有 ${i.docRefPending} 处没有出处` : ""
+          pendingOpen > 0 ? `，复查后仍有 ${pendingOpen} 处没有出处` : ""
         }`,
       });
     }

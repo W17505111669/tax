@@ -166,6 +166,11 @@ export function AgentOverview({
     0,
     (p?.evidence?.weakCitations ?? 0) - (p?.evidence?.weakDisclaimed ?? 0) - (p?.evidence?.weakUncited ?? 0),
   );
+  // 文号侧同理：已在结论中标注「未取得公开原文，仅作背景参考」的不再算待复查
+  const docOpen = (g: { docRefPending: number; docRefLabeled: number }): number =>
+    Math.max(0, g.docRefPending - g.docRefLabeled);
+  const docLabeledTotal = p?.evidence?.docRefLabeled ?? 0;
+  const docOpenTotal = Math.max(0, (p?.evidence?.docRefPending ?? 0) - docLabeledTotal);
   const agentName = (id: string) => agents.find((a) => a.id === id)?.shortName ?? id;
   // 缺口任务自身的未复核项合计（与「全平台待复核合计」不同：后者还包含待复核态任务）
   const backlogPending = (p?.reviewBacklog ?? []).reduce((s, b) => s + b.pending, 0);
@@ -861,8 +866,9 @@ export function AgentOverview({
                           其中 {p.evidence.weakWithReplacement} 条已找到官方替代来源、待人工写回结论 ·
                         </span>
                       )}
-                      政策文号待复查 {p.evidence.docRefPending} 处 {evidenceTrend("docRefPending", true)}（另有{" "}
-                      {p.evidence.docRefMatched} 处已复查到公开出处，其中 {p.evidence.docRefTracedByRecheck}{" "}
+                      政策文号待复查 {docOpenTotal} 处 {evidenceTrend("docRefPending", true)}
+                      {docLabeledTotal > 0 ? `（另有 ${docLabeledTotal} 处已在结论中标注为背景参考、不作为依据）` : ""}
+                      （{p.evidence.docRefMatched} 处已复查到公开出处，其中 {p.evidence.docRefTracedByRecheck}{" "}
                       处已计入「有出处」）·
                       联网检索拦下 {p.evidence.searchDropped + p.evidence.searchDroppedReplay} 条无关结果与门户首页
                       {p.evidence.searchDropped === 0 && p.evidence.searchDroppedReplay > 0
@@ -874,25 +880,25 @@ export function AgentOverview({
                     <span className="text-[11px] text-mist-500">
                       点击任务前往结果页：引用胶囊看证据力分级，文号徽章可一键联网复查
                     </span>
-                    {onBatchRefCheck && (p.evidence.docRefPending > 0 || weakOpenTotal > 0) && (
+                    {onBatchRefCheck && (docOpenTotal > 0 || weakOpenTotal > 0) && (
                       <span className="ml-auto flex shrink-0 gap-1.5">
-                        {p.evidence.docRefPending > 0 && (
+                        {docOpenTotal > 0 && (
                           <button
                             type="button"
                             className="action-btn !text-[11px] disabled:cursor-not-allowed disabled:opacity-40"
                             disabled={refBatchBusy !== ""}
-                            title="用自建检索通道（Bing RSS 优先 + 相关度过滤）批量复查各任务里没有出处的政策文号，判定与证据链接按条落库并写入事件留痕；单次条数受服务端预算限制"
+                            title="用自建检索通道（Bing RSS 优先 + 相关度过滤）批量复查各任务里没有出处、且还没在结论中标注为背景参考的政策文号，判定与证据链接按条落库并写入事件留痕；单次条数受服务端预算限制"
                             onClick={() =>
                               armRefBatch(
                                 "docref",
-                                (p?.evidence?.gaps ?? []).filter((g) => g.docRefPending > 0).map((g) => g.id),
+                                (p?.evidence?.gaps ?? []).filter((g) => docOpen(g) > 0).map((g) => g.id),
                               )
                             }
                           >
                             {refBatchBusy === "docref"
                               ? "复查中…"
                               : refBatchArmed === "docref"
-                                ? `再点一次确认（共 ${p.evidence.docRefPending} 处，单次按预算分批）`
+                                ? `再点一次确认（待复查 ${docOpenTotal} 处，单次按预算分批）`
                                 : "批量复查文号"}
                           </button>
                         )}
@@ -928,7 +934,7 @@ export function AgentOverview({
                           title={`${agentName(agentId)}：${list.length} 个任务，待处置弱证据引用 ${list.reduce(
                             (s, g) => s + weakOpen(g),
                             0,
-                          )} 条 · 待复查文号 ${list.reduce((s, g) => s + g.docRefPending, 0)} 处`}
+                          )} 条 · 待复查文号 ${list.reduce((s, g) => s + docOpen(g), 0)} 处`}
                         >
                           {agentName(agentId)}
                         </span>
@@ -942,11 +948,13 @@ export function AgentOverview({
                               g.weakDisclaimed + g.weakUncited > 0
                                 ? `（另有 ${g.weakDisclaimed} 条已在结论中声明为背景参考、${g.weakUncited} 条未进入结论正文）`
                                 : ""
-                            } · 待复查文号 ${g.docRefPending} 处`}
+                            } · 待复查文号 ${docOpen(g)} 处${
+                              g.docRefLabeled > 0 ? `（另有 ${g.docRefLabeled} 处已标注为背景参考）` : ""
+                            }`}
                           >
                             {g.title.length > 16 ? `${g.title.slice(0, 16)}…` : g.title}
                             {weakOpen(g) > 0 ? ` · 弱${weakOpen(g)}` : ""}
-                            {g.docRefPending > 0 ? ` · 文号${g.docRefPending}` : ""}
+                            {docOpen(g) > 0 ? ` · 文号${docOpen(g)}` : ""}
                           </button>
                         ))}
                         {list.length > 6 && (
@@ -973,9 +981,14 @@ export function AgentOverview({
                     全平台证据核对台账（{rows.length} 个任务）
                     <span className="ml-2 text-[11px] text-mist-600">
                       文号 {totals.docRefTraced}/{totals.docRefTotal} 有出处（其中复查取得{" "}
-                      {totals.docRefTracedByRecheck}）· 待复查 {totals.docRefPending} · 引用{" "}
-                      {totals.citations} 条（官方 {totals.official} · 弱 {totals.weak}）· 金额待确认{" "}
-                      {totals.amountPending} · 欠账任务 {totals.withGaps} 个
+                      {totals.docRefTracedByRecheck}）· 待复查{" "}
+                      {Math.max(0, totals.docRefPending - totals.docRefLabeled)}
+                      {totals.docRefLabeled > 0 ? `（已标注 ${totals.docRefLabeled}）` : ""} · 引用{" "}
+                      {totals.citations} 条（官方 {totals.official} · 弱 {totals.weak}
+                      {totals.weakDisclaimed + totals.weakUncited > 0
+                        ? `，待处置 ${Math.max(0, totals.weak - totals.weakDisclaimed - totals.weakUncited)}`
+                        : ""}
+                      ）· 金额待确认 {totals.amountPending} · 欠账任务 {totals.withGaps} 个
                     </span>
                   </summary>
                   <div className="no-print mt-2 flex flex-wrap gap-1.5">

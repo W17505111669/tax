@@ -22,6 +22,8 @@ export type LedgerRow = {
   docRefTotal: number;
   docRefTraced: number;
   docRefPending: number;
+  /** docRefPending 中已在结论里标注「未取得公开原文，仅作背景参考」的处数，不算欠账 */
+  docRefLabeled: number;
   docRefMatched: number;
   /** docRefTraced 里靠联网复查取得出处的条数（工具留存结果里没有该文号），已含在 docRefTraced 内 */
   docRefTracedByRecheck: number;
@@ -50,6 +52,7 @@ export type LedgerTotals = {
   docRefTotal: number;
   docRefTraced: number;
   docRefPending: number;
+  docRefLabeled: number;
   docRefMatched: number;
   docRefTracedByRecheck: number;
   citations: number;
@@ -77,7 +80,9 @@ export type LedgerTotals = {
  * 补标注，实测 9 条待处置里 6 条属于这种）。
  */
 export function rowGap(r: LedgerRow): number {
-  return Math.max(0, r.weak - r.weakDisclaimed - r.weakUncited) + r.docRefPending;
+  return (
+    Math.max(0, r.weak - r.weakDisclaimed - r.weakUncited) + Math.max(0, r.docRefPending - r.docRefLabeled)
+  );
 }
 
 /** 台账排序：欠账多的在前，其次按作品与标题，保证同一批数据每次导出的行序一致 */
@@ -94,6 +99,7 @@ export function ledgerTotals(rows: LedgerRow[]): LedgerTotals {
     docRefTotal: 0,
     docRefTraced: 0,
     docRefPending: 0,
+    docRefLabeled: 0,
     docRefMatched: 0,
     docRefTracedByRecheck: 0,
     citations: 0,
@@ -115,6 +121,7 @@ export function ledgerTotals(rows: LedgerRow[]): LedgerTotals {
     t.docRefTotal += r.docRefTotal;
     t.docRefTraced += r.docRefTraced;
     t.docRefPending += r.docRefPending;
+    t.docRefLabeled += r.docRefLabeled;
     t.docRefMatched += r.docRefMatched;
     t.docRefTracedByRecheck += r.docRefTracedByRecheck;
     t.citations += r.citations;
@@ -144,6 +151,7 @@ export const LEDGER_COLUMNS = [
   "文号 有出处/总数",
   "其中复查取得",
   "待复查",
+  "已标注未取得原文",
   "复查到出处",
   "引用数",
   "官方来源",
@@ -167,6 +175,7 @@ export function ledgerCells(r: LedgerRow, agentName: (id: string) => string): st
     `${r.docRefTraced}/${r.docRefTotal}`,
     String(r.docRefTracedByRecheck),
     String(r.docRefPending),
+    String(r.docRefLabeled),
     String(r.docRefMatched),
     String(r.citations),
     String(r.official),
@@ -195,6 +204,7 @@ export function ledgerCsv(rows: LedgerRow[], agentName: (id: string) => string =
       `${t.docRefTraced}/${t.docRefTotal}`,
       t.docRefTracedByRecheck,
       t.docRefPending,
+      t.docRefLabeled,
       t.docRefMatched,
       t.citations,
       t.official,
@@ -224,7 +234,9 @@ export function ledgerMarkdown(
     "",
     ...(generatedAt === "" ? [] : [`- 生成时间：${generatedAt}`]),
     `- 任务数：${t.tasks}　仍有证据欠账的任务：${t.withGaps}`,
-    `- 政策文号：${t.docRefTotal} 处（有出处 ${t.docRefTraced}，其中复查取得 ${t.docRefTracedByRecheck} · 仍无出处 ${t.docRefPending} · 复查判定 matched ${t.docRefMatched}）`,
+    `- 政策文号：${t.docRefTotal} 处（有出处 ${t.docRefTraced}，其中复查取得 ${t.docRefTracedByRecheck} · 仍无出处 ${t.docRefPending}${
+      t.docRefLabeled > 0 ? `，其中 ${t.docRefLabeled} 处已在结论中标注「未取得公开原文，仅作背景参考」` : ""
+    } · 复查判定 matched ${t.docRefMatched}）`,
     `- 联网引用：${t.citations} 条（官方来源 ${t.official} · 证据力弱 ${t.weak}，其中 ${t.replaced} 条已找到替代来源待写回结论${
       t.weakDisclaimed > 0 ? ` · ${t.weakDisclaimed} 条已在结论中声明为背景参考、不作为依据` : ""
     }${t.weakUncited > 0 ? ` · ${t.weakUncited} 条只在检索留存里、未进入结论正文` : ""}）`,
@@ -246,6 +258,7 @@ export function ledgerMarkdown(
       `${t.docRefTraced}/${t.docRefTotal}`,
       String(t.docRefTracedByRecheck),
       String(t.docRefPending),
+      String(t.docRefLabeled),
       String(t.docRefMatched),
       String(t.citations),
       String(t.official),

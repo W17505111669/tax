@@ -18,8 +18,18 @@ export type SheetInput = {
   statusText: string;
   generatedAt: string;
   delivery: { verdict: string; blocks: number; warns: number; infos: number };
-  /** 政策文号溯源：total = traced + unverifiable + untraced；pending 为复查后仍无出处的处数 */
-  docRefs: { total: number; traced: number; unverifiable: number; untraced: number; pending: number };
+  /**
+   * 政策文号溯源：total = traced + unverifiable + untraced；pending 为复查后仍无出处的处数；
+   * labeled 为 pending 中已在结论里标注「未取得公开原文，仅作背景参考」的处数，不再算待办
+   */
+  docRefs: {
+    total: number;
+    traced: number;
+    unverifiable: number;
+    untraced: number;
+    pending: number;
+    labeled?: number;
+  };
   docRefChecks: {
     total: number;
     matched: number;
@@ -77,7 +87,9 @@ export function evidenceSheetRows(i: SheetInput): SheetRow[] {
     note:
       d.total === 0
         ? "结论中没有出现税收规范性文件文号"
-        : `无法从留存数据核验 ${d.unverifiable} · 待人工确认 ${d.untraced} · 复查后仍无出处 ${d.pending}`,
+        : `无法从留存数据核验 ${d.unverifiable} · 待人工确认 ${d.untraced} · 复查后仍无出处 ${d.pending}${
+            d.labeled ? `（其中 ${d.labeled} 处已在结论中标注为背景参考、不作为依据）` : ""
+          }`,
   });
   const rc = i.docRefChecks;
   rows.push({
@@ -87,7 +99,9 @@ export function evidenceSheetRows(i: SheetInput): SheetRow[] {
       rc.total === 0
         ? d.pending === 0
           ? "文号都能在工具结果中找到出处，无需复查"
-          : `尚有 ${d.pending} 处没有出处，可在文号复查面板一键联网复查`
+          : Math.max(0, d.pending - (d.labeled ?? 0)) === 0
+            ? `仍无出处的 ${d.pending} 处已在结论中标注「未取得公开原文，仅作背景参考」，无需复查`
+            : `尚有 ${Math.max(0, d.pending - (d.labeled ?? 0))} 处没有出处，可在文号复查面板一键联网复查`
         : `候选待确认 ${rc.candidate} · 未检索到 ${rc.empty} · 检索失败 ${rc.error}${
             rc.checkedAt ? ` · 最近复查 ${stamp(rc.checkedAt)}` : ""
           }`,

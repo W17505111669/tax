@@ -18,6 +18,7 @@ import { gradeCitation, summarizeGrades } from "../../../web/src/citation-grade.
 import { traceDocRefs } from "../../../web/src/policy-trace.ts";
 import {
   disclaimedWeakUrls,
+  labeledDocRefTexts,
   summarizeRefChecks,
   uncitedWeakUrls,
   type RefCheckVerdict,
@@ -79,6 +80,8 @@ export interface EvidenceStats {
   /** 有出处的文号里，靠联网复查取得出处的条数（看板据此说明两个来源各占多少） */
   docRefTracedByRecheck: number;
   docRefPending: number;
+  /** docRefPending 中已在结论里标注「未取得公开原文，仅作背景参考」的处数：标注过就不算欠账 */
+  docRefLabeled: number;
   docRefMatched: number;
   /** 仍有证据缺口的任务（存在待处置的弱证据引用或待复查文号；已声明为背景参考的、未进结论正文的不算） */
   gaps: Array<{
@@ -89,6 +92,7 @@ export interface EvidenceStats {
     weakDisclaimed: number;
     weakUncited: number;
     docRefPending: number;
+    docRefLabeled: number;
   }>;
   /** 全平台证据核对台账：每任务一行，按欠账倒序，可直接导出归档 */
   ledger: LedgerRow[];
@@ -181,6 +185,7 @@ export function computePlatformStats(): PlatformStats {
     docRefTraced: 0,
     docRefTracedByRecheck: 0,
     docRefPending: 0,
+    docRefLabeled: 0,
     docRefMatched: 0,
     gaps: [],
   };
@@ -320,6 +325,12 @@ export function computePlatformStats(): PlatformStats {
     const hasConclusion = String(task.result ?? "").trim() !== "";
     const resultText = String(task.result ?? "");
     const docRefPending = tr.untraced.length + tr.unverifiable;
+    // 已在结论里标注「未取得公开原文，仅作背景参考，不作为政策依据」的文号不算欠账：查不到公开原文
+    // 时设计好的收口就是如实标注，标注完还算待复查，认真照做的任务就永远出不了缺口清单
+    //（实测 aabd138a 三处已全部标注，缺口清单仍挂着它）。判据与弱证据侧共用 isDisclaimedInConclusion
+    const pendingRefs = [...tr.untraced, ...tr.unverifiableRefs];
+    const labeledTexts = labeledDocRefTexts(pendingRefs, resultText);
+    const docRefLabeled = pendingRefs.filter((r) => labeledTexts.has(r.text)).length;
     evidence.searchCalls += se.calls;
     evidence.searchMetadataOnly += se.metadataOnly;
     evidence.searchWithUrls += se.withUrls;
@@ -351,8 +362,12 @@ export function computePlatformStats(): PlatformStats {
     evidence.docRefTraced += tr.traced;
     evidence.docRefTracedByRecheck += tr.tracedByRecheck;
     evidence.docRefPending += docRefPending;
+    evidence.docRefLabeled += docRefLabeled;
     evidence.docRefMatched += rc.matched;
-    if (hasConclusion && (grades.weak - disclaimedCount - uncitedCount > 0 || docRefPending > 0)) {
+    if (
+      hasConclusion &&
+      (grades.weak - disclaimedCount - uncitedCount > 0 || docRefPending - docRefLabeled > 0)
+    ) {
       evidence.gaps.push({
         id: task.id,
         title: String(task.title ?? task.id),
@@ -361,6 +376,7 @@ export function computePlatformStats(): PlatformStats {
         weakDisclaimed: disclaimedCount,
         weakUncited: uncitedCount,
         docRefPending,
+        docRefLabeled,
       });
     }
 
@@ -390,6 +406,7 @@ export function computePlatformStats(): PlatformStats {
       docRefTotal: tr.total,
       docRefTraced: tr.traced,
       docRefPending,
+      docRefLabeled,
       docRefMatched: rc.matched,
       docRefTracedByRecheck: tr.tracedByRecheck,
       // 与上面的累加同一口径：没有结论的任务不计引用，台账欠账（弱证据 + 待复查）因此为 0，

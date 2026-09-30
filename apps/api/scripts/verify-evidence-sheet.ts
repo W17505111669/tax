@@ -17,11 +17,13 @@ import {
   mergeCitations,
   searchEvidence,
   searchFiltering,
+  UNCAPPED,
 } from "../../web/src/search-evidence.ts";
 import { gradeCitation, summarizeGrades } from "../../web/src/citation-grade.ts";
 import { traceDocRefs } from "../../web/src/policy-trace.ts";
 import {
   disclaimedWeakUrls,
+  labeledDocRefTexts,
   settledWeakUrls,
   offTopicCitationTitles,
   refCheckTargets,
@@ -63,7 +65,7 @@ const full: SheetInput = {
   statusText: "待复核",
   generatedAt: "2026-09-29T02:00:00.000Z",
   delivery: { verdict: "谨慎交付", blocks: 0, warns: 2, infos: 3 },
-  docRefs: { total: 31, traced: 10, unverifiable: 21, untraced: 0, pending: 12 },
+  docRefs: { total: 31, traced: 10, unverifiable: 21, untraced: 0, pending: 12, labeled: 12 },
   docRefChecks: { total: 9, matched: 9, candidate: 0, empty: 0, error: 0, checkedAt: "2026-09-29T02:00:00.000Z" },
   citations: {
     total: 40,
@@ -108,6 +110,31 @@ expect(
 ok("每项都有结论与说明", rows.every((r) => r.item !== "" && r.value !== "" && r.note !== ""));
 expect("文号溯源结论", rows[0]?.value, "有出处 10/31");
 ok("文号溯源说明含三类计数", (rows[0]?.note ?? "").includes("无法从留存数据核验 21") && (rows[0]?.note ?? "").includes("复查后仍无出处 12"), rows[0]?.note ?? "");
+ok(
+  "文号溯源说明写出已标注为背景参考的处数",
+  (rows[0]?.note ?? "").includes("其中 12 处已在结论中标注为背景参考"),
+  rows[0]?.note ?? "",
+);
+// 还没复查过、但待复查的都已在结论里标注时，不该再催人去点复查
+const noRecheck = evidenceSheetRows({
+  ...full,
+  docRefChecks: { total: 0, matched: 0, candidate: 0, empty: 0, error: 0, checkedAt: null },
+});
+ok(
+  "未复查且全部已标注时不再催复查",
+  (noRecheck[1]?.note ?? "").includes("已在结论中标注「未取得公开原文，仅作背景参考」，无需复查"),
+  noRecheck[1]?.note ?? "",
+);
+const partlyLabeled = evidenceSheetRows({
+  ...full,
+  docRefChecks: { total: 0, matched: 0, candidate: 0, empty: 0, error: 0, checkedAt: null },
+  docRefs: { ...full.docRefs, labeled: 5 },
+});
+ok(
+  "未复查且只标注了一部分时按剩下的催",
+  (partlyLabeled[1]?.note ?? "").includes("尚有 7 处没有出处"),
+  partlyLabeled[1]?.note ?? "",
+);
 expect("文号复查结论", rows[1]?.value, "找到公开出处 9/9");
 expect("引用证据力结论", rows[2]?.value, "官方来源 32/40");
 ok(
@@ -234,7 +261,14 @@ function sheetOf(taskId: string): SheetInput | null {
     };
   });
   const text = task.result ?? "";
-  const cites = mergeCitations(extractCitations(calls), extractTextCitations(text));
+  // 与结果页、平台统计同口径：全量提取，不套用界面清单上限。带上限的话排在第 25 条之后的引用根本
+  // 不进走查，弱证据与「已声明 / 未进结论」的计数也会比看板少（实测 26 条对 23 条），
+  // 走查就验证不到界面真正在算的那份清单
+  const cites = mergeCitations(
+    extractCitations(calls, UNCAPPED),
+    extractTextCitations(text, UNCAPPED),
+    UNCAPPED,
+  );
   const grades = summarizeGrades(cites);
   const se = searchEvidence(calls);
   const sf = searchFiltering(calls);
@@ -250,6 +284,9 @@ function sheetOf(taskId: string): SheetInput | null {
   const docSum = summarizeRefChecks(refRecs.filter((r) => r.kind === "docref"));
   const citeSum = summarizeRefChecks(refRecs.filter((r) => r.kind === "citation"));
   const pending = tr.untraced.length + tr.unverifiable;
+  // 结论里已标注「未取得公开原文，仅作背景参考」的文号：与结果页、看板、台账同一份判据
+  const labeledTexts = labeledDocRefTexts([...tr.untraced, ...tr.unverifiableRefs], text);
+  const labeled = [...tr.untraced, ...tr.unverifiableRefs].filter((r) => labeledTexts.has(r.text)).length;
   const amounts = traceAmounts(text, calls.map((c) => c.result), task.instruction ?? "");
   const acked = new Set(listAmountChecks(taskId).map((c) => c.key));
   const amountPending = amounts.untraced.filter((u) => !acked.has(amountKey(u))).length;
@@ -315,6 +352,7 @@ function sheetOf(taskId: string): SheetInput | null {
       unverifiable: tr.unverifiable,
       untraced: tr.untraced.length,
       pending,
+      labeled,
     },
     docRefChecks: docSum,
     citations: {
@@ -340,7 +378,7 @@ function sheetOf(taskId: string): SheetInput | null {
     },
     revision: rev,
     todos: {
-      docRefs: targets.filter((t) => !matchedDocs.has(t.key)).map((t) => t.text),
+      docRefs: targets.filter((t) => !matchedDocs.has(t.key) && !labeledTexts.has(t.text)).map((t) => t.text),
       weakCitations: weak
         .filter((c) => !replaced.has(refKey("citation", c.url)) && !settled.has(c.url))
         .map((c) => `${c.title} ${c.url}`),
@@ -382,10 +420,13 @@ for (const t of listTasks()) {
   }
   if (todoCount > 0) withTodos += 1;
   checks += 1;
-  // 待办清单可能比 pending 多（上一版结论留下的 matched 记录不再对应当前文号），但不能更少
-  if (input.docRefs.pending > input.todos.docRefs.length) {
+  // 待办清单可能比待处置数多（上一版结论留下的 matched 记录不再对应当前文号），但不能更少。
+  // 比的是 pending - labeled：已在结论中标注「未取得公开原文」的不进待办（实测 aabd138a 三处全部
+  // 标注后待办为 0，若仍按 pending 比就会报「3 处多于 0 项」的假警）
+  const docOpen = input.docRefs.pending - (input.docRefs.labeled ?? 0);
+  if (docOpen > input.todos.docRefs.length) {
     failures.push(
-      `${t.id.slice(0, 8)} 复查后仍无出处 ${input.docRefs.pending} 处，多于待办清单的 ${input.todos.docRefs.length} 项`,
+      `${t.id.slice(0, 8)} 待处置文号 ${docOpen} 处，多于待办清单的 ${input.todos.docRefs.length} 项`,
     );
   }
   const text2 = evidenceSheetMarkdown(input).join("\n");
@@ -393,8 +434,12 @@ for (const t of listTasks()) {
   if (!rs.every((r) => text2.includes(r.item))) failures.push(`${t.id.slice(0, 8)} MD 缺少核对项`);
   // 已声明为背景参考的条数必须在核对表里说出来：否则读者只看到「证据力弱 N 条」，会以为全都等着处置
   checks += 1;
-  disclaimedTotal += input.citations.disclaimed ?? 0;
-  uncitedTotal += input.citations.uncited ?? 0;
+  // 汇总口径与平台看板一致：没有结论的任务不计证据欠账（它没有可交付物，弱证据也就无处可处置），
+  // 否则这行日志会比看板多出几条，两处数字对不上又要花时间解释
+  if (String(getTask(t.id)?.result ?? "").trim() !== "") {
+    disclaimedTotal += input.citations.disclaimed ?? 0;
+    uncitedTotal += input.citations.uncited ?? 0;
+  }
   if ((input.citations.disclaimed ?? 0) > 0 && !text2.includes("已在结论中声明为背景参考")) {
     failures.push(`${t.id.slice(0, 8)} 有 ${input.citations.disclaimed} 条弱证据已声明为背景参考，核对表未写明`);
   }

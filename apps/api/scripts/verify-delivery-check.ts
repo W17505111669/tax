@@ -185,6 +185,41 @@ expect(
   ),
   true,
 );
+// 已在结论中标注「未取得公开原文，仅作背景参考，不作为政策依据」的文号不是交付前待办：
+// 查不到公开原文时如实标注就是设计好的收口，标注完还继续提醒，认真照做的任务永远出不了「谨慎交付」
+const labeledDocRefs = {
+  ...base,
+  docRefTotal: 3,
+  docRefTraced: 1,
+  docRefUntraced: 2,
+  docRefPending: 2,
+  docRefLabeled: { untraced: 2, unverifiable: 0 },
+};
+expect("文号全部已标注 → 不再降级", deliveryCheck(labeledDocRefs).verdict, "可交付");
+expect(
+  "已标注的处数单独给正向条目",
+  deliveryCheck(labeledDocRefs).items.some((x) => x.level === "ok" && x.text.includes("2 处政策文号已在结论中标注")),
+  true,
+);
+expect(
+  "只标注了一部分时按剩下的提醒",
+  deliveryCheck({ ...labeledDocRefs, docRefLabeled: { untraced: 1, unverifiable: 0 } }).items.some(
+    (x) => x.level === "warn" && x.text.includes("1 处政策文号未找到公开出处"),
+  ),
+  true,
+);
+expect(
+  "无法核验的文号标注后也不再计入说明",
+  deliveryCheck({
+    ...base,
+    docRefTotal: 3,
+    docRefTraced: 1,
+    docRefUnverifiable: 2,
+    docRefPending: 2,
+    docRefLabeled: { untraced: 0, unverifiable: 2 },
+  }).infos,
+  0,
+);
 expect(
   "文号无法核验只作说明、不降级",
   deliveryCheck({ ...base, docRefTotal: 3, docRefTraced: 1, docRefUnverifiable: 2 }).verdict,

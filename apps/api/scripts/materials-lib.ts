@@ -24,7 +24,12 @@ export function evidenceSnapshotText(): string {
       ev.weakUncited > 0 ? `，${ev.weakUncited} 条只在检索留存里、未进入结论正文` : ""
     }）`,
     `拦下 ${ev.searchDropped + ev.searchDroppedReplay} 条`,
-    `文号 ${ev.docRefs} 处（有出处 ${ev.docRefTraced}，其中复查取得 ${ev.docRefTracedByRecheck} · 待复查 ${ev.docRefPending} · 复查判定 matched ${ev.docRefMatched}）`,
+    `文号 ${ev.docRefs} 处（有出处 ${ev.docRefTraced}，其中复查取得 ${ev.docRefTracedByRecheck} · 待复查 ${Math.max(
+      0,
+      ev.docRefPending - ev.docRefLabeled,
+    )}${
+      ev.docRefLabeled > 0 ? `（另有 ${ev.docRefLabeled} 处已在结论中标注「未取得公开原文，仅作背景参考」）` : ""
+    } · 复查判定 matched ${ev.docRefMatched}）`,
     `缺口任务 ${ev.gaps.length} 个`,
   ].join("、");
 }

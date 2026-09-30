@@ -67,6 +67,7 @@ import {
   deadLinkTargets,
   citationTargets,
   disclaimedWeakUrls,
+  labeledDocRefTexts,
   pendingRevisionItems,
   settledWeakUrls,
   refCheckTargets,
@@ -1080,6 +1081,21 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   const citationSummary = useMemo(() => summarizeRefChecks(citationCheckList), [citationCheckList]);
   // 复查到出处的已经计入 refTrace.traced，不能再从待复查里扣第二遍
   const refPending = useMemo(() => refTrace.untraced.length + refTrace.unverifiable, [refTrace]);
+  // 结论里已标注「未取得公开原文，仅作背景参考，不作为政策依据」的文号：交代过就不是待办，
+  // 也不再进修订指令与看板欠账（与弱证据的「已声明」同一条原则、同一份判据）
+  const docRefLabeledTexts = useMemo(
+    () => labeledDocRefTexts([...refTrace.untraced, ...refTrace.unverifiableRefs], finalResult),
+    [refTrace, finalResult],
+  );
+  const docRefLabeled = useMemo(
+    () => ({
+      untraced: refTrace.untraced.filter((r) => docRefLabeledTexts.has(r.text)).length,
+      unverifiable: refTrace.unverifiableRefs.filter((r) => docRefLabeledTexts.has(r.text)).length,
+    }),
+    [refTrace, docRefLabeledTexts],
+  );
+  const docRefLabeledTotal = docRefLabeled.untraced + docRefLabeled.unverifiable;
+  const refOpen = Math.max(0, refPending - docRefLabeledTotal);
 
   // 弱证据引用（门户首页 / 百科词条 / 检索页）找可替换的官方原文
   const weakCitations = useMemo(() => allCitations.filter((c) => c.grade === "weak"), [allCitations]);
@@ -1105,6 +1121,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     return {
       docRefs: refTargets
         .filter((t) => !matchedDocs.has(t.key))
+        .filter((t) => !docRefLabeledTexts.has(t.text))
         .map((t) => {
           const rec = refChecks[t.key];
           return rec ? `${t.text}（已复查：${REF_VERDICT_TEXT[rec.verdict]}）` : `${t.text}（未复查）`;
@@ -1202,6 +1219,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     docRefUntraced: refTrace.untraced.length,
     docRefRecheck: refSummary.total > 0 ? refSummary : null,
     docRefPending: refPending,
+    docRefLabeled,
     citationRecheck: citationSummary.total > 0 ? citationSummary : null,
     revision: revImpact
       ? {
@@ -1237,6 +1255,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       refTrace,
       refSummary,
       refPending,
+      docRefLabeledTexts,
       citationSummary,
       revImpact,
     ],
@@ -1256,6 +1275,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       unverifiable: refTrace.unverifiable,
       untraced: refTrace.untraced.length,
       pending: refPending,
+      labeled: docRefLabeledTotal,
     },
     docRefChecks: refSummary,
     citations: {
@@ -2295,7 +2315,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                             type="button"
                             onClick={() => setRefPanelOpen((v) => !v)}
                             className={`rounded px-1.5 py-0.5 text-[10.5px] transition-colors ${
-                              refPending > 0
+                              refOpen > 0
                                 ? "bg-amber-400/15 text-amber-300 hover:bg-amber-400/25"
                                 : "bg-jade-400/15 text-jade-300 hover:bg-jade-400/25"
                             }`}
@@ -2307,6 +2327,10 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                                     .slice(0, 5)
                                     .map((r) => `· ${r.text}：…${r.context}…`)
                                     .join("\n")}`
+                                : ""
+                            }${
+                              docRefLabeledTotal > 0
+                                ? `\n其中 ${docRefLabeledTotal} 处已在结论中标注「未取得公开原文，仅作背景参考」，不再计入待办`
                                 : ""
                             }${
                               refSummary.total > 0
