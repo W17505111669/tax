@@ -245,12 +245,37 @@ expect(
 // 2) 工具计数与 SQL 聚合一致
 const toolAgg = db
   .prepare(
-    `SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN ok = 1 THEN 1 ELSE 0 END), 0) AS ok
+    `SELECT COUNT(*) AS n,
+            COALESCE(SUM(CASE WHEN ok = 1 THEN 1 ELSE 0 END), 0) AS ok,
+            COALESCE(SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END), 0) AS failed,
+            COALESCE(SUM(CASE WHEN ok IS NULL THEN 1 ELSE 0 END), 0) AS unfinished
      FROM tool_calls WHERE task_id IN (SELECT id FROM tasks)`,
   )
-  .get() as { n: number; ok: number };
+  .get() as { n: number; ok: number; failed: number; unfinished: number };
 expect("工具调用总数一致", s.toolCalls, toolAgg.n);
 expect("工具成功数一致", s.toolOk, Number(toolAgg.ok));
+expect("工具失败数一致（ok=0，工具确实返回了错误）", s.toolFailed, Number(toolAgg.failed));
+expect("工具未返回数一致（ok IS NULL，服务重启打断）", s.toolUnfinished, Number(toolAgg.unfinished));
+// 三态必须互斥且穷尽。此前看板用「总数 - 成功数」当失败数，把 37 次从未返回结果的调用
+// （result 与 ended_at 都是空）算成了工具报错，成功率被低估，性质也标错了
+expect("三态互斥且穷尽：总数 = 成功 + 失败 + 未返回", s.toolOk + s.toolFailed + s.toolUnfinished, s.toolCalls);
+expect(
+  "各作品三态之和等于该作品调用总数",
+  s.perAgent.every((a) => a.toolOk + a.toolFailed + a.toolUnfinished === a.toolCalls),
+  true,
+);
+expect(
+  "计入未返回的调用确实既无结果也无结束时间（否则是第四种状态被错分）",
+  (
+    db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM tool_calls
+          WHERE ok IS NULL AND ((result IS NOT NULL AND result <> '') OR ended_at IS NOT NULL)`,
+      )
+      .get() as { n: number }
+  ).n,
+  0,
+);
 expect("按工具分组求和等于总数", s.perTool.reduce((a, b) => a + b.calls, 0), s.toolCalls);
 expect("按工具分组成功数求和一致", s.perTool.reduce((a, b) => a + b.ok, 0), s.toolOk);
 

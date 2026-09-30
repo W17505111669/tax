@@ -43,6 +43,10 @@ export interface AgentStats {
   completed: number;
   toolCalls: number;
   toolOk: number;
+  /** ok=0：工具确实返回了错误 */
+  toolFailed: number;
+  /** ok IS NULL：调用发起了但从未返回（服务重启打断），既不是成功也不是失败 */
+  toolUnfinished: number;
   artifacts: number;
 }
 
@@ -105,6 +109,17 @@ export interface PlatformStats {
   completed: number;
   toolCalls: number;
   toolOk: number;
+  /** ok=0：工具确实返回了错误 */
+  toolFailed: number;
+  /**
+   * ok IS NULL：调用行在工具发起时落了库，但 result 与 ended_at 都是空——进程在工具返回前就没了。
+   * 实测 37 次全是这一类，且集中在联网类慢工具上（get_search_content 15 · fetch_public_document 9 ·
+   * search_public_cases 6），慢调用最容易被重启撞个正着。这批孤儿行来自早先被打断的那一轮，任务
+   * 往往在后续某一轮跑完了，状态上看不出中断。此前被 `toolCalls - toolOk` 一律算成「失败」，把
+   * 「没有结果」和「结果是错误」混成一个数：成功率被低估（86.3% 对 100%），性质也标错了。
+   * 口径见 web/src/tool-outcome.ts，任务页的 callStats 一直是三态，平台侧此前没接上。
+   */
+  toolUnfinished: number;
   artifacts: number;
   compareAccuracy: number | null;
   compareRuns: number;
@@ -167,6 +182,8 @@ export function computePlatformStats(): PlatformStats {
   const perToolMap = new Map<string, { name: string; calls: number; ok: number }>();
   let toolCalls = 0;
   let toolOk = 0;
+  let toolFailed = 0;
+  let toolUnfinished = 0;
   let artifacts = 0;
   let compareAccuracy: number | null = null;
   let compareRuns = 0;
@@ -217,7 +234,16 @@ export function computePlatformStats(): PlatformStats {
   for (const task of tasks) {
     let agent = perAgentMap.get(task.agent_id);
     if (!agent) {
-      agent = { agentId: task.agent_id, tasks: 0, completed: 0, toolCalls: 0, toolOk: 0, artifacts: 0 };
+      agent = {
+        agentId: task.agent_id,
+        tasks: 0,
+        completed: 0,
+        toolCalls: 0,
+        toolOk: 0,
+        toolFailed: 0,
+        toolUnfinished: 0,
+        artifacts: 0,
+      };
       perAgentMap.set(task.agent_id, agent);
     }
     agent.tasks += 1;
@@ -235,8 +261,15 @@ export function computePlatformStats(): PlatformStats {
     agent.toolCalls += calls.length;
     toolCalls += calls.length;
     const okCount = calls.filter((c) => c.ok === 1).length;
+    const failedCount = calls.filter((c) => c.ok === 0).length;
+    // 三态互斥且穷尽：ok=1 成功、ok=0 失败、ok IS NULL 未返回。不能用 calls.length - okCount 当失败数
+    const unfinishedCount = calls.length - okCount - failedCount;
     agent.toolOk += okCount;
+    agent.toolFailed += failedCount;
+    agent.toolUnfinished += unfinishedCount;
     toolOk += okCount;
+    toolFailed += failedCount;
+    toolUnfinished += unfinishedCount;
     for (const call of calls) {
       let bucket = perToolMap.get(call.tool_name);
       if (!bucket) {
@@ -503,6 +536,8 @@ export function computePlatformStats(): PlatformStats {
     completed: tasks.filter((t) => t.status === "completed").length,
     toolCalls,
     toolOk,
+    toolFailed,
+    toolUnfinished,
     artifacts,
     compareAccuracy,
     compareRuns,

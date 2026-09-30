@@ -112,7 +112,22 @@ expect(
 const here = path.dirname(fileURLToPath(import.meta.url));
 const webSrc = path.resolve(here, "..", "..", "web", "src");
 const overview = fs.readFileSync(path.join(webSrc, "components", "AgentOverview.tsx"), "utf8");
-ok("平台总览改用 percentText/percentValue", overview.includes("percentText(") && overview.includes("percentValue("));
+ok(
+  "平台总览改用共用格式化（percentText/percentFrom + percentValue），不自己拼百分号",
+  (overview.includes("percentText(") || overview.includes("percentFrom(")) && overview.includes("percentValue("),
+);
+// 工具成功率的分母必须是「有返回结果的调用」。ok IS NULL 的那批是进程被打断、从未返回结果的
+// 调用，用 toolCalls 当分母等于把「没有结果」算成「结果是错误」（口径见 web/src/tool-outcome.ts）
+ok(
+  "工具成功率的分母不是调用总数",
+  !overview.includes("percentValue(stats.platform.toolOk, stats.platform.toolCalls)") &&
+    !overview.includes("percentText(p.toolOk, p.toolCalls)") &&
+    overview.includes("resolvedCalls("),
+);
+ok(
+  "三态计数与环图分段走 tool-outcome.ts 那一份共用口径",
+  overview.includes("../tool-outcome.ts") && overview.includes("ringSegments(") && overview.includes("outcomeLine("),
+);
 ok("不再自己写 *10000/100", !overview.includes("* 10000) / 100"));
 ok("不再自己写 *1000/10", !overview.includes("* 1000) / 10"));
 ok("完成率改用 percentOf", !overview.includes("Math.round((pa.completed / pa.tasks) * 100)"));

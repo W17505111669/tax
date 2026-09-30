@@ -7,6 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { LEDGER_COLUMNS } from "../../web/src/evidence-ledger.ts";
+import { outcomeLine, type ToolOutcomeCounts } from "../../web/src/tool-outcome.ts";
 import { CITATION_LIMIT, MERGED_CITATION_LIMIT } from "../../web/src/search-evidence.ts";
 import { compareRates, createTaskDocumentTools, createTemplateTools } from "@tax/document-tools";
 import rdAuditAgent from "@tax/agent-rd-audit";
@@ -50,7 +51,14 @@ function toolTable(agent: TaxAgentConfig, extra: Array<{ name: string; label: st
 
 function build(agent: TaxAgentConfig, extra: Array<{ name: string; label: string; description: string }>): string {
   const stats = statsFor(agent.id);
-  const okRate = stats.toolCalls > 0 ? Math.round((stats.toolOk / stats.toolCalls) * 10000) / 100 : 0;
+  // 成功率的分母是「有返回结果的调用」而不是调用总数：ok IS NULL 的那批是服务重启打断、从未
+  // 返回结果的调用，把它们算进分母等于把「没有结果」当成「结果是错误」（口径见 tool-outcome.ts）
+  const outcome: ToolOutcomeCounts = {
+    calls: stats.toolCalls,
+    ok: stats.toolOk,
+    failed: stats.toolFailed,
+    unfinished: stats.toolUnfinished,
+  };
   const lines: string[] = [];
   lines.push(`# ${agent.displayName} 作品说明`);
   lines.push("");
@@ -160,7 +168,7 @@ function build(agent: TaxAgentConfig, extra: Array<{ name: string; label: string
   lines.push(`## 七、应用效果（真实运行统计）`);
   lines.push("");
   lines.push(`- 累计任务 ${stats.tasks} 个，其中已完成 ${stats.completed} 个`);
-  lines.push(`- 工具调用 ${stats.toolCalls} 次，成功 ${stats.toolOk} 次（成功率 ${okRate}%）`);
+  lines.push(`- ${outcomeLine(outcome)}`);
   lines.push(`- 生成专业底稿/产物 ${stats.artifacts} 份`);
   lines.push(
     stats.compareRuns > 0 || stats.compareTemplateRuns > 0

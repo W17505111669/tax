@@ -92,6 +92,7 @@ export const INNOVATIONS: Record<string, string[]> = {
     "复核状态机：存在待复核问题时任务进入 waiting_review，税务师逐项确认后才流转为已完成；问题清单由工具结果实时提取，且只列**当前还需要人看**的项——没有结论的任务不列（失败或中断那次运行留下的差异是残渣，不是欠账）、与自己原始模板的比对不列（模板本来是空的，只有一侧有的格子正是填进去的值）、被后续运行取代的旧结果也不列（底稿比对只取最近一次与人工底稿的比对；凡是返回完整问题清单的业务工具——归集核查、合同发票关联、发票账面关联、金额一致性——只取同名工具最近一次成功调用，否则重跑后新旧两轮并存，同一件事会因为描述里带了合同名与发票张数而绕过去重键）。取代判定按工具名动态分组，不写死工具清单，新增同类工具自动适用；实测这几道过滤把全平台待复核问题从 135 条收敛到 57 条，其中比对类只剩 2 条真差异。若完成后才发现遗留问题，复核页「转为待复核」可重新打开复核",
     "复核可跨任务合并处置：看板把待复核问题按「类型 + 描述原文」跨任务去重分组（实测 58 条去重后 42 类，其中 7 类在多个任务里重复出现，最多一类涉及 6 个任务），同一类可一次「全部确认」或「全部驳回」并附一条共用复核意见——服务端按任务重新核对每条是否仍待复核，已处置或已不在清单里的逐条跳过并说明原因，每个任务各写一条复核记录与状态事件，待复核清零且处于待复核态的任务按同一条规则流转为已完成。任务内仍保留逐项确认与「全部确认／全部驳回」，跨任务合并只是把同一个判断从点六遍变成点一遍。已实际用掉：6 类 20 项一次处置，待复核 57 → 37、分组 42 → 36、已完成 8 → 12，20 项零跳过（服务端重算的清单与传来的 issueId 完全一致）。处置范围是挑过的——只判「确认列入底稿」无争议的类（资料缺失清单本身就是交付项、账账与票账差异属已列入底稿的待核查事项），「底稿差异 系统=420000 / 人工=425000」这类两份底稿的实质分歧留着逐项判断，一键判掉正是这个功能最该防的用法；要撤回走反向的 reopen-review-batch",
     "交付可签字：结果页一页「证据核对表」把九项证据口径收成可签字的一页（含交付前待办与核对人签字行），平台层再给一张全平台证据核对台账并可导出 MD/CSV，文号无出处、证据力弱、金额待确认逐项列明，不填占位数字",
+    "指标不替数据认错：工具调用按三态统计——成功（ok=1）、失败（ok=0，工具确实返回了错误）、未返回（ok IS NULL，调用行在工具发起时落了库但 result 与 ended_at 都是空，即进程在工具返回之前就没了；实测 37 次，集中在联网类慢工具上，来自早先被服务重启打断的那一轮——任务往往在后续某一轮跑完了，所以任务状态上看不出中断，只有平台指标还带着这批孤儿调用行）。成功率的分母只取有返回结果的调用，未返回的次数单独摆出来，既不进分子也不进分母；一次有结果的调用都没有时显示「—」，不填 0% 也不填 100%。此前平台看板用「总数 − 成功数」当失败数，把从未返回的调用算成工具报错，成功率从 100% 被压到 86.3%，还让人去查一个根本不存在的错误——任务页早就把 ok===null 单列，平台侧没接上，同一个判据两个消费点漏改一个。现在收成 tool-outcome.ts 一份共用口径，看板、导出 MD、TSV、作品说明与 PPT 大纲同源，并由 verify:toutcome 与 verify:stats 双向断言三态互斥且穷尽。环图相应画成三段，未返回用琥珀色而不是失败的玫红：它不是错误，颜色不该替它认错",
   ],
   "land-vat": [
     "映射式填列：模型只给表头列名与数据行，地址定位/金额换算/公式避让由工具确定性完成",
@@ -133,6 +134,10 @@ export interface Stats {
   completed: number;
   toolCalls: number;
   toolOk: number;
+  /** ok=0：工具确实返回了错误 */
+  toolFailed: number;
+  /** ok IS NULL：调用发起了但从未返回（服务重启打断），不是失败，口径见 web/src/tool-outcome.ts */
+  toolUnfinished: number;
   artifacts: number;
   compareAccuracy: number | null;
   compareRuns: number;
@@ -156,6 +161,8 @@ export function statsFor(agentId: string): Stats {
   }>;
   let toolCalls = 0;
   let toolOk = 0;
+  let toolFailed = 0;
+  let toolUnfinished = 0;
   let artifacts = 0;
   let compareAccuracy: number | null = null;
   let compareRuns = 0;
@@ -183,7 +190,12 @@ export function statsFor(agentId: string): Stats {
       started_at: string | null;
     }>;
     toolCalls += calls.length;
-    toolOk += calls.filter((c) => c.ok === 1).length;
+    const okCount = calls.filter((c) => c.ok === 1).length;
+    const failedCount = calls.filter((c) => c.ok === 0).length;
+    toolOk += okCount;
+    toolFailed += failedCount;
+    // 三态互斥且穷尽，未返回的那部分不能用「总数 - 成功数」冒充失败数
+    toolUnfinished += calls.length - okCount - failedCount;
     const dir = path.join(dirs.outputs, t.id);
     if (fs.existsSync(dir)) artifacts += fs.readdirSync(dir).filter((f) => fs.statSync(path.join(dir, f)).isFile()).length;
     const cmp = summarizeTaskCompares(calls);
@@ -210,6 +222,8 @@ export function statsFor(agentId: string): Stats {
     completed: tasks.filter((t) => t.status === "completed").length,
     toolCalls,
     toolOk,
+    toolFailed,
+    toolUnfinished,
     artifacts,
     compareAccuracy,
     compareRuns,

@@ -7,6 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { LEDGER_COLUMNS } from "../../web/src/evidence-ledger.ts";
+import { outcomeLine, type ToolOutcomeCounts } from "../../web/src/tool-outcome.ts";
 import rdAuditAgent from "@tax/agent-rd-audit";
 import landVatAgent from "@tax/agent-land-vat";
 import type { TaxAgentConfig } from "@tax/agent-core";
@@ -25,7 +26,13 @@ const verifyCount = (rootPkg.scripts?.["qa:all"] ?? "").split("pnpm verify:").le
 
 function build(agent: TaxAgentConfig): string {
   const stats = statsFor(agent.id);
-  const okRate = stats.toolCalls > 0 ? Math.round((stats.toolOk / stats.toolCalls) * 10000) / 100 : 0;
+  // 与作品说明、平台看板同一份口径：成功率分母只取有返回结果的调用（见 tool-outcome.ts）
+  const outcome: ToolOutcomeCounts = {
+    calls: stats.toolCalls,
+    ok: stats.toolOk,
+    failed: stats.toolFailed,
+    unfinished: stats.toolUnfinished,
+  };
   const demos = recentTaskLinks(agent.id, 3);
   const innov = INNOVATIONS[agent.id] ?? [];
   const L: string[] = [];
@@ -53,7 +60,7 @@ function build(agent: TaxAgentConfig): string {
   slide(8, "现场演示", demos.map((d, i) => `演示 ${i + 1}：${d.title}（${d.status}）深链 ${d.link}`), "用深链直达任务页签；执行类镜头现场重新执行展示 SSE 实时事件。", "工作台实录（时间线/结论/比对）");
   slide(9, "应用效果", [
     `累计任务 ${stats.tasks} 个、已完成 ${stats.completed} 个`,
-    `工具调用 ${stats.toolCalls} 次、成功率 ${okRate}%`,
+    outcomeLine(outcome),
     `生成底稿/产物 ${stats.artifacts} 份`,
     stats.compareRuns > 0
       ? `与人工参考底稿记录级比对：一致率 ${rateText(stats.compareMatchRate)}（填得对不对）· 覆盖率 ${rateText(

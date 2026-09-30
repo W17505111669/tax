@@ -19,6 +19,7 @@
     "verify:amounts": "tsx scripts/verify-amount-trace.ts",
     "verify:lvtools": "tsx scripts/verify-lv-tools.ts",
     "verify:rdtools": "tsx scripts/verify-rd-tools.ts",
+    "verify:toutcome": "tsx scripts/verify-tool-outcome.ts",
     "verify:dcheck": "tsx scripts/verify-delivery-check.ts",
     "verify:links": "tsx scripts/verify-link-check.ts",
     "verify:fileparse": "tsx scripts/verify-file-parse.ts",

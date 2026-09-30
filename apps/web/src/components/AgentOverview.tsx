@@ -19,14 +19,39 @@ import {
 } from "../evidence-ledger.ts";
 import { downloadBlob, downloadText } from "../download.ts";
 import { asSnapshotRecord, KEYS, readJson, writeJson } from "../local-store.ts";
-import { needsUnitSpace, percentFrom, percentOf, percentText, percentValue } from "../format.ts";
+import { needsUnitSpace, percentFrom, percentOf, percentValue } from "../format.ts";
 import { dayStamp, relTime } from "../time-format.ts";
 import { groupSummary } from "../review-queue.ts";
+import {
+  outcomeLine,
+  resolvedCalls,
+  ringSegments,
+  successRate,
+  type RingSegmentKey,
+  type ToolOutcomeCounts,
+} from "../tool-outcome.ts";
 
 /** 大数字 odometer：每位数字独立滚轮到目标值，对齐参考片数据页质感。 */
 const DESC_KEYWORDS = ["整数分", "行级", "记录级", "OCR", "mermaid", "联网"];
 
 const RING_C = 2 * Math.PI * 12;
+
+/** 环图三段配色：未返回用琥珀，不用失败的玫红——它不是错误，颜色不该替它认错 */
+const RING_COLOR: Record<RingSegmentKey, string> = {
+  ok: "#34d399",
+  failed: "#fb7185",
+  unfinished: "#fbbf24",
+};
+
+/** 平台与单作品的工具调用三态计数，统一喂给 tool-outcome.ts 那一份共用口径 */
+function outcomeOf(s: {
+  toolCalls: number;
+  toolOk: number;
+  toolFailed: number;
+  toolUnfinished: number;
+}): ToolOutcomeCounts {
+  return { calls: s.toolCalls, ok: s.toolOk, failed: s.toolFailed, unfinished: s.toolUnfinished };
+}
 
 /**
  * 台账里要标琥珀色的两列欠账（待复查 / 证据力弱）。
@@ -385,7 +410,7 @@ export function AgentOverview({
       "",
       `- 日期：${stamp}`,
       `- 累计任务：${p.tasks}（已完成 ${p.completed}）`,
-      `- 工具调用：${p.toolCalls} 次 · 成功 ${p.toolOk} · 成功率 ${percentText(p.toolOk, p.toolCalls)}`,
+      `- ${outcomeLine(outcomeOf(p))}`,
       `- 底稿产物：${p.artifacts} 份`,
       `- 记录级比对·与人工参考底稿的同行评审（共 ${p.compareRuns} 次，每任务取最近一次合计）：一致率 ${percentFrom(
         p.compareMatchRateOverall,
@@ -414,9 +439,12 @@ export function AgentOverview({
           ]
         : []),
       "",
-      "| 智能体 | 任务 | 已完成 | 工具调用 | 成功 | 产物 |",
-      "| --- | --- | --- | --- | --- | --- |",
-      ...p.perAgent.map((a) => `| ${a.agentId} | ${a.tasks} | ${a.completed} | ${a.toolCalls} | ${a.toolOk} | ${a.artifacts} |`),
+      "| 智能体 | 任务 | 已完成 | 工具调用 | 成功 | 失败 | 未返回 | 产物 |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- |",
+      ...p.perAgent.map(
+        (a) =>
+          `| ${a.agentId} | ${a.tasks} | ${a.completed} | ${a.toolCalls} | ${a.toolOk} | ${a.toolFailed} | ${a.toolUnfinished} | ${a.artifacts} |`,
+      ),
       "",
       "| 工具 | 调用 | 成功 |",
       "| --- | --- | --- |",
@@ -490,7 +518,9 @@ export function AgentOverview({
       "指标\t数值",
       `累计任务\t${p.tasks}`,
       `已完成\t${p.completed}`,
-      `工具成功率\t${percentText(p.toolOk, p.toolCalls)}`,
+      `工具成功率\t${percentFrom(successRate(outcomeOf(p)))}`,
+      `工具调用失败（工具返回错误）\t${p.toolFailed}`,
+      `工具调用未返回（服务重启打断）\t${p.toolUnfinished}`,
       `底稿产物\t${p.artifacts}`,
       `记录级比对准确率（最近一次）\t${percentFrom(p.compareAccuracy)}`,
       `记录级比对准确率（累计）\t${percentFrom(p.compareAccuracyOverall)}`,
@@ -529,7 +559,7 @@ export function AgentOverview({
     {
       label:
         p && p.toolCalls > 0
-          ? `工具成功率 ${percentText(p.toolOk, p.toolCalls)}`
+          ? `工具成功率 ${percentFrom(successRate(outcomeOf(p)))}`
           : `业务工具 ${agent.tools.length} 个`,
     },
     { label: p ? `底稿产物 ${p.artifacts} 份` : `核心能力 ${agent.capabilities.length} 项` },
@@ -781,8 +811,14 @@ export function AgentOverview({
                 { label: "已完成", key: "completed", value: stats.platform.completed.toLocaleString("zh-CN"), unit: "个", desc: "状态为 completed 的任务数" },
                 {
                   label: "工具成功率",
-                  desc: "tool_calls 中 ok=1 的占比",
-                  value: percentValue(stats.platform.toolOk, stats.platform.toolCalls),
+                  desc: `有返回结果的工具调用中 ok=1 的占比，分母 ${resolvedCalls(
+                    outcomeOf(stats.platform),
+                  )} 次（成功 ${stats.platform.toolOk} + 失败 ${stats.platform.toolFailed}）${
+                    stats.platform.toolUnfinished > 0
+                      ? `；另有 ${stats.platform.toolUnfinished} 次调用发起后未返回结果（服务重启打断，result 与 ended_at 均为空），既不进分子也不进分母，不与工具报错混为一谈`
+                      : ""
+                  }`,
+                  value: percentValue(stats.platform.toolOk, resolvedCalls(outcomeOf(stats.platform))),
                   unit: "%",
                 },
                 { label: "底稿产物", key: "artifacts", value: stats.platform.artifacts.toLocaleString("zh-CN"), unit: "份", desc: "各任务 outputs 目录文件计数" },
@@ -1275,46 +1311,56 @@ export function AgentOverview({
           </div>
         )}
 
-        {p && p.toolCalls > 0 && (
-          <div className="mt-4 flex items-center gap-4">
-            <svg viewBox="0 0 32 32" className="h-14 w-14 shrink-0" aria-hidden>
-              <circle
-                cx="16"
-                cy="16"
-                r="12"
-                fill="none"
-                stroke="#34d399"
-                strokeWidth="5"
-                strokeDasharray={`${(p.toolOk / p.toolCalls) * RING_C} ${RING_C}`}
-                transform="rotate(-90 16 16)"
-              />
-              <circle
-                cx="16"
-                cy="16"
-                r="12"
-                fill="none"
-                stroke="#fb7185"
-                strokeWidth="5"
-                strokeDasharray={`${((p.toolCalls - p.toolOk) / p.toolCalls) * RING_C} ${RING_C}`}
-                strokeDashoffset={-(p.toolOk / p.toolCalls) * RING_C}
-                transform="rotate(-90 16 16)"
-              />
-              <text x="16" y="18" textAnchor="middle" fill="#e6edf7" style={{ fontSize: 8.5, fontWeight: 600 }}>
-                {Math.round((p.toolOk / p.toolCalls) * 100)}%
-              </text>
-            </svg>
-            <div className="space-y-0.5 text-[11px] text-mist-500">
-              <div>
-                工具调用 <span className="font-mono text-mist-300">{p.toolCalls}</span> 次 · 成功率{" "}
-                <span className="font-mono text-jade-400">{percentText(p.toolOk, p.toolCalls)}</span>
-              </div>
-              <div>
-                成功 <span className="font-mono text-jade-400">{p.toolOk}</span> · 失败{" "}
-                <span className="font-mono text-rose-300">{p.toolCalls - p.toolOk}</span>
+        {(() => {
+          if (!p || p.toolCalls === 0) return null;
+          const c = outcomeOf(p);
+          const rate = successRate(c);
+          return (
+            <div className="mt-4 flex items-center gap-4">
+              <svg viewBox="0 0 32 32" className="h-14 w-14 shrink-0" aria-hidden>
+                {ringSegments(c, RING_C).map((seg) =>
+                  seg.length > 0 ? (
+                    <circle
+                      key={seg.key}
+                      cx="16"
+                      cy="16"
+                      r="12"
+                      fill="none"
+                      stroke={RING_COLOR[seg.key]}
+                      strokeWidth="5"
+                      strokeDasharray={`${seg.length} ${RING_C}`}
+                      strokeDashoffset={seg.offset}
+                      transform="rotate(-90 16 16)"
+                    />
+                  ) : null,
+                )}
+                <text x="16" y="18" textAnchor="middle" fill="#e6edf7" style={{ fontSize: 8.5, fontWeight: 600 }}>
+                  {rate === null ? "—" : `${Math.round(rate)}%`}
+                </text>
+              </svg>
+              <div className="space-y-0.5 text-[11px] text-mist-500">
+                <div>
+                  工具调用 <span className="font-mono text-mist-300">{c.calls}</span> 次 · 成功率{" "}
+                  <span className="font-mono text-jade-400">{percentFrom(rate)}</span>
+                </div>
+                <div>
+                  成功 <span className="font-mono text-jade-400">{c.ok}</span> · 失败{" "}
+                  <span className="font-mono text-rose-300">{c.failed}</span>
+                  {c.unfinished > 0 ? (
+                    <>
+                      {" · 未返回 "}
+                      <span className="font-mono text-amber-300">{c.unfinished}</span>
+                    </>
+                  ) : null}
+                </div>
+                <div className="text-[10.5px] text-mist-600">
+                  成功率分母为有返回结果的 {resolvedCalls(c)} 次
+                  {c.unfinished > 0 ? `；${c.unfinished} 次发起后未返回（服务重启打断），不计入` : ""}
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_320px]">
           <div>

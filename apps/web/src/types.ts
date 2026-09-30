@@ -203,6 +203,10 @@ export interface PlatformStats {
   completed: number;
   toolCalls: number;
   toolOk: number;
+  /** ok=0：工具确实返回了错误 */
+  toolFailed: number;
+  /** ok IS NULL：调用发起了但从未返回（服务重启打断），不是失败 */
+  toolUnfinished: number;
   artifacts: number;
   compareAccuracy: number | null;
   compareRuns: number;
@@ -287,6 +291,8 @@ export interface PlatformStats {
     completed: number;
     toolCalls: number;
     toolOk: number;
+    toolFailed: number;
+    toolUnfinished: number;
     artifacts: number;
   }>;
   perTool: Array<{ name: string; calls: number; ok: number }>;
