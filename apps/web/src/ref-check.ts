@@ -54,6 +54,12 @@ export function refKey(kind: RefCheckKind, text: string): string {
 
 /** 前导虚词：出现在词组开头时去掉（「根据财税」→「财税」、「按国税函」→「国税函」） */
 const LEAD_WORDS = [
+  // 「同时废止国税发〔2008〕116号」一类：动词不剥掉就会拼出「废止国税发[2008]116号」这种
+  // 指向不存在文件的检索词，而政策法规库那一路要求发文字号归一化后全等，必然落空
+  "废止",
+  "修订",
+  "修改",
+  "作废",
   "依据",
   "根据",
   "按照",
@@ -130,6 +136,57 @@ const DOC_KIND_TAIL = /(公告|通知|通告|令|决定|意见|办法|规定|函
 const AGENCY_BEFORE = /([\u4e00-\u9fa5]{2,10})[\s、·]+$/;
 /** 机关名结尾字：只有以这些字结尾才继续往左取，避免把「同时废止」一类普通词组当成机关 */
 const AGENCY_TAIL = /(部|委|局|署|院|会|行|厅|办|队|处|中心|委员会|办公厅)$/;
+
+/** 公文种类词：机关名后面常紧跟这一个词，它与机关名一起才构成完整发文字号的头部 */
+const DOC_KIND_WORD = /(公告|通知|通告|令|决定|意见|办法|规定|函|文件)$/;
+
+/**
+ * 常见发文机关与文号代号。匹配时按长度倒序，取能对上结尾的最长一个。
+ *
+ * 不用「机关结尾字 + 文种词」的正则去截，是因为那种写法贪婪：「扣除按国家税务总局公告」整体
+ * 也满足「若干字 + 局 + 公告」，截出来还是带着结论自己的话。实测三处补不上出处的文号全栽在这里
+ *（「用加计扣除按国家税务总局公告2018年第23号」「款表述经国家税务总局公告2018年第31号」
+ * 「申报说明先后被国家税务总局公告2020年第24号」），黏着前缀拼出的检索词指向不存在的文件，
+ * 而政策法规库那一路要求发文字号归一化后全等，必然落空。词表是有限的领域知识，宁可列出来。
+ */
+const KNOWN_AGENCIES = [
+  "国家发展和改革委员会",
+  "人力资源社会保障部",
+  "市场监督管理总局",
+  "国家税务总局办公厅",
+  "住房城乡建设部",
+  "工业和信息化部",
+  "财政部办公厅",
+  "国家税务总局",
+  "生态环境部",
+  "交通运输部",
+  "农业农村部",
+  "自然资源部",
+  "人民银行",
+  "税务总局",
+  "海关总署",
+  "商务部",
+  "民政部",
+  "财政部",
+  "科技部",
+  "国务院",
+  "财关税",
+  "税总函",
+  "税总发",
+  "国税发",
+  "国税函",
+  "财综",
+  "财税",
+].sort((a, b) => b.length - a.length);
+
+/** 从紧邻文号的那段中文里截出真正的发文机关；截不出就原样返回，交给 plausibleAgency 判定 */
+export function agencyTail(head: string): string {
+  const kind = head.match(DOC_KIND_WORD);
+  const body = kind === null ? head : head.slice(0, head.length - kind[0].length);
+  const agency = KNOWN_AGENCIES.find((a) => body.endsWith(a));
+  if (agency === undefined) return head;
+  return kind === null ? agency : `${agency}${kind[0]}`;
+}
 /** 光杆公告号：只有年份与序号、不带发文机关代号，单靠它去检索等于捞噪声 */
 const BARE_GONGGAO = /^\d{4}\s*年第\s*\d+\s*号$/;
 
@@ -147,7 +204,7 @@ export function refPrefix(context: string, refText: string, maxChars = 12): stri
   if (idx <= 0) return "";
   const before = context.slice(0, idx);
   const m = before.match(/[\u4e00-\u9fa5]{2,}$/);
-  const base = m ? trimEdgeWords(m[0].slice(-maxChars)) : "";
+  const base = m ? agencyTail(trimEdgeWords(m[0].slice(-maxChars))) : "";
   if (base === "" || !DOC_KIND_TAIL.test(base)) return base;
   let tail = m ? before.slice(0, before.length - m[0].length) : before;
   const agencies: string[] = [];
@@ -529,12 +586,27 @@ export function summarizeRefChecks(
  * hint 传任务主题词：结论写成「同时废止 2021年第13号、2022年第16号、2022年第28号」这类清单时，
  * 上下文里连发文机关都没有，光靠文号数字去检索必然全是噪声，得用主题词做领域限定。
  */
+/**
+ * 从该文号所有出现位置里挑一个能构造出可信发文机关的上下文。
+ *
+ * 首次出现常是光杆写法（「附件表单先后被 2020年第24号、2021年第34号 部分废止」），后面某次才带
+ * 机关（「申报说明先后被国家税务总局公告2020年第24号」）；只认首次就等于把机关白丢掉。
+ * 全都构造不出机关时沿用首次上下文，由调用方按「机关不明就不猜」跳过政策法规库那一路。
+ */
+export function bestRefContext(ref: { text: string; context: string; contexts?: string[] }): string {
+  for (const c of ref.contexts ?? []) {
+    const p = refPrefix(c, ref.text);
+    if (p !== "" && plausibleAgency(p)) return c;
+  }
+  return ref.context;
+}
+
 export function refCheckTargets(trace: RefTraceResult, hint = ""): RefCheckTarget[] {
   return [...trace.untraced, ...trace.unverifiableRefs].map((r) => ({
     key: refKey("docref", r.text),
     kind: "docref" as const,
     text: r.text,
-    context: r.context,
+    context: bestRefContext(r),
     hint,
   }));
 }
@@ -659,7 +731,7 @@ export function keptBetterNote(prevNote: string, nextGrade: string, checkedAt: s
  * 要么本身就是「财税」「国税发」「国税函」「税总函」一类的短代号。
  * 用来挡住「研发费用加计扣除财税」这种把关键词和机关黏在一起的串当机关用。
  */
-function plausibleAgency(head: string): boolean {
+export function plausibleAgency(head: string): boolean {
   const h = trimEdgeWords(head);
   if (h === "" || h.length > 20) return false;
   return DOC_KIND_TAIL.test(h) || h.length <= 4;

@@ -28,6 +28,7 @@ import {
   keptBetterNote,
   matchedStillValid,
   preservedNote,
+  plausibleAgency,
   refPrefix,
   refKey,
   refCheckTargets,
@@ -65,7 +66,9 @@ export type PolicySearcher = (
 export function policyDocNumQuery(t: RefCheckTarget): string {
   if (t.kind !== "docref") return "";
   const prefix = refPrefix(t.context ?? "", t.text);
-  if (prefix === "") return "";
+  // 前缀还得是可信的发文机关：「研发费用加计扣除财税」这种把结论关键词与机关黏在一起的串，
+  // 会拼出一份不存在的文件，而政策法规库那一路要求发文字号归一化后全等，白发一次请求还算不上欠账
+  if (prefix === "" || !plausibleAgency(prefix)) return "";
   return `${prefix}${t.text.replace(/\s+/g, "")}`.trim();
 }
 

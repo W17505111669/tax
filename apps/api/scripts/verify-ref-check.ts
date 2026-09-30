@@ -18,6 +18,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  agencyTail,
+  bestRefContext,
   buildRefQuery,
   buildRevisionInstruction,
   citationTargets,
@@ -1354,6 +1356,58 @@ expect(
     context: "财政部 税务总局 科技部公告2022年第28号同时废止",
   }),
   "财政部 税务总局 科技部公告2022年第28号",
+);
+// 机关名前面黏着结论自己的话时必须截干净：截不干净就拼出一份不存在的文件，
+// 而政策法规库那一路要求发文字号归一化后全等，必然落空（实测三处文号正因此补不上出处）
+expect("截掉黏在前面的结论正文", agencyTail("加计扣除按国家税务总局公告"), "国家税务总局公告");
+expect("截掉「经」一类介词", agencyTail("表述经国家税务总局公告"), "国家税务总局公告");
+expect("已经干净的机关名原样返回", agencyTail("国家税务总局公告"), "国家税务总局公告");
+expect("文号短代号原样返回", agencyTail("国税发"), "国税发");
+expect("关键词黏着短代号也截得出来", agencyTail("研发费用加计扣除财税"), "财税");
+expect("认不出的机关原样返回，交给 plausibleAgency 判定", agencyTail("某省税务局"), "某省税务局");
+expect("联合发文只截最后一个单位，其余由 refPrefix 往左连取", agencyTail("科技部公告"), "科技部公告");
+expect(
+  "动词「废止」当前导词剥掉，不把「废止国税发」当机关",
+  refPrefix("自2016年1月1日起执行，同时废止国税发〔2008〕116号", "〔2008〕116号"),
+  "国税发",
+);
+expect(
+  "多处出现时挑带机关的那一处上下文",
+  bestRefContext({
+    text: "2020年第24号",
+    context: "附件表单先后被 2020年第24号、2021年第34号 部分废止",
+    contexts: ["附件表单先后被 2020年第24号、2021年第34号 部分废止", "申报说明先后被国家税务总局公告2020年第24号"],
+  }),
+  "申报说明先后被国家税务总局公告2020年第24号",
+);
+expect(
+  "全都构造不出机关时沿用首次上下文，不硬凑",
+  bestRefContext({
+    text: "2021年第34号",
+    context: "先后被 2021年第34号 部分废止",
+    contexts: ["先后被 2021年第34号 部分废止"],
+  }),
+  "先后被 2021年第34号 部分废止",
+);
+expect(
+  "挑到带机关的上下文就能构造出完整发文字号",
+  policyDocNumQuery({
+    key: refKey("docref", "2020年第24号"),
+    kind: "docref",
+    text: "2020年第24号",
+    context: "申报说明先后被国家税务总局公告2020年第24号",
+  }),
+  "国家税务总局公告2020年第24号",
+);
+expect(
+  "关键词黏着机关、构不出可信前缀时跳过政策法规库这一路",
+  policyDocNumQuery({
+    key: refKey("docref", "〔2099〕1号"),
+    kind: "docref",
+    text: "〔2099〕1号",
+    context: "研发费用加计扣除比例〔2099〕1号",
+  }),
+  "",
 );
 expect(
   "上下文没有发文机关时不走政策法规库",
