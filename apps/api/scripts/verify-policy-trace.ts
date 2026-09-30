@@ -8,6 +8,7 @@ import {
   normalizeRef,
   traceDocRefs,
 } from "../../web/src/policy-trace.ts";
+import { extractCitations, UNCAPPED } from "../../web/src/search-evidence.ts";
 import { db } from "../src/db.ts";
 import { getTask, listTasks } from "../src/services/task-store.ts";
 
@@ -140,6 +141,50 @@ for (const t of listTasks()) {
 console.log(
   `[verify] 真实文号=${total} 有出处=${traced}（其中复查取得=${byRecheck}）无法核验=${unverifiable} 待确认=${untraced}`,
 );
+// 留存正文参与文号溯源：这是一次**有意的语义放宽**，必须用断言钉住。
+// agent-factory 给联网类工具留存了网页正文（retainedText），而 collectRefStrings 是通用字符串遍历，
+// 于是「文号有出处」的判据从「出现在标题/地址等元数据里」放宽成「出现在我们真的抓下来的页面正文里」。
+// 方向是对的——实测 H 任务 2 处文号里「2023年第8号」只靠留存正文才溯到，此前会被判成无出处，
+// 那是假阴性：页面确实在手上，比「检索摘要里出现过」更强（复查机制本来就接受后者）。
+// 但放宽就得写明并守住，否则哪天被顺手改回去、或改过头把无关页面也算进来，都不会有人发现。
+const META_ONLY = {
+  url: "https://fgk.chinatax.gov.cn/zcfgk/c100012/c5206772/content.html",
+  // 标题带文号是常见形态，这样两处文号里一处靠元数据、一处只能靠正文，增量效果才分得开
+  title: "国家税务总局公告2021年第28号 关于进一步落实研发费用加计扣除政策有关问题的公告",
+  charCount: 3000,
+};
+const BODY_TEXT =
+  "……另据《国家税务总局关于公布全文和部分条款失效废止的税务规范性文件目录的公告》（2023年第8号），第一条失效。";
+const WITH_BODY = { ...META_ONLY, retainedText: BODY_TEXT, retainedChars: BODY_TEXT.length, omittedChars: 0 };
+const CONCLUSION = "依据 2023年第8号 公告，2021年第28号公告第一条失效。";
+expect(
+  "只有元数据时，仅出现在正文里的文号溯不到（这就是此前的假阴性）",
+  traceDocRefs(CONCLUSION, [META_ONLY], ["fetch_public_document"]).traced,
+  1, // 2021年第28号 在标题里，2023年第8号 不在
+);
+expect(
+  "留存正文后两处文号都能溯源",
+  traceDocRefs(CONCLUSION, [WITH_BODY], ["fetch_public_document"]).traced,
+  2,
+);
+expect(
+  "留存正文不改变文号总数，只影响能否溯到",
+  traceDocRefs(CONCLUSION, [WITH_BODY], ["fetch_public_document"]).total,
+  2,
+);
+// 反向保险：正文里出现的其它地址不得混进引用清单。extractCitations 走 urlsOfCall，
+// 只读 results[] / url / urls[] 三个结构化字段，不对整段 JSON 盲扫——这条断言守住这个前提，
+// 否则 18000 字的页面正文里随便一个链接都会变成一条「结论引用」，引用分级与官方来源统计全被污染。
+const polluted = {
+  ...WITH_BODY,
+  retainedText: `${BODY_TEXT} 参见 https://example.com/other 与 https://baike.baidu.com/item/xx 以及 /relative/path`,
+};
+expect(
+  "留存正文里的地址不进引用清单（只认结构化字段）",
+  extractCitations([{ toolName: "fetch_public_document", result: polluted }], UNCAPPED).map((c) => c.url),
+  [META_ONLY.url],
+);
+
 console.log(`[verify] 文号溯源检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  - ${f}`);
