@@ -1847,9 +1847,10 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
               </span>
             )}
             <span className="flex min-w-0 items-center gap-1">
-              {tags.map((t) => (
+              {/* key 带下标：标签是用户自己起的自由文本，同名标签出现两次就撞 key */}
+              {tags.map((t, ti) => (
                 <span
-                  key={t}
+                  key={`${ti}-${t}`}
                   className="inline-flex items-center gap-0.5 rounded-full border border-glow-500/35 bg-glow-500/10 px-1.5 py-0.5 text-[10px] text-glow-300"
                 >
                   {t}
@@ -2029,7 +2030,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
 
       <div className="no-print flex items-center gap-0 border-b border-line bg-night-900 px-8 py-3">
         {steps.map((step, i) => (
-          <div key={step.label} className="flex items-center">
+          // key 带下标：步骤名是自由文本，同名步骤会撞 key
+          <div key={`${i}-${step.label}`} className="flex items-center">
             {i > 0 && (
               <div
                 className={`mx-2 h-px w-8 sm:w-14 ${steps[i - 1]!.state === "done" ? "bg-glow-500/60" : "bg-line"}`}
@@ -4223,7 +4225,8 @@ function ResultView({
             </thead>
             <tbody>
               {evidenceSheetRows(sheet).map((r, n) => (
-                <tr key={r.item} className="align-top">
+                // key 带下标：核对项名来自同一份文案，重复即撞 key（行号本来就在旁边显示）
+                <tr key={`${n}-${r.item}`} className="align-top">
                   <td className="border-b border-line/60 py-1 pr-2 font-mono text-[10.5px] text-mist-600">{n + 1}</td>
                   <td className="border-b border-line/60 py-1 pr-2 text-mist-300">{r.item}</td>
                   <td className="border-b border-line/60 py-1 pr-2 text-mist-100">{r.value}</td>
@@ -4238,8 +4241,8 @@ function ResultView({
               <p className="text-[11.5px] text-jade-300">{NO_TODO_TEXT}</p>
             ) : (
               <ul className="space-y-1 text-[11.5px] leading-5 text-mist-400">
-                {evidenceSheetTodoGroups(sheet).map((g) => (
-                  <li key={g.label}>
+                {evidenceSheetTodoGroups(sheet).map((g, gi) => (
+                  <li key={`${gi}-${g.label}`}>
                     {g.label}（{g.list.length} 项）
                     <ul className="mt-0.5 space-y-0.5 pl-4 text-mist-500">
                       {g.list.slice(0, 8).map((x, k) => (

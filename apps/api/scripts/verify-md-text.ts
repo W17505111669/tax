@@ -19,6 +19,9 @@ import {
   tocEntries,
 } from "../../web/src/md-text.ts";
 import { db } from "../src/db.ts";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 let checks = 0;
 const failures: string[] = [];
@@ -149,6 +152,29 @@ const newTables = tasks.reduce((n, t) => n + countTables(String(t.result ?? ""))
 ok("确实数到了真实结论里的表格", newTables > 0, `合计 ${newTables} 张`);
 ok("新口径不少于旧口径（只会多认出带对齐冒号的表，不会少认）", newTables >= oldTables, `旧 ${oldTables} / 新 ${newTables}`);
 
+// 8) 静态走查：展示位必须走 md-text，不能再把结论原文直接塞进 JSX
+const here = path.dirname(fileURLToPath(import.meta.url));
+const wb = fs.readFileSync(
+  path.resolve(here, "..", "..", "web", "src", "components", "TaskWorkbench.tsx"),
+  "utf8",
+);
+ok("结果页引入 md-text 的纯文本化函数", wb.includes('from "../md-text.ts"'));
+ok("目录走 tocEntries（不再自己 match 井号）", wb.includes("tocEntries(finalResult)") && !wb.includes('.match(/^#{2,3} .+$/gm)'));
+ok("上次结论预览走 plainSnippet", wb.includes("plainSnippet(prevConclusion, 120)"));
+ok("摘要首段走 plainSnippet", wb.includes("plainSnippet(firstPara, 220)"));
+ok("关键词段落先转纯文本再匹配", wb.includes("markdownToPlainText(s)"));
+ok("表格计数走 countTables（旧正则会漏掉带对齐冒号的分隔行）", wb.includes("countTables(finalResult)") && !wb.includes('/^\\| ?---/gm'));
+// 目录与几处自由文本列表的 key 都带下标：剥掉 Markdown 记号后两个同名条目会变成同一个字符串
+ok("目录 key 带下标，避免剥离记号后同名小节撞 key", wb.includes('<li key={`${i}-${h}`}>'));
+expect("自由文本列表的 key 一律带下标（标签 / 步骤 / 核对项 / 待办分组）", [
+  wb.includes("key={`${ti}-${t}`}"),
+  wb.includes("key={`${i}-${step.label}`}"),
+  wb.includes("key={`${n}-${r.item}`}"),
+  wb.includes("key={`${gi}-${g.label}`}"),
+], [true, true, true, true]);
+// 任务指令面板是**有意**保留原文的：那是用户提交的输入逐字回显，与对话流里的用户气泡同一口径。
+// 把它也转成富文本反而篡改了「当时提交的是什么」，所以这里断言它保持原样，防止被顺手「修」掉。
+ok("任务指令面板保持输入原文回显（有意不渲染）", wb.includes("{task.instruction}"));
 console.log(`[verify] Markdown 纯文本化：真实任务 ${withConclusion} 个 · 目录条目 ${tocTotal} 条 · 残留 ${leaks.length} 处`);
 console.log(`[verify] 真实结论表格计数：旧口径 ${oldTables} 张 → 新口径 ${newTables} 张`);
 console.log(`[verify] 纯文本化检查项=${checks} 失败=${failures.length}`);

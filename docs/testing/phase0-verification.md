@@ -1368,3 +1368,19 @@ curl -L -o data/ocr-tessdata/eng.traineddata https://cdn.jsdelivr.net/gh/tessera
 4 个任务合计 7 次工具调用，**零失败**；平台口径变为调用 277 · 成功 270 · 失败 7 · 无结果 0，成功率 97.47%。
 
 一条方法论：**修好一个指标只是让它变真，还得让它变得可用。**「失败 0」是假的，「失败 7」是真的但没法处置；只有能点开、能归因、每条带着入参与错误正文，这个数字才开始产生动作。
+
+## 自由文本当 key 的隐患，以及一条没能定位到的告警
+
+剥掉 Markdown 记号带来一个副作用：目录 `<li key={h}>` 用的是标题原文，两个不同层级的同名小节剥离后变成同一个字符串，当场撞 key。同类隐患一并收了——标签 `key={t}`、步骤 `key={step.label}`、证据核对表行 `key={r.item}`、交付前待办分组 `key={g.label}`，这五处的 key 全部来自**自由文本**（用户起的标签名、文案里的核对项名），本身就允许重复，统一改成「下标 + 文本」。下标前缀对这些静态展示列表没有副作用：它们不会重排、不会增删，用下标不会破坏 React 的复用。
+
+`verify:mdtext` 补 9 项静态走查进门禁（55 项）：结果页必须引入 md-text、目录走 `tocEntries` 而不是自己 match 井号、预览与摘要走 `plainSnippet`、关键词段落先转纯文本再匹配、表格计数走 `countTables`（旧正则 `/^\| ?---/gm` 一旦出现就说明回退了）、五处 key 都带下标。
+
+其中一条断言是**反向**的：任务指令面板必须保持 `{task.instruction}` 原文回显。这是有意的设计——那是用户提交的输入逐字回显，与对话流里的用户气泡同一口径；把它也转成富文本反而篡改了「当时提交的是什么」。写断言是为了防止后人看见面板里有 `**一次**` 就顺手「修」掉。实测中那处正是全站唯一剩下的 Markdown 记号命中点，来源是测试指令自己写了 `**一次**`。
+
+回归验证：4 个页面（含 result 与 review 两种页签）全部正常挂载、无 ErrorBoundary 兜底，目录条目 8 / 6 / 9 条、表格 3 / 3 / 5 张、mermaid SVG 正常出图，Markdown 记号残留 **0 处**（任务指令面板那一处按设计保留）。
+
+**一条没能定位到的告警，如实记在这里。** 控制台仍有一条 React「Each child in a list should have a unique "key" prop. Check the render method of `TaskWorkbench`」。上面五处改完它并没有消失，说明根因另有其处。已逐个排除的候选：目录、标签、步骤、核对表行、待办分组（均已加下标）；引用列表 `key={c.url}`（`mergeCitations` 按 URL 去重，结构上不可能重复）；时间线 `key={${seq}-${kind}}` 与工具调用 `key={callId ?? toolName#seq}`（都唯一）；工具统计 `key={s.name}`、可用工具 `key={t.name}`、页签 `key={key}` / `key={id}`、事件图例 `key={k.id}`、字号 `key={k}`（都是固定集合）。也检查过 `.map()` 里返回裸 Fragment 缺 key 这一经典情形，命中的两处 Fragment 都是条件子节点、不在 map 内。
+
+没能继续下去的原因是手段用尽：React 只把告警归属到最近的组件名（`TaskWorkbench`），不给具体列表；页面对象被冻结（`object is not extensible`），无法注入 `console.error` 钩子去抓完整的 owner stack；`dev.logs` 的计数也不可靠——React 对同一条告警会去重，导航之间缓冲不随之重置，实测「4 次加载 → 4 条」与「再 4 次加载 → 累计 5 条」自相矛盾。下一步要用 React DevTools 的 owner stack，或在开发构建里临时给 `console.error` 打补丁后从头加载页面。
+
+影响面判断：这是开发模式下的控制台告警，React 会退化为按下标复用，目前没有观察到由此引起的渲染错误（上述 4 个页面的表格、图、目录与跳转都正常）。不把它当成已完成，也不为了消掉告警而继续盲改 key——没有证据的散弹式修改比留着一条已知告警更糟。
