@@ -13,6 +13,7 @@ import {
   mergeCitations,
   searchEvidence,
   searchFiltering,
+  SEARCH_TOOL_NAMES,
   UNCAPPED,
 } from "../../../web/src/search-evidence.ts";
 import { gradeCitation, summarizeGrades } from "../../../web/src/citation-grade.ts";
@@ -25,7 +26,7 @@ import {
   type RefCheckVerdict,
 } from "../../../web/src/ref-check.ts";
 import { refKey } from "../../../web/src/ref-check.ts";
-import { traceAmounts, amountKey, TEXT_AMOUNT_TOOLS } from "../../../web/src/amount-trace.ts";
+import { traceAmounts, amountKey, classifyUntraced, TEXT_AMOUNT_TOOLS } from "../../../web/src/amount-trace.ts";
 import { deltaVerdict, evidenceDelta, evidenceSnapshot } from "../../../web/src/revision-impact.ts";
 import { ledgerSort, type LedgerRow } from "../../../web/src/evidence-ledger.ts";
 import { listAmountChecks } from "./amount-checks.ts";
@@ -527,7 +528,15 @@ export function computePlatformStats(): PlatformStats {
       // OCR / 文档解析的结果里，金额藏在识别出的正文字符串里，只按 JSON 数值收会一条也收不到
       parsedCalls.filter((c) => TEXT_AMOUNT_TOOLS.has(c.toolName)).map((c) => c.result),
     );
-    const amountPending = amounts.untraced.filter((u) => !acked.has(amountKey(u))).length;
+    const amountPendingList = amounts.untraced.filter((u) => !acked.has(amountKey(u)));
+    const amountPending = amountPendingList.length;
+    // 待确认再按「为什么找不到出处」分两类。溯源池不收联网正文是既定口径（否则任何金额都能声称
+    // 有出处），代价是检索类任务摘引政策原文的数字会全部落进待确认，把真正要拦的「疑似口算」淹掉：
+    // 实测两个检索类任务 23 处待确认全部来自联网正文、疑似口算 0 处，但看板上只看得见一个 23。
+    const amountSplit = classifyUntraced(
+      amountPendingList,
+      parsedCalls.filter((c) => SEARCH_TOOL_NAMES.has(c.toolName)).map((c) => c.result),
+    );
     const conclusions = listConclusions(task.id);
     const revision =
       conclusions.length >= 2
@@ -562,6 +571,8 @@ export function computePlatformStats(): PlatformStats {
       searchDropped: sf.dropped,
       amountTotal: amounts.total,
       amountPending,
+      amountPendingWeb: amountSplit.web.length,
+      amountPendingUnexplained: amountSplit.unexplained.length,
       revision,
     });
 

@@ -1243,7 +1243,15 @@ export function AgentOverview({
                 <details className="mt-3 rounded-md border border-line bg-night-850 px-3 py-2">
                   <summary className="cursor-pointer text-[12px] text-mist-300">
                     全平台证据核对台账（{rows.length} 个任务）
-                    <span className="ml-2 text-[11px] text-mist-600">
+                    <span
+                      className="ml-2 text-[11px] text-mist-600"
+                      title={
+                        "金额待确认分两类，含义不同：\n" +
+                        "· 引自联网正文——摘引政策原文或案例里的数字。溯源池按既定口径不收联网正文（否则任何金额都能声称有出处），所以要核对的是「引用抄得准不准」。\n" +
+                        "· 三处均无出处——工具结果、客户指令、联网正文都找不到。这一类混了两种情况：模型确实口算了，以及该任务运行时还没留存网页正文因而无从核对，所以不断言是口算。\n" +
+                        "不拆开的话，检索类任务的大批量引文会把真正无出处的淹掉：实测正文留存上线后的 H 任务 28 处待确认里 27 处能在联网正文找到，仅 1 处（模型把 A 项目 90 万与 B 项目 100 万自己加成 190 万）真的无出处。"
+                      }
+                    >
                       文号 {totals.docRefTraced}/{totals.docRefTotal} 有出处（其中复查取得{" "}
                       {totals.docRefTracedByRecheck}）· 待复查{" "}
                       {Math.max(0, totals.docRefPending - totals.docRefLabeled)}
@@ -1252,7 +1260,11 @@ export function AgentOverview({
                       {totals.weakDisclaimed + totals.weakUncited > 0
                         ? `，待处置 ${Math.max(0, totals.weak - totals.weakDisclaimed - totals.weakUncited)}`
                         : ""}
-                      ）· 金额待确认 {totals.amountPending} · 欠账任务 {totals.withGaps} 个
+                      ）· 金额待确认 {totals.amountPending}
+                      {totals.amountPending > 0
+                        ? `（引自联网正文 ${totals.amountPendingWeb} · 三处均无出处 ${totals.amountPendingUnexplained}）`
+                        : ""}{" "}
+                      · 欠账任务 {totals.withGaps} 个
                     </span>
                   </summary>
                   <div className="no-print mt-2 flex flex-wrap gap-1.5">

@@ -47,7 +47,7 @@
 | `pnpm verify:trend` | 指标趋势（每日快照记录与裁剪 / 基线日选择 / 环比差值 / 越高越好与越低越好的方向判断） | PASS |
 | `pnpm verify:sheet` | 证据核对表（九项核对结论 / 空输入如实兜底 / 待办分组 / MD 片段 / 真实任务走查） | PASS |
 | `pnpm verify:amtnote` | 金额核对备注模板（模板可用性 / 追加分段与去重 / 撤销最近一段 / 留痕有效性判断 / 自定义模板按作品存取、脏数据丢弃、新增校验与合并去重） | PASS |
-| `pnpm verify:ledger` | 全平台证据核对台账（缺口判断 / 排序与合计 / 19 列单元格 / CSV 与 Markdown 导出 / 与平台统计口径交叉核对） | PASS |
+| `pnpm verify:ledger` | 全平台证据核对台账（缺口判断 / 排序与合计 / 21 列单元格 / CSV 与 Markdown 导出 / 与平台统计口径交叉核对） | PASS |
 | `pnpm verify:csv` | CSV 与文件下载统一口径（转义 / 公式注入防护 / CRLF 与 BOM / RFC 往返解析 / 组件里不再手写 createObjectURL） | PASS |
 | `pnpm verify:diaexport` | mermaid 图导出（图类型识别 / 文件名不互相覆盖 / 导出配置指令 / SVG 尺寸解析 / 交付件脱敏 / 真实比赛材料走查） | PASS |
 | `pnpm verify:localstore` | 本地存储统一入口（读写与内存降级 / 形状校验 / 脏数据回落不抛错 / 收藏与排序等跨组件共享键 / 键登记 / 前端不再绕过入口的静态走查） | PASS |
@@ -92,6 +92,7 @@
 | 提示词实测E 检索结果内定位正文 | rd-audit | DEMO-001 | completed | search_rd_policy → web_search → parse_uploaded_files → get_search_content(!) → fetch_content → get_search_content → get_search_content → get_search_content → fetch_public_document → fetch_public_document → fetch_content(!) | — | — |
 | 提示词实测F 检索结果内定位正文 | land-vat | DEMO-001 | completed | web_search → get_search_content(!) → get_search_content → get_search_content → get_search_content → get_search_content → get_search_content → web_search → get_search_content → web_search → get_search_content | — | — |
 | 提示词实测G 修正契约后复测 | rd-audit | DEMO-001 | completed | parse_uploaded_files → web_search → search_rd_policy → get_search_content → get_search_content → web_search → fetch_content(!) → fetch_public_document | — | — |
+| 正文留存实测H 引文可核对 | rd-audit | DEMO-001 | completed | web_search → search_public_cases → fetch_content → get_search_content → get_search_content → get_search_content → get_search_content → get_search_content | — | — |
 
 ## 四、准确率统计（记录级比对口径）
 

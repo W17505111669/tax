@@ -6,7 +6,15 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadRuntimeConfig, createTaxAgentSession, readPromptFile } from "@tax/agent-core";
+import {
+  loadRuntimeConfig,
+  createTaxAgentSession,
+  readPromptFile,
+  MAX_RETAINED_TEXT,
+  TEXT_EVIDENCE_TOOLS,
+  withRetainedText,
+} from "@tax/agent-core";
+import { SEARCH_TOOL_NAMES } from "../../web/src/search-evidence.ts";
 import { resolveCommunityExtensions } from "../src/extensions.ts";
 import rdAuditAgent from "@tax/agent-rd-audit";
 import landVatAgent from "@tax/agent-land-vat";
@@ -49,9 +57,47 @@ for (const agent of agents) {
 }
 
 const failures: string[] = [];
+// 检查项数由计数器给出，不再手写公式：上一版公式在新断言加进来后仍然报旧数字，
+// 「检查项=27 失败=0」看着像跑了 27 项，实际跑的比这多——计数失真和没断言一样危险
+let checks = 0;
 function ok(name: string, cond: boolean, detail = ""): void {
+  checks += 1;
   if (!cond) failures.push(`${name}${detail ? `: ${detail}` : ""}`);
 }
+function expect(name: string, actual: unknown, want: unknown): void {
+  checks += 1;
+  const a = JSON.stringify(actual);
+  const w = JSON.stringify(want);
+  if (a !== w) failures.push(`${name}: 实际 ${a}，期望 ${w}`);
+}
+
+// 留存正文的工具名单必须与前端引用提取／检索统计用的名单一致：一边决定「存不存正文」，
+// 另一边决定「认不认这是联网调用」，两份名单漂移就会出现存了不用、或用没存的数据
+expect(
+  "TEXT_EVIDENCE_TOOLS 与 SEARCH_TOOL_NAMES 完全一致",
+  [...TEXT_EVIDENCE_TOOLS].sort(),
+  [...SEARCH_TOOL_NAMES].sort(),
+);
+
+// 正文留存：只对联网类工具生效，原有元数据保留，截断量如实记录
+const BODY = "其他相关费用限额按全部研发项目统一计算。".repeat(4);
+const merged = withRetainedText("fetch_public_document", { url: "https://x.gov.cn/a", charCount: 30 }, BODY) as Record<
+  string,
+  unknown
+>;
+ok("联网工具的结果里补上了留存正文", merged.retainedText === BODY);
+ok("原有元数据字段一个不少", merged.url === "https://x.gov.cn/a" && merged.charCount === 30);
+expect("留存字符数与截断量如实记录", [merged.retainedChars, merged.omittedChars], [BODY.length, 0]);
+const nonWeb = withRetainedText("calculate_rd_adjustment", { deductionYuan: "1.00" }, BODY) as Record<string, unknown>;
+ok("非联网工具不留存正文（避免无谓膨胀）", nonWeb.retainedText === undefined);
+ok("空正文不凭空造字段", (withRetainedText("web_search", { a: 1 }, "") as Record<string, unknown>).retainedText === undefined);
+const long = "字".repeat(MAX_RETAINED_TEXT + 500);
+const capped = withRetainedText("get_search_content", null, long) as Record<string, unknown>;
+expect("超长正文按上限截断，且省略号不计入留存字符数", [capped.retainedChars, capped.omittedChars], [
+  MAX_RETAINED_TEXT,
+  500,
+]);
+ok("details 为空时也能单独留存正文", typeof capped.retainedText === "string");
 
 // 系统提示词必须是惰性 getter。在模块顶层 readFileSync 会让「改完 .md 不重启就不生效」，而且
 // 没有任何提示——实测 API 进程 23:07:31 启动、两份 system-prompt.md 23:28 才改，之后跑的仍是
@@ -99,9 +145,7 @@ for (const [name, needle] of PROMPT_RULES) {
   }
 }
 
-console.log(
-  `[verify] 提示词惰性加载与联网约束检查项=${PROMPT_RULES.length * agents.length + 2 * agents.length + 3} 失败=${failures.length}`,
-);
+console.log(`[verify] 提示词惰性加载 / 联网约束 / 正文留存 检查项=${checks} 失败=${failures.length}`);
 for (const f of failures.slice(0, 20)) console.log(`  - ${f}`);
 pass = pass && failures.length === 0;
 

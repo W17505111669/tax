@@ -56,6 +56,8 @@ const row = (over: Partial<LedgerRow> = {}): LedgerRow => ({
   searchDropped: 5,
   amountTotal: 10,
   amountPending: 2,
+  amountPendingWeb: 2,
+  amountPendingUnexplained: 0,
   revision: null,
   ...over,
 });
@@ -315,6 +317,53 @@ console.log(
   )} 有出处 · 引用 ${sum((r) => r.citations)} 条（官方 ${sum((r) => r.official)} · 弱 ${sum((r) => r.weak)}）· 金额待确认 ${sum(
     (r) => r.amountPending,
   )} 处`,
+);
+
+// N) 金额待确认按「为什么找不到出处」拆成两类：不拆开的话，检索类任务摘引政策原文产生的大批量
+// 待确认会把真正要拦的「疑似口算」淹掉（实测两个检索类任务 23 处待确认全部来自联网正文、疑似口算 0 处）
+const AMT_COL = LEDGER_COLUMNS.indexOf("金额 待确认/总数");
+ok("台账有「金额 待确认/总数」列", AMT_COL >= 0);
+expect(
+  "该列之后紧跟两列拆分",
+  LEDGER_COLUMNS.slice(AMT_COL + 1, AMT_COL + 3),
+  ["其中引自联网正文", "其中三处均无出处"],
+);
+const splitRows = [
+  row({ taskId: "a", amountTotal: 12, amountPending: 12, amountPendingWeb: 12, amountPendingUnexplained: 0 }),
+  row({ taskId: "b", amountTotal: 5, amountPending: 1, amountPendingWeb: 0, amountPendingUnexplained: 1 }),
+];
+const splitTotals = ledgerTotals(splitRows);
+expect(
+  "两类分别求和且之和等于待确认合计",
+  [splitTotals.amountPendingWeb, splitTotals.amountPendingUnexplained, splitTotals.amountPending],
+  [12, 1, 13],
+);
+expect("两类之和恒等于待确认合计", splitTotals.amountPendingWeb + splitTotals.amountPendingUnexplained, splitTotals.amountPending);
+const splitCells = ledgerCells(splitRows[0]!, (x) => x);
+expect("每行列数与表头一致（新增两列后没有错位）", splitCells.length, LEDGER_COLUMNS.length);
+expect(
+  "拆分列的值落在对应位置",
+  [splitCells[LEDGER_COLUMNS.indexOf("其中引自联网正文")], splitCells[LEDGER_COLUMNS.indexOf("其中三处均无出处")]],
+  ["12", "0"],
+);
+// ledgerMarkdown 返回的是行数组，不是拼好的字符串
+const splitMd = ledgerMarkdown(splitRows).join("\n");
+ok("台账 MD 给出两类拆分数字", splitMd.includes("引自联网正文 12 处") && splitMd.includes("三处均无出处 1 处"));
+ok(
+  "台账 MD 写清两类含义不同（否则读的人会把它们当同一件事）",
+  splitMd.includes("引用抄得准不准") && splitMd.includes("模型可能口算"),
+);
+ok("台账 CSV 也带两列拆分", ledgerCsv(splitRows).includes("其中引自联网正文") && ledgerCsv(splitRows).includes("其中三处均无出处"));
+// 真实数据：每行两类之和必须等于该行待确认数，否则说明统计侧漏算了一类
+const realRows = computePlatformStats().evidence.ledger;
+expect(
+  "真实台账每行两类之和等于该行待确认数",
+  realRows.filter((r) => r.amountPendingWeb + r.amountPendingUnexplained !== r.amountPending).map((r) => r.taskId.slice(0, 8)),
+  [],
+);
+const realTotals = ledgerTotals(realRows);
+console.log(
+  `[verify] 真实台账金额待确认 ${realTotals.amountPending} 处：引自联网正文 ${realTotals.amountPendingWeb} · 三处均无出处 ${realTotals.amountPendingUnexplained}`,
 );
 
 console.log(`[verify] 证据台账检查项=${checks} 失败=${failures.length}`);

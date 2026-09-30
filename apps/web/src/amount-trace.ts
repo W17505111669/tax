@@ -190,3 +190,35 @@ export function traceAmounts(
   }
   return { total: amounts.length, traced, fromInput, untraced };
 }
+
+/** 未溯源金额的可能来源 */
+export type UntracedOrigin = "web" | "unexplained";
+
+export type UntracedSplit = {
+  /** 能在联网检索/读取类工具的正文里找到：多半是摘引政策原文或案例里的数字 */
+  web: Amount[];
+  /** 工具结果、客户指令、联网正文三处都找不到：这才是「模型可能口算」要拦的那一类 */
+  unexplained: Amount[];
+};
+
+/**
+ * 把未溯源金额再分两类：为什么找不到出处，决定了复核人该做什么。
+ *
+ * 溯源的工具结果池**故意不收联网正文**（见 TEXT_AMOUNT_TOOLS 的说明）：网页上满是别人页面里的
+ * 数字，一律收进来等于结论写任何金额都能找到「出处」，这道核对就形同虚设。代价是纯检索类任务里
+ * 摘引政策原文的数字会全部落进「待人工确认」，与「模型口算出来的数」混在同一个数字里——实测两个
+ * 检索类任务 23 处待确认**全部**属于前者，而后者才是真正要拦的，混在一起时它一条也看不见。
+ *
+ * 所以这里只**分类、不改判定**：能在联网正文里找到的仍然算未溯源（不进可溯源池、不算 traced），
+ * 只是标出可能来源，让复核人知道该核对「引用抄得准不准」而不是「有没有口算」。
+ *
+ * webResults 传联网类工具的结果（工具名单用 search-evidence.ts 的 SEARCH_TOOL_NAMES，与时间线、
+ * 进度推导、引用提取共用同一批名字）；按正文扫描，因为网页内容在结果里是整段文本而不是数值字段。
+ */
+export function classifyUntraced(untraced: Amount[], webResults: unknown[]): UntracedSplit {
+  const pool = collectToolCents(webResults, { scanText: true });
+  const web: Amount[] = [];
+  const unexplained: Amount[] = [];
+  for (const a of untraced) (inPool(a.cents, pool) ? web : unexplained).push(a);
+  return { web, unexplained };
+}

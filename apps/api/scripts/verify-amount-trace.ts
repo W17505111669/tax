@@ -4,6 +4,7 @@
  */
 import {
   amountKey,
+  classifyUntraced,
   collectToolCents,
   extractAmounts,
   TEXT_AMOUNT_TOOLS,
@@ -178,6 +179,43 @@ try {
 } finally {
   db.prepare(`DELETE FROM amount_checks WHERE task_id = ?`).run(TMP_TASK);
 }
+
+// 未溯源金额的去向分类：为什么找不到出处，决定复核人该做什么
+const WEB_RESULTS = [
+  { content: [{ type: "text", text: "其他相关费用限额不得超过 175555.55 元，加计扣除比例为 100%" }] },
+];
+const UNTRACED = extractAmounts("限额 175,555.55 元与两口径差额 454,444.45 元");
+const SPLIT = classifyUntraced(UNTRACED, WEB_RESULTS);
+expect("未溯源样例确实提取到两处金额", UNTRACED.length, 2);
+expect(
+  "能在联网正文里找到的归为「引自联网正文」",
+  SPLIT.web.map((a) => a.cents),
+  [17555555],
+);
+expect(
+  "三处都找不到的归为「疑似口算」",
+  SPLIT.unexplained.map((a) => a.cents),
+  [45444445],
+);
+expect("两类之和等于未溯源总数", SPLIT.web.length + SPLIT.unexplained.length, UNTRACED.length);
+expect(
+  "没有联网结果时全部归为疑似口算",
+  classifyUntraced(UNTRACED, []).unexplained.length,
+  UNTRACED.length,
+);
+expect("空清单安全兜底", [classifyUntraced([], WEB_RESULTS).web.length, classifyUntraced([], WEB_RESULTS).unexplained.length], [0, 0]);
+// 关键：分类**不改变**溯源判定。联网正文依然不进可溯源池，否则任何金额都能声称有出处
+const webTraced = traceAmounts("限额 175,555.55 元", WEB_RESULTS, "", []);
+expect("联网正文不进可溯源池（分类不改判定）", [webTraced.traced, webTraced.untraced.length], [0, 1]);
+const TEXT_RESULT = { textPreview: "人员人工 860000 元" };
+expect(
+  "按正文扫描只对 textResults（第 4 个参数）生效，普通 results 里的整段文本不收",
+  [
+    traceAmounts("人员人工 860000 元", [TEXT_RESULT], "", []).traced,
+    traceAmounts("人员人工 860000 元", [], "", [TEXT_RESULT]).traced,
+  ],
+  [0, 1],
+);
 
 console.log(`[verify] 金额溯源检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {

@@ -43,6 +43,18 @@ export type LedgerRow = {
   /** 结论金额：总数 / 待人工确认 */
   amountTotal: number;
   amountPending: number;
+  /**
+   * 待确认金额按「为什么找不到出处」再分两类，口径见 amount-trace.ts 的 classifyUntraced：
+   * 引自联网正文（多半是摘引政策原文或案例数字，该核对引用抄得准不准）／三处均无出处
+   * （工具结果、客户指令、联网正文都找不到，这才是「模型可能口算」要拦的那一类）。
+   * 两者之和恒等于 amountPending；不拆开的话，检索类任务的大批量引文会把真正无出处的淹掉。
+   * 第二类叫「三处均无出处」而不叫「疑似口算」，是因为它混了两种情况：模型确实口算了，以及该
+   * 任务运行时还没留存网页正文、因而无从核对——不断言我们不知道的事。正文留存上线后的新任务
+   * 能把两者分开：实测 H 任务 28 处待确认里 27 处落在联网正文，仅 1 处（模型把 A 项目 90 万与
+   * B 项目 100 万自己加成 190 万）真的三处均无出处。
+   */
+  amountPendingWeb: number;
+  amountPendingUnexplained: number;
   /** 本次修订对证据影响的总体判断；没有可对比轮次时为 null */
   revision: string | null;
 };
@@ -66,6 +78,8 @@ export type LedgerTotals = {
   searchDropped: number;
   amountTotal: number;
   amountPending: number;
+  amountPendingWeb: number;
+  amountPendingUnexplained: number;
   /** 仍有欠账的任务数（弱证据引用或待复查文号大于 0） */
   withGaps: number;
   /** 修订影响可对比的任务数与其中改善的数量 */
@@ -113,6 +127,8 @@ export function ledgerTotals(rows: LedgerRow[]): LedgerTotals {
     searchDropped: 0,
     amountTotal: 0,
     amountPending: 0,
+    amountPendingWeb: 0,
+    amountPendingUnexplained: 0,
     withGaps: 0,
     revisionCompared: 0,
     revisionImproved: 0,
@@ -135,6 +151,8 @@ export function ledgerTotals(rows: LedgerRow[]): LedgerTotals {
     t.searchDropped += r.searchDropped;
     t.amountTotal += r.amountTotal;
     t.amountPending += r.amountPending;
+    t.amountPendingWeb += r.amountPendingWeb;
+    t.amountPendingUnexplained += r.amountPendingUnexplained;
     if (rowGap(r) > 0) t.withGaps += 1;
     if (r.revision !== null) {
       t.revisionCompared += 1;
@@ -163,6 +181,8 @@ export const LEDGER_COLUMNS = [
   "仅元数据",
   "拦下无关",
   "金额 待确认/总数",
+  "其中引自联网正文",
+  "其中三处均无出处",
   "修订影响",
 ] as const;
 
@@ -187,6 +207,8 @@ export function ledgerCells(r: LedgerRow, agentName: (id: string) => string): st
     String(r.searchMetadataOnly),
     String(r.searchDropped),
     `${r.amountPending}/${r.amountTotal}`,
+    String(r.amountPendingWeb),
+    String(r.amountPendingUnexplained),
     r.revision ?? "—",
   ];
 }
@@ -216,6 +238,8 @@ export function ledgerCsv(rows: LedgerRow[], agentName: (id: string) => string =
       t.searchMetadataOnly,
       t.searchDropped,
       `${t.amountPending}/${t.amountTotal}`,
+      t.amountPendingWeb,
+      t.amountPendingUnexplained,
       `可比 ${t.revisionCompared} · 改善 ${t.revisionImproved}`,
     ],
   ]);
@@ -241,7 +265,8 @@ export function ledgerMarkdown(
       t.weakDisclaimed > 0 ? ` · ${t.weakDisclaimed} 条已在结论中声明为背景参考、不作为依据` : ""
     }${t.weakUncited > 0 ? ` · ${t.weakUncited} 条只在检索留存里、未进入结论正文` : ""}）`,
     `- 联网检索：${t.searchCalls} 次（只留查询元数据 ${t.searchMetadataOnly} 次）· 拦下无关结果与门户首页 ${t.searchDropped} 条`,
-    `- 结论金额：${t.amountTotal} 处，待人工确认 ${t.amountPending} 处`,
+    `- 结论金额：${t.amountTotal} 处，待人工确认 ${t.amountPending} 处（其中引自联网正文 ${t.amountPendingWeb} 处、三处均无出处 ${t.amountPendingUnexplained} 处）`,
+    `- 金额待确认的两类含义不同：「引自联网正文」是摘引政策原文或案例里的数字，溯源池按既定口径不收联网正文（否则任何金额都能声称有出处），要核对的是引用抄得准不准；「三处均无出处」是工具结果、客户指令与联网正文都找不到，这才是「模型可能口算」要拦的那一类，混在一个数里时它会被检索类任务的大批量引文淹掉`,
     `- 修订影响：${t.revisionCompared} 个任务有可对比的两轮结论，其中 ${t.revisionImproved} 个改善`,
     "",
     `| ${LEDGER_COLUMNS.join(" | ")} |`,
