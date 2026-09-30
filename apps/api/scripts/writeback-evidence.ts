@@ -13,9 +13,12 @@
  */
 import { runTask } from "../src/services/agent-runner.ts";
 import { listRefChecks } from "../src/services/ref-checks.ts";
+import { listLinkChecks } from "../src/services/link-checks.ts";
 import { appendEvent, getTask, listConclusions, listTasks, setTaskStatus } from "../src/services/task-store.ts";
 import { computePlatformStats } from "../src/services/stats.ts";
-import { buildRevisionInstruction, toRevisionItems } from "../../web/src/ref-check.ts";
+import { buildRevisionInstruction, deadLinkTargets, toRevisionItems } from "../../web/src/ref-check.ts";
+import { db } from "../src/db.ts";
+import { extractCitations, extractTextCitations, mergeCitations, UNCAPPED } from "../../web/src/search-evidence.ts";
 
 const args = process.argv.slice(2);
 const doRun = args.includes("--run");
@@ -109,7 +112,28 @@ const built = listTasks()
     const items = toRevisionItems(listRefChecks(t.id)).filter(
       (i) => i.verdict !== "matched" || !i.evidence || !result.includes(i.evidence.url),
     );
-    return { task: t, items, instruction: buildRevisionInstruction(items) };
+    // 失效链接也进指令：链接腐烂此前只能被交付自检发现、没法走修复通道，唯一出路是人工改正文。
+    // 引用清单按全量取（与平台统计同口径），deadLinkTargets 内部会再按当前清单过滤掉过期核验行。
+    const calls = (db.prepare(`SELECT tool_name, result FROM tool_calls WHERE task_id = ?`).all(t.id) ?? []) as Array<{
+      tool_name: string;
+      result: string | null;
+    }>;
+    const parsed = calls.map((c) => {
+      let parsedResult: unknown = null;
+      try {
+        parsedResult = c.result ? JSON.parse(c.result) : null;
+      } catch {
+        parsedResult = null;
+      }
+      return { toolName: c.tool_name, result: parsedResult };
+    });
+    const cites = mergeCitations(
+      extractCitations(parsed, UNCAPPED),
+      extractTextCitations(result, UNCAPPED),
+      UNCAPPED,
+    );
+    const dead = deadLinkTargets(listLinkChecks(t.id), cites);
+    return { task: t, items, dead, instruction: buildRevisionInstruction(items, dead) };
   });
 const plans = built.filter((p): p is NonNullable<typeof p> => p !== null && p.instruction !== "");
 
@@ -134,7 +158,7 @@ for (const p of plans) {
   console.log(
     `  - ${p.task.id.slice(0, 8)} ${p.task.title}（${p.task.status}）：素材 ${p.items.length} 条 · 文号出处 ${docs} · 官方替代 ${cites} · 待人工标注 ${
       p.items.length - matched
-    } · 指令 ${p.instruction.length} 字`,
+    } · 失效链接 ${p.dead.length} 条 · 指令 ${p.instruction.length} 字`,
   );
 }
 console.log("（结论正文里已出现过证据地址的素材视为已写回，不再列入，脚本可重复运行）");

@@ -149,6 +149,27 @@ export function cleanBareUrl(raw: string): string {
   return head.replace(/[)\]>"'）】\],.;:!?，。；：！？、]+$/, "");
 }
 
+/**
+ * 只会「引出那一条已作废地址」的说法。
+ *
+ * 词表刻意收窄：「已判定失效」「不再作为」「已替换为」这类是跟在作废地址**后面**、或出现在
+ * 替代地址**前面**的，收进来会把刚换上的有效地址一起误杀（第一版正是这么错的，测试当场抓出来）。
+ * 带冒号的那几个只在「已失效：…」这种清单引导语里成立，因此连冒号一起收。
+ */
+const RETIRED_MARKERS = ["原引用", "原地址", "原链接", "原网址", "已失效：", "失效地址", "已作废："];
+
+/**
+ * 这处地址出现是不是在交代「它已作废」。
+ *
+ * 模型按修订指令撤下失效链接后，会留一句「原引用的 X 经核验返回 4xx，已判定失效，不再作为
+ * 依据地址保留」。这句交代是好事，但里面的地址若仍被当成当前引用，失效链接就永远挂在待办与
+ * 交付自检里——修一次报一次，形成解不掉的假警报。窗口取 40 字：实测那句交代里「原引用的」
+ * 距地址 22 字，够覆盖；窗口再大容易误伤密集表格里相邻的正常引用。
+ */
+export function isRetiredMention(text: string, index: number): boolean {
+  const before = text.slice(Math.max(0, index - 40), index);
+  return RETIRED_MARKERS.some((w) => before.includes(w));
+}
 /** 没有链接文字时给个可读标签：末段是有意义的文件名就用它，否则用域名 */
 export function labelFromUrl(raw: string): string {
   try {
@@ -172,8 +193,9 @@ export function extractTextCitations(text: string, limit: number = CITATION_LIMI
   const out: ExtractedCitation[] = [];
   if (!text) return out;
   const seen = new Set<string>();
-  const push = (url: string, title: string): void => {
+  const push = (url: string, title: string, at: number): void => {
     if (out.length >= limit) return;
+    if (isRetiredMention(text, at)) return;
     const clean = cleanBareUrl(url);
     if (!/^https?:\/\//i.test(clean) || seen.has(clean)) return;
     seen.add(clean);
@@ -183,8 +205,10 @@ export function extractTextCitations(text: string, limit: number = CITATION_LIMI
       via: CONCLUSION_VIA,
     });
   };
-  for (const m of text.matchAll(/\[([^\]]{0,120})\]\((https?:\/\/[^)\s]+)\)/g)) push(m[2] ?? "", m[1] ?? "");
-  for (const m of text.matchAll(/https?:\/\/[^\s)\]>"'|，。；、]+/g)) push(m[0], "");
+  for (const m of text.matchAll(/\[([^\]]{0,120})\]\((https?:\/\/[^)\s]+)\)/g)) {
+    push(m[2] ?? "", m[1] ?? "", m.index ?? 0);
+  }
+  for (const m of text.matchAll(/https?:\/\/[^\s)\]>"'|，。；、]+/g)) push(m[0], "", m.index ?? 0);
   return out.slice(0, limit);
 }
 

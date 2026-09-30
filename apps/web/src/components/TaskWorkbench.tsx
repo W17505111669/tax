@@ -64,6 +64,7 @@ import {
 } from "../evidence-sheet.ts";
 import {
   buildRevisionInstruction,
+  deadLinkTargets,
   citationTargets,
   refCheckTargets,
   refKey,
@@ -1112,16 +1113,27 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       Object.values(refChecks).filter((c) => (c.kind === "docref" ? docKeys.has(c.key) : citeKeys.has(c.key))),
     );
   }, [refChecks, refTargets, weakTargets]);
-  const revisionCount = useMemo(() => revisionCounts(revisionItems), [revisionItems]);
+  // 失效链接也是修订素材：链接腐烂此前只能被交付自检发现，没有修复通道，只能人工去改结论正文
+  const revisionDeadLinks = useMemo(
+    () => deadLinkTargets(Object.values(linkChecks), allCitations),
+    [linkChecks, allCitations],
+  );
+  const revisionCount = useMemo(
+    () => revisionCounts(revisionItems, revisionDeadLinks.length),
+    [revisionItems, revisionDeadLinks],
+  );
+  const revisionTotal = revisionCount.total + revisionCount.deadLinks;
 
   /** 生成修订指令并填入续跑输入框：平台不自动改写结论，改不改由税务师决定 */
   const fillRevisionInstruction = () => {
-    const text = buildRevisionInstruction(revisionItems);
+    const text = buildRevisionInstruction(revisionItems, revisionDeadLinks);
     if (text === "") return;
     setResumeText(text);
     setResumeOpen(true);
     setRevisionMsg(
-      `修订指令已填入「续跑任务」（${revisionCount.total} 项：可替换或补出处 ${revisionCount.replace} · 需标注未取得原文 ${revisionCount.unresolved}），请核对后提交`,
+      `修订指令已填入「续跑任务」（${revisionTotal} 项：可替换或补出处 ${revisionCount.replace} · 需标注未取得原文 ${
+        revisionCount.unresolved
+      }${revisionCount.deadLinks > 0 ? ` · 失效链接 ${revisionCount.deadLinks}` : ""}），请核对后提交`,
     );
   };
 
@@ -2345,7 +2357,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                           onClick={fillRevisionInstruction}
                           title="把已找到出处的文号、已找到替代来源的弱证据引用、以及仍未取得原文的项目整理成一条修订指令，填进「续跑任务」输入框；平台不自动改写结论，需人工核对后提交"
                         >
-                          生成修订指令（{revisionCount.total}）
+                          生成修订指令（{revisionTotal}）
                         </button>
                       )}
                       <button type="button" className="action-btn" onClick={() => setRefPanelOpen(false)}>
@@ -2451,7 +2463,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                   summary: citationSummary,
                   busy: refBusy,
                   onRun: runCitationRecheck,
-                  composable: revisionCount.total,
+                  composable: revisionTotal,
                   onCompose: fillRevisionInstruction,
                   notice: revisionMsg,
                 }}

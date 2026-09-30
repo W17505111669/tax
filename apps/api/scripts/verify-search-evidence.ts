@@ -7,6 +7,7 @@ import {
   extractCitations,
   extractTextCitations,
   cleanBareUrl,
+  isRetiredMention,
   labelFromUrl,
   MERGED_CITATION_LIMIT,
   mergeCitations,
@@ -196,6 +197,25 @@ expect(
   extractTextCitations("https://baike.baidu.com/item/%E7%A0%94%E5%8F%91/4815440")[0]?.url,
   "https://baike.baidu.com/item/%E7%A0%94%E5%8F%91/4815440",
 );
+// 正文交代「这条已作废」时提到的地址不算当前引用：模型按修订指令撤下失效链接后会留一句说明，
+// 那句说明里的地址若仍被当成引用，失效链接就永远挂在待办与交付自检里，修一次报一次
+const retiredText =
+  "说明二：**原引用的国家税务总局网站「即问即答」页面 https://www.chinatax.gov.cn/chinatax/n810356/c5185946/content.html 经服务端 GET 核验返回 4xx，已判定失效，不再作为依据地址保留**；本轮改以 https://www.gov.cn/zhengce/jiedu/live.html 替代。";
+expect("已作废交代里的地址不进引用清单，替代地址照常进", extractTextCitations(retiredText).map((c) => c.url), [
+  "https://www.gov.cn/zhengce/jiedu/live.html",
+]);
+expect(
+  "作废字样在窗口内才判为已作废",
+  isRetiredMention("原引用的页面 https://a.gov.cn/x.html", "原引用的页面 https://a.gov.cn/x.html".indexOf("https://")),
+  true,
+);
+expect(
+  "正常引用不被误判为已作废（检索时间一类附注不含作废字样）",
+  extractTextCitations("政策依据见 https://fgk.chinatax.gov.cn/zcfgk/c1/content.html（检索时间 2026-09-30）").map(
+    (c) => c.url,
+  ),
+  ["https://fgk.chinatax.gov.cn/zcfgk/c1/content.html"],
+);
 expect("同一地址只留一条", extractTextCitations("https://a.cn/x 与 https://a.cn/x").length, 1);
 expect("markdown 链接优先于裸链接", extractTextCitations("[标题](https://a.cn/x) https://a.cn/x")[0]?.title, "标题");
 expect("表格里的链接也能取到", extractTextCitations("| 依据 | [文号](https://a.gov.cn/y) |").length, 1);
@@ -291,7 +311,9 @@ for (const t of listTasks()) {
   // 结论正文里出现的每条 URL 都必须进入合并后的清单（超上限的除外）：否则引用核验与证据力分级都覆盖不到它
   if (merged.length < MERGED_CITATION_LIMIT) {
     for (const m of text.matchAll(/https?:\/\/[^\s)\]>"'|，。；、]+/g)) {
-      // 与提取共用同一份清理实现：这里曾自己抄了一套正则，提取口径一改两边就对不上（实测 20 项失败）
+      // 与提取共用同一份实现：清理规则与「已作废交代」的排除都必须同源。
+      // 这里曾自己抄了一套正则，提取口径一改两边就对不上（实测 20 项失败）
+      if (isRetiredMention(text, m.index ?? 0)) continue;
       const u = cleanBareUrl(m[0] ?? "");
       checks += 1;
       if (!merged.some((x) => x.url === u)) {

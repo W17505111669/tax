@@ -24,6 +24,7 @@ import {
   buildRevisionInstruction,
   citationTargets,
   contextKeywords,
+  deadLinkTargets,
   gradeRefCheck,
   refCheckTargets,
   refKey,
@@ -385,7 +386,7 @@ expect(
   revItems.map((i) => i.kind),
   ["docref", "docref", "citation"],
 );
-expect("修订素材计数", revisionCounts(revItems), { total: 3, replace: 2, unresolved: 1 });
+expect("修订素材计数", revisionCounts(revItems), { total: 3, replace: 2, unresolved: 1, deadLinks: 0 });
 expect("空素材返回空指令", buildRevisionInstruction([]), "");
 const instr = buildRevisionInstruction(revItems);
 ok("指令限定只改依据与引用", instr.includes("不要改动金额、测算过程、差异认定与结论意见"), instr.slice(0, 80));
@@ -399,6 +400,55 @@ ok("指令说明重跑会替换上一轮交付证据", instr.includes("已有工
 ok("指令要求交回修订后的完整结论正文", instr.includes("直接给出修订后的完整结论正文"), instr.slice(0, 120));
 ok("指令明确禁止交回改动报告", instr.includes("不要输出「本轮处理范围」"), instr.slice(0, 120));
 ok("指令说明交回的文本会成为新的结论正文", instr.includes("你交回的文本会整体成为新的结论正文"));
+// 失效链接也是修订素材：链接腐烂此前只能被交付自检发现，没有修复通道，只能人工去改结论正文
+const deadChecks = [
+  { url: "https://a.gov.cn/dead.html", ok: false, status: 404 },
+  { url: "https://b.gov.cn/anti-crawler.html", ok: false, status: 403 },
+  { url: "https://c.gov.cn/waf.html", ok: false, status: 412 },
+  { url: "https://d.gov.cn/down.html", ok: false, status: null, error: "fetch failed" },
+  { url: "https://f.gov.cn/ok.html", ok: true, status: 200 },
+];
+const deadCites = [
+  { url: "https://a.gov.cn/dead.html", title: "失效的解读页" },
+  { url: "https://b.gov.cn/anti-crawler.html", title: "反爬页" },
+  { url: "https://c.gov.cn/waf.html", title: "WAF 拦截页" },
+  { url: "https://d.gov.cn/down.html", title: "网络不可达页" },
+  { url: "https://f.gov.cn/ok.html", title: "正常页" },
+];
+expect("只挑判为失效的，反爬与不可达都不算", deadLinkTargets(deadChecks, deadCites).map((d) => d.url), [
+  "https://a.gov.cn/dead.html",
+]);
+expect("标题取自当前引用清单", deadLinkTargets(deadChecks, deadCites)[0]?.title, "失效的解读页");
+expect(
+  "不在当前引用清单里的过期核验行不进指令（link_checks 从不删行，回滚过的轮次会留下残留）",
+  deadLinkTargets([{ url: "https://x.gov.cn/stale.html", ok: false, status: 404 }], deadCites).length,
+  0,
+);
+expect(
+  "工具留存里的失效地址不进指令：修订改不动它，实测有一条来自被回滚那一轮的工具留存",
+  deadLinkTargets([{ url: "https://a.gov.cn/dead.html", ok: false, status: 404 }], [
+    { url: "https://a.gov.cn/dead.html", title: "失效页", via: "fetch_content" },
+  ]).length,
+  0,
+);
+expect(
+  "结论正文里的失效地址照旧进指令",
+  deadLinkTargets([{ url: "https://a.gov.cn/dead.html", ok: false, status: 404 }], [
+    { url: "https://a.gov.cn/dead.html", title: "失效页", via: "conclusion" },
+  ]).length,
+  1,
+);
+const deadInstr = buildRevisionInstruction([], deadLinkTargets(deadChecks, deadCites));
+ok("只有失效链接、没有复查素材时也能生成指令", deadInstr.includes("【替换失效链接】"), deadInstr.slice(0, 90));
+ok(
+  "指令给出两条出路：换成有效地址，或删掉/改为文字说明",
+  deadInstr.includes("检索当前有效地址替换") && deadInstr.includes("从结论中删掉"),
+);
+ok("指令列出失效地址本身", deadInstr.includes("https://a.gov.cn/dead.html"));
+ok("指令说明反爬不算失效，因此不会被列进来", !deadInstr.includes("anti-crawler") && !deadInstr.includes("waf.html"));
+expect("既无素材也无失效链接时返回空指令", buildRevisionInstruction([], []), "");
+expect("失效链接单独计数", revisionCounts([], 2).deadLinks, 2);
+expect("total 仍只数复查素材，按钮上的数是两者相加", revisionCounts([], 2).total, 0);
 
 // 修订模式的工具黑名单：指令里嘱咐不算数，本轮会话里直接没有这些工具才算数
 expect("黑名单含底稿生成", isRevisionBlocked("generate_workpaper"), true);

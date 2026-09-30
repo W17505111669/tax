@@ -11,6 +11,8 @@
 
 import { gradeCitation, isOfficialChannelPage } from "./citation-grade.ts";
 import { DOMAIN_KEYWORDS } from "./domain-keywords.ts";
+import { linkVerdict, type LinkCheckLike } from "./link-check.ts";
+import { CONCLUSION_VIA } from "./search-evidence.ts";
 import { extractDocRefs, normalizeRef } from "./policy-trace.ts";
 import type { RefTraceResult } from "./policy-trace.ts";
 
@@ -825,8 +827,11 @@ const stamp = (iso: string): string => (iso ? iso.replace("T", " ").slice(0, 16)
  * 平台不自动改写结论——指令只是填进续跑输入框，改不改、怎么改由税务师决定。
  * 没有可用素材时返回空串，调用方据此禁用按钮。
  */
-export function buildRevisionInstruction(items: RevisionItem[]): string {
-  if (items.length === 0) return "";
+export function buildRevisionInstruction(
+  items: RevisionItem[],
+  deadLinks: Array<{ title: string; url: string }> = [],
+): string {
+  if (items.length === 0 && deadLinks.length === 0) return "";
   const docMatched = items.filter((i) => i.kind === "docref" && i.verdict === "matched");
   const citMatched = items.filter((i) => i.kind === "citation" && i.verdict === "matched");
   const unresolved = items.filter((i) => i.verdict === "candidate" || i.verdict === "empty");
@@ -871,6 +876,13 @@ export function buildRevisionInstruction(items: RevisionItem[]): string {
     }
     lines.push("");
   }
+  if (deadLinks.length > 0) {
+    lines.push(
+      "【替换失效链接】以下引用链接经服务端 GET 核验返回 4xx（不是反爬拒绝），大概率已失效。请检索当前有效地址替换并更新检索时间；确实找不到有效地址的，把这条引用从结论中删掉，或改成文字说明并注明原地址已失效。不要原样留着失效地址当依据：",
+    );
+    for (const d of deadLinks) lines.push(`- 「${d.title}」 ${d.url}`);
+    lines.push("");
+  }
   lines.push(
     "要求：",
     "1. 修订后重新输出完整结论（保留原有表格与 mermaid 图），不要只给差异；",
@@ -880,11 +892,51 @@ export function buildRevisionInstruction(items: RevisionItem[]): string {
   return lines.join("\n");
 }
 
+/** 一条已核验的引用链接（link_checks 的行形状） */
+export type CheckedLink = LinkCheckLike & { url: string };
+
+/**
+ * 该写进修订指令的失效链接。
+ *
+ * 链接腐烂此前只能被发现、不能被修复：交付自检会提醒「失效链接交付前请替换或补充依据」，
+ * 但没有任何一条路径把它送进修订指令，唯一出路是人工去改结论正文。
+ *
+ * 两道过滤缺一不可：
+ * 1. 只取判为 dead 的（4xx 且非反爬拒绝）。反爬拒绝与网络不可达都不算失效——按既定口径反爬
+ *    不计入交付风险，写进指令会逼人替换一条其实有效的官方链接（实测省级税务机关站点的 WAF
+ *    会回 412）。
+ * 2. 只取仍在当前引用清单里的地址。link_checks 按 (task_id, url) upsert 且从不删行，结论改过
+ *    或被回滚之后旧地址的行还挂在库里，不过滤就会把早已不在交付材料里的地址写进指令
+ *   （实测有一行来自被回滚掉的那一轮）。
+ */
+export function deadLinkTargets(
+  checks: CheckedLink[],
+  citations: Array<{ url: string; title?: string; via?: string }>,
+): Array<{ title: string; url: string }> {
+  // 只认结论正文里的地址。修订能改的只有结论正文，工具留存是历史调用结果、改不动；
+  // 实测有一条失效地址来自被回滚掉那一轮的工具留存，结论里早已没有它，列进指令模型无从下手。
+  const live = new Map(
+    citations.filter((c) => (c.via ?? CONCLUSION_VIA) === CONCLUSION_VIA).map((c) => [c.url, c.title ?? ""]),
+  );
+  const out: Array<{ title: string; url: string }> = [];
+  for (const c of checks) {
+    if (linkVerdict(c) !== "dead") continue;
+    const title = live.get(c.url);
+    if (title === undefined) continue;
+    out.push({ title: title === "" ? c.url : title, url: c.url });
+  }
+  return out;
+}
+
 /** 修订素材计数：按钮文案与提示用 */
-export function revisionCounts(items: RevisionItem[]): { total: number; replace: number; unresolved: number } {
+export function revisionCounts(
+  items: RevisionItem[],
+  deadLinks = 0,
+): { total: number; replace: number; unresolved: number; deadLinks: number } {
   return {
     total: items.length,
     replace: items.filter((i) => i.verdict === "matched").length,
     unresolved: items.filter((i) => i.verdict === "candidate" || i.verdict === "empty").length,
+    deadLinks,
   };
 }
