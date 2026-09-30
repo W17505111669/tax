@@ -1121,3 +1121,17 @@ curl -L -o data/ocr-tessdata/eng.traineddata https://cdn.jsdelivr.net/gh/tessera
 另记一笔缺口：`agents/land-vat` 只有 typecheck、没有 verify 脚本，所以 `match_contract_invoice` 的新字段这次是靠一次性直接调用验证的，**没有进门禁**——下次改这个工具不会有断言拦着。
 
 一条方法论：**「待人工确认」这类清单要逐条读上下文，而不是盯着总数**。17 处里没有任何一处是「模型凭空编了个数」：一类是提取误判、一类是溯源看不见字符串里的数、一类是工具少给了一层数。三类的原因和修法都不一样，只看「17/542 待确认，比例 96.9%」这一个数，既不知道该怎么修，也容易误以为模型在乱写金额。
+
+## 给土增智填补上门禁，并用一次真实案例跑验证工具改动
+
+`agents/land-vat` 此前只有 typecheck：上一轮给 `match_contract_invoice` 加总计字段时，只能靠一次性直接调用确认，下次谁改坏了也没有断言会叫。补 `apps/api/scripts/verify-lv-tools.ts` 并接进 `qa:all`（`verify:lvtools`，排在 `verify:docsrc` 之后）。脚本放在 api 侧而不是 agent 包里，是因为该包的 `exports` 只暴露 `agent.config.ts`，子路径导入会被 Node 拒掉，脚本走相对路径导入工具即可，也省掉给该包新增 tsx 依赖与改锁文件。
+
+27 项断言覆盖：逐份合同的金额、发票张数、税额合计、差异与三种状态（`consistent`／`difference_pending`／`no_invoice`）；编号归一化关联（`" ht-001 "` 与 `HT-001` 视为同一编号）；未匹配发票的两类原因分别说明；疑似重复发票号；三个总计字段，外加两条恒等式——「差异总计 = 合同总计 − 发票总计」与「总计 = 逐份之和」；发票账面关联（一票多笔合并、号码缺失时按金额唯一性给候选并标待人工确认）；金额一致性检查（差异 = 实际 − 应有、容差内判一致）。
+
+**门禁有没有牙，用改错一行来验**：把 `totalContractAmountYuan` 的求和范围临时改成只取第一份合同，4 项断言立刻报错（合同金额总计、两条恒等式、正文合计行）；还原后 27 项 0 失败。27 项里 26 项第一次就通过，唯一失败的是我对 `normalizeCode` 的预期写错了——它会去掉分隔符（`HT-001` → `HT001`），而这正是让「HT-001」与「ht 001」能关联的原因；断言按实际行为改正并写明用意。
+
+工具改动的实效用一次真实案例跑验证：`pnpm case:run case-lv-template`（新任务 `a351303e`，约 6 分半，`pass=true`，工具链 `parse_uploaded_files → inspect_workpaper_template → match_contract_invoice → fill_land_vat_workpaper → render_matching_diagram → generate_workpaper`）。落库的 `match_contract_invoice` 结果里确实带着 `totalContractAmountYuan 22300000.00 / totalInvoiceYuan 20200000.00 / totalDifferenceYuan 2100000.00`——正是 `ff4c9a3c` 结论里引用过、此前溯源不到的那三个数；新任务 **24 处金额全部可溯源**（待确认 0）。平台金额总数 542 → 564、待确认仍是 12（都在存量任务里）、比例 96.9% → **97.9%**。
+
+这也印证了上一轮的判断：新字段只对重跑后的结果生效。存量那 12 处要等对应任务重跑才会消失——`ff4c9a3c` 的 4 处合计行现在有出处可引，`aabd138a` 的 4 处差额同理（比对工具已给 `deltaYuan`），剩下的 4 处是跨两次测算相减与假设性分配，本就该留在待人工确认。
+
+一条方法论：给没有测试的模块补断言时，**先故意改错一行看它叫不叫**。一个 27 项全绿的脚本，如果压根没覆盖到那个字段，绿灯是没有信息量的。
