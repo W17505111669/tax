@@ -172,11 +172,22 @@ for (const p of plans) {
   const prevRow = beforeRows.get(p.task.id);
   const lostDocs = (prevRow?.docRefTotal ?? 0) - (row?.docRefTotal ?? 0);
   const lostAmounts = (prevRow?.amountTotal ?? 0) - (row?.amountTotal ?? 0);
+  // 还要盯「新增了没有出处的文号」：模型补出处时常常顺手把来源文件自己引用的别的文号也写进结论，
+  // 文号总数因此不降反升，只查减少会漏掉这类新欠账（实测 6 个任务写回后平台待复查文号 0 → 7）。
+  const unsourcedBefore = (prevRow?.docRefTotal ?? 0) - (prevRow?.docRefTraced ?? 0);
+  const unsourcedAfter = (row?.docRefTotal ?? 0) - (row?.docRefTraced ?? 0);
+  const newUnsourced = unsourcedAfter - unsourcedBefore;
   if (lostDocs > 0 || lostAmounts > 0) {
     // 写回只该增加出处，绝不该让文号或金额溯源项变少；变少就说明结论被整体重写了
     console.log(`  [警告] 这个任务的证据被改少了：文号 -${lostDocs} 处、金额溯源 -${lostAmounts} 项。`);
     console.log(
       `         多半是模型交回了改动说明而不是修订后的完整结论。回滚：pnpm writeback:evidence --restore ${p.task.id.slice(0, 8)}`,
+    );
+  }
+  if (newUnsourced > 0) {
+    // 这不是改坏，是新欠账：结论里多出现了没有出处的文号，跑一次文号批量复查即可补上
+    console.log(
+      `  [提示] 结论里新增了 ${newUnsourced} 处没有出处的文号（多为来源文件自己引用的其他文件）：在无出处的文号上跑一次「批量复查文号」即可补齐，不必回滚。`,
     );
   }
 }
