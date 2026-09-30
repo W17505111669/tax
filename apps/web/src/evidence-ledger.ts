@@ -226,36 +226,47 @@ export function ledgerCells(r: LedgerRow, agentName: (id: string) => string): st
   ];
 }
 
+/**
+ * 合计行的取值：按 LEDGER_COLUMNS 的顺序给值，CSV 与 MD 共用这一份。
+ *
+ * 此前两边各写一遍，加「其中引自联网正文」「其中三处均无出处」两列时只改了 CSV，MD 合计行
+ * 19 个值摆在 21 列下面——「可比 N · 改善 M」被顶到金额列，最后两列空着。合计行每格都有值，
+ * 错位比缺列更难发现。共用一份之后这类偏差在结构上就不会再出现，断言只是兜底。
+ */
+export function ledgerTotalCells(t: LedgerTotals): string[] {
+  return [
+    `合计（${t.tasks} 个任务）`,
+    "",
+    "",
+    `${t.docRefTraced}/${t.docRefTotal}`,
+    String(t.docRefTracedByRecheck),
+    String(t.docRefTracedByBody),
+    String(t.docRefPending),
+    String(t.docRefLabeled),
+    String(t.docRefMatched),
+    String(t.citations),
+    String(t.official),
+    String(t.weak),
+    String(t.weakDisclaimed),
+    String(t.weakUncited),
+    String(t.replaced),
+    String(t.searchCalls),
+    String(t.searchMetadataOnly),
+    String(t.searchDropped),
+    `${t.amountPending}/${t.amountTotal}`,
+    String(t.amountPendingWeb),
+    String(t.amountPendingUnexplained),
+    `可比 ${t.revisionCompared} · 改善 ${t.revisionImproved}`,
+  ];
+}
+
 /** 台账 CSV（不含 BOM；下载时前置 CSV_BOM），行序与 MD 一致 */
 export function ledgerCsv(rows: LedgerRow[], agentName: (id: string) => string = (x) => x): string {
   const t = ledgerTotals(rows);
   return csvBody([
     LEDGER_COLUMNS,
     ...ledgerSort(rows).map((r) => ledgerCells(r, agentName)),
-    [
-      `合计（${t.tasks} 个任务）`,
-      "",
-      "",
-      `${t.docRefTraced}/${t.docRefTotal}`,
-      t.docRefTracedByRecheck,
-      t.docRefTracedByBody,
-      t.docRefPending,
-      t.docRefLabeled,
-      t.docRefMatched,
-      t.citations,
-      t.official,
-      t.weak,
-      t.weakDisclaimed,
-      t.weakUncited,
-      t.replaced,
-      t.searchCalls,
-      t.searchMetadataOnly,
-      t.searchDropped,
-      `${t.amountPending}/${t.amountTotal}`,
-      t.amountPendingWeb,
-      t.amountPendingUnexplained,
-      `可比 ${t.revisionCompared} · 改善 ${t.revisionImproved}`,
-    ],
+    ledgerTotalCells(t),
   ]);
 }
 
@@ -290,33 +301,9 @@ export function ledgerMarkdown(
     lines.push(`| ${ledgerCells(r, agentName).map(mdCell).join(" | ")} |`);
   }
   lines.push(
-    `| ${[
-      `**合计（${t.tasks} 个任务）**`,
-      "",
-      "",
-      `${t.docRefTraced}/${t.docRefTotal}`,
-      String(t.docRefTracedByRecheck),
-      String(t.docRefTracedByBody),
-      String(t.docRefPending),
-      String(t.docRefLabeled),
-      String(t.docRefMatched),
-      String(t.citations),
-      String(t.official),
-      String(t.weak),
-      String(t.weakDisclaimed),
-      String(t.weakUncited),
-      String(t.replaced),
-      String(t.searchCalls),
-      String(t.searchMetadataOnly),
-      String(t.searchDropped),
-      `${t.amountPending}/${t.amountTotal}`,
-      // 这两列此前只在 CSV 合计行里有、MD 合计行漏了：19 个值摆在 21 列下面，
-      // 「可比 N · 改善 M」被顶到「其中引自联网正文」那一列，最后两列空着。
-      String(t.amountPendingWeb),
-      String(t.amountPendingUnexplained),
-      `可比 ${t.revisionCompared} · 改善 ${t.revisionImproved}`,
-    ]
-      .map(mdCell)
+    // 与 CSV 同一份取值，只在首列加粗（MD 里合计行要显眼）
+    `| ${ledgerTotalCells(t)
+      .map((c, i) => mdCell(i === 0 ? `**${c}**` : c))
       .join(" | ")} |`,
   );
   lines.push(

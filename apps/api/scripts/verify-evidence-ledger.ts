@@ -9,6 +9,7 @@ import {
   ledgerCsv,
   ledgerMarkdown,
   ledgerSort,
+  ledgerTotalCells,
   ledgerTotals,
   LEDGER_COLUMNS,
   rowGap,
@@ -364,6 +365,20 @@ expect(
   `可比 ${ledTotals.revisionCompared} · 改善 ${ledTotals.revisionImproved}`,
 );
 expect("MD 合计行的金额列对得上", totCol("金额 待确认/总数"), `${ledTotals.amountPending}/${ledTotals.amountTotal}`);
+// 合计行现在只有一份实现（ledgerTotalCells），CSV 与 MD 都从它取值。
+// 这两条断言盯的是「共用」这件事本身：只要哪天有人又在某一侧手写一遍，就会当场红。
+expect("合计行取值与表头同列数", ledgerTotalCells(ledTotals).length, LEDGER_COLUMNS.length);
+expect(
+  "CSV 合计行用的就是这一份取值",
+  ledgerCsv([row()]).includes(ledgerTotalCells(ledgerTotals([row()])).map(csvField).join(",")),
+  true,
+);
+// mdCell 只转义竖线与换行，合计行里没有这两种字符，所以两侧应当逐格全等
+expect(
+  "MD 合计行与 CSV 合计行逐格相同（只多首列加粗）",
+  mdTotalCells,
+  ledgerTotalCells(ledTotals).map((c, i) => (i === 0 ? `**${c}**` : c)),
+);
 console.log(
   `[verify] 真实台账：${led.length} 行 · 欠账任务 ${ledgerTotals(led).withGaps} 个 · 文号 ${sum((r) => r.docRefTraced)}/${sum(
     (r) => r.docRefTotal,
