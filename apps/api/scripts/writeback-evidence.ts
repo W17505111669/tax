@@ -16,7 +16,12 @@ import { listRefChecks } from "../src/services/ref-checks.ts";
 import { listLinkChecks } from "../src/services/link-checks.ts";
 import { appendEvent, getTask, listConclusions, listTasks, setTaskStatus } from "../src/services/task-store.ts";
 import { computePlatformStats } from "../src/services/stats.ts";
-import { buildRevisionInstruction, deadLinkTargets, toRevisionItems } from "../../web/src/ref-check.ts";
+import {
+  buildRevisionInstruction,
+  deadLinkTargets,
+  pendingRevisionItems,
+  toRevisionItems,
+} from "../../web/src/ref-check.ts";
 import { db } from "../src/db.ts";
 import { extractCitations, extractTextCitations, mergeCitations, UNCAPPED } from "../../web/src/search-evidence.ts";
 
@@ -107,10 +112,15 @@ const built = listTasks()
       noConclusion.push(`${t.id.slice(0, 8)} ${t.title}（${t.status}）`);
       return null;
     }
-    // 已经写回的不再进指令：结论正文里出现过这条证据地址，就说明上一轮续跑已经补上了。
-    // 只对有证据地址的素材这样判断（「标注未取得原文」那类没有地址可比，仍会列出，由人工决定）。
-    const items = toRevisionItems(listRefChecks(t.id)).filter(
-      (i) => i.verdict !== "matched" || !i.evidence || !result.includes(i.evidence.url),
+    // 已经写回的不再进指令，两类判据：
+    // 1. 找到出处的素材——结论正文里出现过这条证据地址，就说明上一轮续跑已经补上了；
+    // 2. 查不到原文的素材——结论里已写明「仅作背景参考，不作为政策依据」，交代过了就不必再交代一遍
+    //   （此前这类素材没有判据，每轮续跑都重复列出，实测 4bb22d34 白跑 300 秒重写同一节表格）。
+    const items = pendingRevisionItems(
+      toRevisionItems(listRefChecks(t.id)).filter(
+        (i) => i.verdict !== "matched" || !i.evidence || !result.includes(i.evidence.url),
+      ),
+      result,
     );
     // 失效链接也进指令：链接腐烂此前只能被交付自检发现、没法走修复通道，唯一出路是人工改正文。
     // 引用清单按全量取（与平台统计同口径），deadLinkTargets 内部会再按当前清单过滤掉过期核验行。

@@ -21,8 +21,13 @@ export type CheckInput = {
   toolRunning: number;
   pendingReview: number;
   citations: number;
-  /** 联网引用的证据力分级汇总；null 表示本次任务没有联网引用 */
-  citationGrades: GradeSummary | null;
+  /**
+   * 联网引用的证据力分级汇总；null 表示本次任务没有联网引用。
+   * weakDisclaimed 是其中已在结论里写明「仅作背景参考，不作为政策依据」的条数：交代过的不再是
+   * 交付前待办，否则自检会一直催替换一批模型已经处理过的引用（分级本身只看地址与标题，判不出
+   * 结论有没有交代，因此由调用方按正文算好带进来）。
+   */
+  citationGrades: (GradeSummary & { weakDisclaimed?: number }) | null;
   /**
    * 与业务主题无关的引用标题（标题与结论主题词没有任何完整涉税领域词交集）。
    * 空数组表示没有，或结论里取不到主题词因而无从判断。
@@ -239,10 +244,18 @@ export function deliveryCheck(i: CheckInput): CheckResult {
     });
   }
   if (i.citationGrades) {
-    if (i.citationGrades.weak > 0) {
+    const disclaimed = i.citationGrades.weakDisclaimed ?? 0;
+    const weakOpen = Math.max(0, i.citationGrades.weak - disclaimed);
+    if (weakOpen > 0) {
       items.push({
         level: "warn",
-        text: `${i.citationGrades.weak} 条联网引用指向门户首页、百科词条或检索结果页，证据力不足，交付前请替换为政策原文的具体文件页`,
+        text: `${weakOpen} 条联网引用指向门户首页、百科词条或检索结果页，证据力不足，交付前请替换为政策原文的具体文件页`,
+      });
+    }
+    if (disclaimed > 0) {
+      items.push({
+        level: "ok",
+        text: `另有 ${disclaimed} 条弱证据引用已在结论中声明「未取得公开原文，仅作背景参考，不作为政策依据」，无需再找替代来源`,
       });
     }
     if (i.citationGrades.official > 0) {
@@ -252,7 +265,7 @@ export function deliveryCheck(i: CheckInput): CheckResult {
       });
     }
     // 只在当前确实还有弱证据引用时才谈替代来源：替换完成后这条说明自然消失
-    if (i.citationGrades.weak > 0 && i.citationRecheck && i.citationRecheck.total > 0) {
+    if (weakOpen > 0 && i.citationRecheck && i.citationRecheck.total > 0) {
       if (i.citationRecheck.matched > 0) {
         items.push({
           level: "info",

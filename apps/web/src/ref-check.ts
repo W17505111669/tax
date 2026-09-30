@@ -827,6 +827,68 @@ const stamp = (iso: string): string => (iso ? iso.replace("T", " ").slice(0, 16)
  * 平台不自动改写结论——指令只是填进续跑输入框，改不改、怎么改由税务师决定。
  * 没有可用素材时返回空串，调用方据此禁用按钮。
  */
+/** 结论里「这条不作为依据」的交代用语 */
+const DISCLAIMER_MARKERS = ["仅作背景参考", "不作为政策依据", "未取得公开原文"];
+
+/** 整节声明：标题写明这一节都是没取得原文的项目时，节内条目一律算已交代 */
+const DISCLAIMER_HEADING = /未取得公开原文|仅作背景参考/;
+const HEADING_LINE = /^#{1,6}\s/;
+
+/**
+ * 这条素材是不是已经在结论里交代过「不作为依据」。
+ *
+ * 修订指令要求给查不到原文的引用写上「未取得公开原文，仅作背景参考，不作为政策依据」，模型照做
+ * 之后交代就留在结论里。实测有两种形态：写在与地址同一行的表格单元里（4bb22d34 单列了一节表格，
+ * 逐条写明地址与这句话），或写在整节声明之下。因此判据是「同一行有交代用语」或「位于已声明的
+ * 章节内」，窗口只到行首行尾——跨行会把下一行的交代算到上一行头上，密集表格里错得很快。
+ */
+export function isDisclaimedInConclusion(conclusion: string, identity: string): boolean {
+  const key = (identity ?? "").trim();
+  if (!conclusion || key === "") return false;
+  let inSection = false;
+  for (const line of conclusion.split(/\r?\n/)) {
+    if (HEADING_LINE.test(line)) inSection = DISCLAIMER_HEADING.test(line);
+    if (!line.includes(key)) continue;
+    if (inSection || DISCLAIMER_MARKERS.some((m) => line.includes(m))) return true;
+  }
+  return false;
+}
+
+/**
+ * 结论已声明为背景参考的弱证据引用地址。
+ * 优先按地址认；地址没被正文原样列出时退回按标题认（工具留存的引用常常只在清单里出现一次）。
+ */
+export function disclaimedWeakUrls(
+  citations: Array<{ url: string; title?: string }>,
+  conclusion: string,
+): Set<string> {
+  const out = new Set<string>();
+  for (const c of citations) {
+    if (gradeCitation(c.url, c.title ?? "").grade !== "weak") continue;
+    if (isDisclaimedInConclusion(conclusion, c.url) || isDisclaimedInConclusion(conclusion, c.title ?? "")) {
+      out.add(c.url);
+    }
+  }
+  return out;
+}
+
+/**
+ * 已经交代过的素材不再进修订指令。
+ *
+ * 此前【标注未取得原文】那一段没有任何「已写回」判据（写回脚本的注释写着「没有地址可比，仍会
+ * 列出，由人工决定」），于是每一轮续跑都把同样几条重新交代一遍：实测 4bb22d34 白跑 300 秒，
+ * 结论里那节表格被原样重写一遍。指令重复还会挤占模型注意力，真正该改的项反而更容易被漏掉
+ * （同一轮里该撤的失效地址就没撤干净）。
+ */
+export function pendingRevisionItems(items: RevisionItem[], conclusion: string): RevisionItem[] {
+  return items.filter((i) => {
+    // 已找到出处的素材另有判据（结论里出现过证据地址即视为已写回），这里只管查不到原文的那两类
+    if (i.verdict !== "candidate" && i.verdict !== "empty") return true;
+    const identity = (i.kind === "citation" ? i.subjectUrl || i.text : i.text).trim();
+    return !isDisclaimedInConclusion(conclusion, identity);
+  });
+}
+
 export function buildRevisionInstruction(
   items: RevisionItem[],
   deadLinks: Array<{ title: string; url: string }> = [],

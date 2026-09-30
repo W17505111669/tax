@@ -21,6 +21,7 @@ import {
 import { gradeCitation, summarizeGrades } from "../../web/src/citation-grade.ts";
 import { traceDocRefs } from "../../web/src/policy-trace.ts";
 import {
+  disclaimedWeakUrls,
   offTopicCitationTitles,
   refCheckTargets,
   refKey,
@@ -63,7 +64,16 @@ const full: SheetInput = {
   delivery: { verdict: "谨慎交付", blocks: 0, warns: 2, infos: 3 },
   docRefs: { total: 31, traced: 10, unverifiable: 21, untraced: 0, pending: 12 },
   docRefChecks: { total: 9, matched: 9, candidate: 0, empty: 0, error: 0, checkedAt: "2026-09-29T02:00:00.000Z" },
-  citations: { total: 40, official: 32, professional: 6, weak: 2, fromTools: 30, fromConclusion: 10, replaced: 1 },
+  citations: {
+    total: 40,
+    official: 32,
+    professional: 6,
+    weak: 2,
+    fromTools: 30,
+    fromConclusion: 10,
+    replaced: 1,
+    disclaimed: 1,
+  },
   citationChecks: { total: 2, matched: 1, candidate: 1, empty: 0, error: 0 },
   linkCheck: { total: 5, ok: 3, blocked: 1, dead: 1, unreachable: 0, checkedAt: "2026-09-29T01:00:00.000Z" },
   searches: { calls: 6, withUrls: 4, metadataOnly: 2, dropped: 12 },
@@ -104,7 +114,19 @@ ok(
   (rows[2]?.note ?? "").includes("工具留存 30 / 结论正文 10") && (rows[2]?.note ?? "").includes("1 条已找到官方替代来源"),
   rows[2]?.note ?? "",
 );
+ok(
+  "引用说明写明已声明为背景参考的条数",
+  (rows[2]?.note ?? "").includes("1 条已在结论中声明为背景参考"),
+  rows[2]?.note ?? "",
+);
 expect("替代来源检索结论", rows[3]?.value, "找到官方原文 1/2");
+// 还没检索过替代来源时，提示要给「待处置」的条数：已声明为背景参考的不该再催人去找替代
+const unsearched = evidenceSheetRows({
+  ...full,
+  citationChecks: { total: 0, matched: 0, candidate: 0, empty: 0, error: 0 },
+  citations: { ...full.citations, weak: 3, disclaimed: 1 },
+});
+ok("未检索替代来源时按待处置条数提示", (unsearched[3]?.note ?? "").includes("尚有 2 条弱证据引用待处置"), unsearched[3]?.note ?? "");
 expect("链接核验结论", rows[4]?.value, "可访问 3/5");
 ok("链接说明含失效数", (rows[4]?.note ?? "").includes("失效 1"), rows[4]?.note ?? "");
 expect("检索留痕结论", rows[5]?.value, "检索 6 次");
@@ -245,6 +267,8 @@ function sheetOf(taskId: string): SheetInput | null {
   const replaced = new Set(refRecs.filter((r) => r.kind === "citation" && r.verdict === "matched").map((r) => r.key));
   const targets = refCheckTargets(tr);
   const weak = cites.filter((c) => gradeCitation(c.url, c.title).grade === "weak");
+  // 结论里已写明「仅作背景参考，不作为政策依据」的弱证据：不算待办也不算欠账（与结果页、台账同源）
+  const disclaimed = disclaimedWeakUrls(cites, text);
   const dir = path.join(dirs.outputs, taskId);
   const arts = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => fs.statSync(path.join(dir, f)).isFile()) : [];
   const delivery = deliveryCheck({
@@ -298,6 +322,7 @@ function sheetOf(taskId: string): SheetInput | null {
       fromTools: cites.filter((c) => c.via !== "conclusion").length,
       fromConclusion: cites.filter((c) => c.via === "conclusion").length,
       replaced: weak.filter((c) => replaced.has(refKey("citation", c.url))).length,
+      disclaimed: disclaimed.size,
     },
     citationChecks: citeSum,
     linkCheck: null,
@@ -312,7 +337,9 @@ function sheetOf(taskId: string): SheetInput | null {
     revision: rev,
     todos: {
       docRefs: targets.filter((t) => !matchedDocs.has(t.key)).map((t) => t.text),
-      weakCitations: weak.filter((c) => !replaced.has(refKey("citation", c.url))).map((c) => `${c.title} ${c.url}`),
+      weakCitations: weak
+        .filter((c) => !replaced.has(refKey("citation", c.url)) && !disclaimed.has(c.url))
+        .map((c) => `${c.title} ${c.url}`),
       deadLinks: [],
     },
   };
@@ -320,6 +347,7 @@ function sheetOf(taskId: string): SheetInput | null {
 
 let walked = 0;
 let withTodos = 0;
+let disclaimedTotal = 0;
 for (const t of listTasks()) {
   const input = sheetOf(t.id);
   if (!input) continue;
@@ -358,9 +386,17 @@ for (const t of listTasks()) {
   const text2 = evidenceSheetMarkdown(input).join("\n");
   checks += 1;
   if (!rs.every((r) => text2.includes(r.item))) failures.push(`${t.id.slice(0, 8)} MD 缺少核对项`);
+  // 已声明为背景参考的条数必须在核对表里说出来：否则读者只看到「证据力弱 N 条」，会以为全都等着处置
+  checks += 1;
+  disclaimedTotal += input.citations.disclaimed ?? 0;
+  if ((input.citations.disclaimed ?? 0) > 0 && !text2.includes("已在结论中声明为背景参考")) {
+    failures.push(`${t.id.slice(0, 8)} 有 ${input.citations.disclaimed} 条弱证据已声明为背景参考，核对表未写明`);
+  }
 }
 ok("真实任务全部能生成核对表", walked > 0, `实际 ${walked} 个`);
-console.log(`[verify] 真实任务走查：${walked} 个任务生成核对表，其中 ${withTodos} 个仍有交付前待办`);
+console.log(
+  `[verify] 真实任务走查：${walked} 个任务生成核对表，其中 ${withTodos} 个仍有交付前待办，${disclaimedTotal} 条弱证据已在结论中声明为背景参考`,
+);
 
 console.log(`[verify] 证据核对表检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {

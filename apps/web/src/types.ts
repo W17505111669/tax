@@ -241,6 +241,8 @@ export interface PlatformStats {
     citations: number;
     officialCitations: number;
     weakCitations: number;
+    /** weakCitations 中已在结论里声明「仅作背景参考，不作为政策依据」的条数，不算待处置欠账 */
+    weakDisclaimed: number;
     /** 弱证据引用中已检索到官方替代来源、只等人工写回结论的条数 */
     weakWithReplacement: number;
     /** 引用来源拆分：工具留存 / 结论正文（两者之和等于 citations） */
@@ -253,7 +255,14 @@ export interface PlatformStats {
     docRefPending: number;
     docRefMatched: number;
     /** 仍有证据缺口的任务：存在弱证据引用或待复查文号 */
-    gaps: Array<{ id: string; title: string; agentId: string; weakCitations: number; docRefPending: number }>;
+    gaps: Array<{
+      id: string;
+      title: string;
+      agentId: string;
+      weakCitations: number;
+      weakDisclaimed: number;
+      docRefPending: number;
+    }>;
     /** 全平台证据核对台账：每任务一行，按欠账倒序，可直接导出 MD / CSV 归档 */
     ledger: import("./evidence-ledger.ts").LedgerRow[];
   };

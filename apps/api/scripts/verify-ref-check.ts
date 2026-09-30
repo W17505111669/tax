@@ -25,7 +25,10 @@ import {
   citationTargets,
   contextKeywords,
   deadLinkTargets,
+  disclaimedWeakUrls,
   gradeRefCheck,
+  isDisclaimedInConclusion,
+  pendingRevisionItems,
   refCheckTargets,
   refKey,
   REF_VERDICT_HINT,
@@ -41,6 +44,7 @@ import {
   refPrefix,
   type RefCheckTarget,
   type RefSearchOutcome,
+  type RevisionItem,
 } from "../../web/src/ref-check.ts";
 import { traceDocRefs } from "../../web/src/policy-trace.ts";
 import { extractCitations } from "../../web/src/search-evidence.ts";
@@ -450,6 +454,116 @@ expect("既无素材也无失效链接时返回空指令", buildRevisionInstruct
 expect("失效链接单独计数", revisionCounts([], 2).deadLinks, 2);
 expect("total 仍只数复查素材，按钮上的数是两者相加", revisionCounts([], 2).total, 0);
 
+// 已经交代过的素材不再进指令。此前【标注未取得原文】那一段没有任何「已写回」判据
+//（写回脚本的注释写着「没有地址可比，仍会列出，由人工决定」），于是每轮续跑都把同样几条
+// 重新交代一遍：实测 4bb22d34 白跑 300 秒，结论里那节表格被原样重写
+const disclaimItems: RevisionItem[] = [
+  {
+    kind: "citation",
+    verdict: "candidate",
+    text: "国家数据",
+    subjectUrl: "https://data.stats.gov.cn/",
+    evidence: { title: "候选页", url: "https://lib.example.edu/p" },
+    checkedAt: "2026-09-30T02:00:00.000Z",
+  },
+  {
+    kind: "citation",
+    verdict: "empty",
+    text: "12366纳税服务平台",
+    subjectUrl: "https://12366.chinatax.gov.cn/",
+    evidence: null,
+    checkedAt: "2026-09-30T02:00:00.000Z",
+  },
+  {
+    kind: "docref",
+    verdict: "empty",
+    text: "2021年第34号",
+    evidence: null,
+    checkedAt: "2026-09-30T02:00:00.000Z",
+  },
+  {
+    kind: "docref",
+    verdict: "matched",
+    text: "财税〔2015〕119号",
+    evidence: { title: "原文页", url: "https://a.gov.cn/119.html" },
+    checkedAt: "2026-09-30T02:00:00.000Z",
+  },
+];
+const rowDisclaimer = [
+  "## 五、联网引用清单",
+  "",
+  "| # | 项目 | URL | 说明 |",
+  "| 1 | 国家数据 | https://data.stats.gov.cn/ | 未取得公开原文，仅作背景参考，不作为政策依据 |",
+  "| 2 | 政策原文 | https://a.gov.cn/119.html | 2026-09-30 检索 |",
+].join("\n");
+expect(
+  "同一行写了交代的条目不再进指令，其余照旧",
+  pendingRevisionItems(disclaimItems, rowDisclaimer).map((i) => i.text),
+  ["12366纳税服务平台", "2021年第34号", "财税〔2015〕119号"],
+);
+const sectionDisclaimer = [
+  "## 五、未取得公开原文的项目",
+  "",
+  "- 国家数据 https://data.stats.gov.cn/",
+  "- 12366纳税服务平台 https://12366.chinatax.gov.cn/",
+  "",
+  "## 六、结论",
+  "",
+  "本所认为……",
+].join("\n");
+expect(
+  "整节声明之下逐条列出的地址都算已交代",
+  pendingRevisionItems(disclaimItems, sectionDisclaimer).map((i) => i.text),
+  ["2021年第34号", "财税〔2015〕119号"],
+);
+expect(
+  "章节声明只管到下一个标题为止",
+  isDisclaimedInConclusion(
+    "## 五、未取得公开原文的项目\n\n- 甲项目\n\n## 六、联网引用\n\n- 乙项目 https://b.gov.cn/y",
+    "https://b.gov.cn/y",
+  ),
+  false,
+);
+expect("没有交代时照旧进指令", pendingRevisionItems(disclaimItems, "## 结论\n本所认为……").length, 4);
+expect("同一行有交代用语即认", isDisclaimedInConclusion(rowDisclaimer, "https://data.stats.gov.cn/"), true);
+expect(
+  "交代写在别的行不算：不跨行认，否则密集表格里会错认成一片",
+  isDisclaimedInConclusion("引用 https://data.stats.gov.cn/\n下一行才写 仅作背景参考", "https://data.stats.gov.cn/"),
+  false,
+);
+expect("正文里根本没这条地址时不认", isDisclaimedInConclusion(rowDisclaimer, "https://nowhere.gov.cn/x"), false);
+expect("identity 为空不认", isDisclaimedInConclusion("仅作背景参考", ""), false);
+expect(
+  "已声明的弱证据条数按地址算，官方来源不参与",
+  disclaimedWeakUrls(
+    [
+      { url: "https://baike.baidu.com/item/x", title: "研发_百度百科" },
+      { url: "https://fgk.chinatax.gov.cn/zcfgk/c1/content.html", title: "政策原文页" },
+    ],
+    "| 研发_百度百科 | https://baike.baidu.com/item/x | 仅作背景参考 |\n| 政策原文页 | https://fgk.chinatax.gov.cn/zcfgk/c1/content.html | 仅作背景参考 |",
+  ).size,
+  1,
+);
+expect(
+  "地址没被正文原样列出时退回按标题认",
+  disclaimedWeakUrls([{ url: "https://baike.baidu.com/item/x", title: "研发_百度百科" }], "| 研发_百度百科 | 仅作背景参考 |").size,
+  1,
+);
+expect(
+  "没交代过时一条也不算",
+  disclaimedWeakUrls([{ url: "https://baike.baidu.com/item/x", title: "研发_百度百科" }], "| 研发_百度百科 | 2026-09-30 |").size,
+  0,
+);
+ok(
+  "素材全部交代过时不再生成指令（按钮据此禁用）",
+  buildRevisionInstruction(
+    pendingRevisionItems(
+      disclaimItems.filter((i) => i.kind === "citation"),
+      sectionDisclaimer,
+    ),
+    [],
+  ) === "",
+);
 // 修订模式的工具黑名单：指令里嘱咐不算数，本轮会话里直接没有这些工具才算数
 expect("黑名单含底稿生成", isRevisionBlocked("generate_workpaper"), true);
 expect("黑名单含底稿比对", isRevisionBlocked("compare_workpapers"), true);
@@ -753,12 +867,15 @@ for (const t of listTasks()) {
     }
     return { toolName: r.tool_name, result };
   });
+  const citesForTargets = extractCitations(parsedCalls).map((c) => ({
+    ...c,
+    grade: gradeCitation(c.url, c.title).grade,
+  }));
+  // 与结果页、服务端同一道过滤：已在结论中声明「仅作背景参考」的弱证据不进检索清单。
+  // 这类词条找不到同主题的官方原文，复查只能判 candidate，点一次只是白跑一轮联网检索
+  const disclaimed = disclaimedWeakUrls(citesForTargets, text);
   const wantCites = unresolvedTargets(
-    citationTargets(
-      extractCitations(parsedCalls).map((c) => ({ ...c, grade: gradeCitation(c.url, c.title).grade })),
-      topicHint(text, 2),
-      10,
-    ),
+    citationTargets(citesForTargets, topicHint(text, 2), 10).filter((c) => !disclaimed.has(c.excludeUrl ?? "")),
     recs,
     stillOfficial,
   );
@@ -766,6 +883,10 @@ for (const t of listTasks()) {
   checks += 1;
   if (gotCites.length !== wantCites.length) {
     failures.push(`${t.id.slice(0, 8)} 服务端弱证据清单 ${gotCites.length} 条 ≠ 前端口径 ${wantCites.length} 条`);
+  }
+  checks += 1;
+  if (gotCites.some((c) => disclaimed.has(c.excludeUrl ?? ""))) {
+    failures.push(`${t.id.slice(0, 8)} 已声明为背景参考的弱证据仍进了服务端检索清单`);
   }
   checks += 1;
   if (gotCites.some((c, i) => c.key !== wantCites[i]?.key || c.hint !== wantCites[i]?.hint)) {

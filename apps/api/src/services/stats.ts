@@ -16,7 +16,7 @@ import {
 } from "../../../web/src/search-evidence.ts";
 import { gradeCitation, summarizeGrades } from "../../../web/src/citation-grade.ts";
 import { traceDocRefs } from "../../../web/src/policy-trace.ts";
-import { summarizeRefChecks, type RefCheckVerdict } from "../../../web/src/ref-check.ts";
+import { disclaimedWeakUrls, summarizeRefChecks, type RefCheckVerdict } from "../../../web/src/ref-check.ts";
 import { refKey } from "../../../web/src/ref-check.ts";
 import { traceAmounts, amountKey } from "../../../web/src/amount-trace.ts";
 import { deltaVerdict, evidenceDelta, evidenceSnapshot } from "../../../web/src/revision-impact.ts";
@@ -59,6 +59,8 @@ export interface EvidenceStats {
   citations: number;
   officialCitations: number;
   weakCitations: number;
+  /** weakCitations 中已在结论里声明「仅作背景参考，不作为政策依据」的条数：交代过就不算欠账 */
+  weakDisclaimed: number;
   /** 引用来源拆分：工具留存 / 结论正文（两者之和等于 citations） */
   citationsFromTools: number;
   citationsFromConclusion: number;
@@ -71,8 +73,15 @@ export interface EvidenceStats {
   docRefTracedByRecheck: number;
   docRefPending: number;
   docRefMatched: number;
-  /** 仍有证据缺口的任务（存在弱证据引用或待复查文号） */
-  gaps: Array<{ id: string; title: string; agentId: string; weakCitations: number; docRefPending: number }>;
+  /** 仍有证据缺口的任务（存在待处置的弱证据引用或待复查文号；已声明为背景参考的不算） */
+  gaps: Array<{
+    id: string;
+    title: string;
+    agentId: string;
+    weakCitations: number;
+    weakDisclaimed: number;
+    docRefPending: number;
+  }>;
   /** 全平台证据核对台账：每任务一行，按欠账倒序，可直接导出归档 */
   ledger: LedgerRow[];
 }
@@ -155,6 +164,7 @@ export function computePlatformStats(): PlatformStats {
     citations: 0,
     officialCitations: 0,
     weakCitations: 0,
+    weakDisclaimed: 0,
     citationsFromTools: 0,
     citationsFromConclusion: 0,
     weakWithReplacement: 0,
@@ -315,18 +325,23 @@ export function computePlatformStats(): PlatformStats {
     const replacedCount = cites.filter(
       (c) => gradeCitation(c.url, c.title).grade === "weak" && replaced.has(refKey("citation", c.url)),
     ).length;
+    // 已在结论里交代过「不作为政策依据」的弱证据：分级只看地址与标题判不出来，得回读正文。
+    // 与任务结果页、交付自检、台账共用 disclaimedWeakUrls 一份实现，避免各处口径漂移
+    const disclaimedCount = hasConclusion ? disclaimedWeakUrls(cites, String(task.result ?? "")).size : 0;
     evidence.weakWithReplacement += hasConclusion ? replacedCount : 0;
+    evidence.weakDisclaimed += disclaimedCount;
     evidence.docRefs += tr.total;
     evidence.docRefTraced += tr.traced;
     evidence.docRefTracedByRecheck += tr.tracedByRecheck;
     evidence.docRefPending += docRefPending;
     evidence.docRefMatched += rc.matched;
-    if (hasConclusion && (grades.weak > 0 || docRefPending > 0)) {
+    if (hasConclusion && (grades.weak - disclaimedCount > 0 || docRefPending > 0)) {
       evidence.gaps.push({
         id: task.id,
         title: String(task.title ?? task.id),
         agentId: task.agent_id,
         weakCitations: grades.weak,
+        weakDisclaimed: disclaimedCount,
         docRefPending,
       });
     }
@@ -365,6 +380,7 @@ export function computePlatformStats(): PlatformStats {
       official: hasConclusion ? grades.official : 0,
       weak: hasConclusion ? grades.weak : 0,
       replaced: hasConclusion ? replacedCount : 0,
+      weakDisclaimed: disclaimedCount,
       searchCalls: se.calls,
       searchMetadataOnly: se.metadataOnly,
       searchDropped: sf.dropped,

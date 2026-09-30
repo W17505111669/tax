@@ -22,6 +22,7 @@ import { gradeCitation } from "../../../web/src/citation-grade.ts";
 import {
   buildRefQuery,
   citationTargets,
+  disclaimedWeakUrls,
   contextKeywords,
   evidenceCanReplace,
   gradeRefCheck,
@@ -270,10 +271,14 @@ export function pendingCitationTargets(taskId: string, limit: number = MAX_REF_C
   // 待办清单按全量取：界面胶囊只列前若干条，但「还有哪些弱证据等着替换」不能跟着截断，
   // 否则排在上限之外的弱证据永远进不了清单，看板上的缺口数也会比实际少
   const cites = extractCitations(parsed, UNCAPPED).map((c) => ({ ...c, grade: gradeCitation(c.url, c.title).grade }));
+  const result = String(getTask(taskId)?.result ?? "");
   // 任务主题词有两个用途：作检索补充词，以及判定已有替代来源是否仍与这份结论谈同一件事
-  const hint = topicHint(getTask(taskId)?.result ?? "", 2);
+  const hint = topicHint(result, 2);
+  // 结论里已声明「仅作背景参考，不作为政策依据」的弱引用不进清单：这类词条永远找不到同主题的官方
+  // 原文，复查只能判 candidate，白占联网预算（实测一轮批量复查 13 次、0 条 matched，多数是已交代过的）
+  const disclaimed = disclaimedWeakUrls(cites, result);
   return unresolvedTargets(
-    citationTargets(cites, hint, limit),
+    citationTargets(cites, hint, limit).filter((t) => !disclaimed.has(t.excludeUrl ?? "")),
     listRefChecks(taskId),
     (c) => matchedStillValid(c.kind ?? "citation", c.evidence, gradeCitation, c.text, hint),
   );

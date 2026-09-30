@@ -18,7 +18,9 @@ export function evidenceSnapshotText(): string {
   const ev = computePlatformStats().evidence;
   return [
     `检索 ${ev.searchCalls} 次（留来源 ${ev.searchWithUrls} / 仅元数据 ${ev.searchMetadataOnly}）`,
-    `引用 ${ev.citations} 条（官方 ${ev.officialCitations} · 弱 ${ev.weakCitations}）`,
+    `引用 ${ev.citations} 条（官方 ${ev.officialCitations} · 弱 ${ev.weakCitations}${
+      ev.weakDisclaimed > 0 ? `，其中 ${ev.weakDisclaimed} 条已在结论中声明为背景参考、不作为依据` : ""
+    }）`,
     `拦下 ${ev.searchDropped + ev.searchDroppedReplay} 条`,
     `文号 ${ev.docRefs} 处（有出处 ${ev.docRefTraced}，其中复查取得 ${ev.docRefTracedByRecheck} · 待复查 ${ev.docRefPending} · 复查判定 matched ${ev.docRefMatched}）`,
     `缺口任务 ${ev.gaps.length} 个`,

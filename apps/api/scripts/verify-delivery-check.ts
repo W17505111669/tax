@@ -465,6 +465,32 @@ expect(
   deliveryCheck({ ...base, citationGrades: grades({ official: 0, professional: 0, weak: 3 }) }).warns,
   1,
 );
+// 结论里已写明「仅作背景参考，不作为政策依据」的弱证据不是交付前待办：再催替换只是噪音
+const allDisclaimed = {
+  ...base,
+  citationGrades: { ...grades({ official: 0, professional: 0, weak: 3 }), weakDisclaimed: 3 },
+};
+expect("弱证据全部已声明为背景参考时不再提醒", deliveryCheck(allDisclaimed).warns, 0);
+expect(
+  "已声明的条数单独给正向条目",
+  deliveryCheck(allDisclaimed).items.some((x) => x.level === "ok" && x.text.includes("3 条弱证据引用已在结论中声明")),
+  true,
+);
+expect(
+  "只声明了一部分时按剩下待处置的条数提醒",
+  deliveryCheck({
+    ...base,
+    citationGrades: { ...grades({ official: 0, professional: 0, weak: 3 }), weakDisclaimed: 1 },
+  }).items.some((x) => x.level === "warn" && x.text.includes("2 条联网引用指向门户首页")),
+  true,
+);
+expect(
+  "全部已声明后不再催检索替代来源",
+  deliveryCheck({ ...allDisclaimed, citationRecheck: crecheck({ matched: 2 }) }).items.some((x) =>
+    x.text.includes("已找到可替换的官方原文"),
+  ),
+  false,
+);
 
 const sec = deliverySection({ ...base, pendingReview: 5 });
 expect("自检节首行给出结论", sec[0]?.startsWith("- 结论：不建议直接交付"), true);
