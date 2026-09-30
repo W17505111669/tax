@@ -22,6 +22,7 @@ import { gradeCitation, summarizeGrades } from "../../web/src/citation-grade.ts"
 import { traceDocRefs } from "../../web/src/policy-trace.ts";
 import {
   disclaimedWeakUrls,
+  settledWeakUrls,
   offTopicCitationTitles,
   refCheckTargets,
   refKey,
@@ -267,8 +268,10 @@ function sheetOf(taskId: string): SheetInput | null {
   const replaced = new Set(refRecs.filter((r) => r.kind === "citation" && r.verdict === "matched").map((r) => r.key));
   const targets = refCheckTargets(tr);
   const weak = cites.filter((c) => gradeCitation(c.url, c.title).grade === "weak");
-  // 结论里已写明「仅作背景参考，不作为政策依据」的弱证据：不算待办也不算欠账（与结果页、台账同源）
+  // 两类弱证据不算待办也不算欠账（与结果页、台账、服务端候选清单同源）：结论里已写明「仅作背景参考，
+  // 不作为政策依据」的，以及只在检索留存里、从未进入结论正文的
   const disclaimed = disclaimedWeakUrls(cites, text);
+  const settled = settledWeakUrls(cites, text);
   const dir = path.join(dirs.outputs, taskId);
   const arts = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => fs.statSync(path.join(dir, f)).isFile()) : [];
   const delivery = deliveryCheck({
@@ -323,6 +326,7 @@ function sheetOf(taskId: string): SheetInput | null {
       fromConclusion: cites.filter((c) => c.via === "conclusion").length,
       replaced: weak.filter((c) => replaced.has(refKey("citation", c.url))).length,
       disclaimed: disclaimed.size,
+      uncited: Math.max(0, settled.size - disclaimed.size),
     },
     citationChecks: citeSum,
     linkCheck: null,
@@ -338,7 +342,7 @@ function sheetOf(taskId: string): SheetInput | null {
     todos: {
       docRefs: targets.filter((t) => !matchedDocs.has(t.key)).map((t) => t.text),
       weakCitations: weak
-        .filter((c) => !replaced.has(refKey("citation", c.url)) && !disclaimed.has(c.url))
+        .filter((c) => !replaced.has(refKey("citation", c.url)) && !settled.has(c.url))
         .map((c) => `${c.title} ${c.url}`),
       deadLinks: [],
     },
@@ -348,6 +352,7 @@ function sheetOf(taskId: string): SheetInput | null {
 let walked = 0;
 let withTodos = 0;
 let disclaimedTotal = 0;
+let uncitedTotal = 0;
 for (const t of listTasks()) {
   const input = sheetOf(t.id);
   if (!input) continue;
@@ -389,13 +394,14 @@ for (const t of listTasks()) {
   // 已声明为背景参考的条数必须在核对表里说出来：否则读者只看到「证据力弱 N 条」，会以为全都等着处置
   checks += 1;
   disclaimedTotal += input.citations.disclaimed ?? 0;
+  uncitedTotal += input.citations.uncited ?? 0;
   if ((input.citations.disclaimed ?? 0) > 0 && !text2.includes("已在结论中声明为背景参考")) {
     failures.push(`${t.id.slice(0, 8)} 有 ${input.citations.disclaimed} 条弱证据已声明为背景参考，核对表未写明`);
   }
 }
 ok("真实任务全部能生成核对表", walked > 0, `实际 ${walked} 个`);
 console.log(
-  `[verify] 真实任务走查：${walked} 个任务生成核对表，其中 ${withTodos} 个仍有交付前待办，${disclaimedTotal} 条弱证据已在结论中声明为背景参考`,
+  `[verify] 真实任务走查：${walked} 个任务生成核对表，其中 ${withTodos} 个仍有交付前待办，${disclaimedTotal} 条弱证据已在结论中声明为背景参考、${uncitedTotal} 条未进入结论正文`,
 );
 
 console.log(`[verify] 证据核对表检查项=${checks} 失败=${failures.length}`);

@@ -176,6 +176,12 @@ expect("官方引用不多于引用总数", ev.officialCitations <= ev.citations
 expect("弱证据引用不多于引用总数", ev.weakCitations <= ev.citations, true);
 expect("已找到替代来源的不多于弱证据数", ev.weakWithReplacement <= ev.weakCitations, true);
 expect("已声明为背景参考的不多于弱证据数", ev.weakDisclaimed <= ev.weakCitations, true);
+expect("未进结论正文的不多于弱证据数", ev.weakUncited <= ev.weakCitations, true);
+expect(
+  "已声明与未进结论两类不重叠，加起来不超过弱证据总数",
+  ev.weakDisclaimed + ev.weakUncited <= ev.weakCitations,
+  true,
+);
 const replacedSql = db
   .prepare(
     `SELECT COUNT(*) AS n FROM ref_checks WHERE kind = 'citation' AND verdict = 'matched' AND task_id IN (SELECT id FROM tasks)`,
@@ -206,10 +212,15 @@ expect("缺口任务都有弱引用或待复查文号", ev.gaps.every((g) => g.w
 // 却仍挂在缺口清单里，缺口任务数因此虚报 5 个而不是 4 个）
 expect(
   "缺口任务都还有待处置的弱引用或待复查文号",
-  ev.gaps.every((g) => g.weakCitations - g.weakDisclaimed > 0 || g.docRefPending > 0),
+  ev.gaps.every((g) => g.weakCitations - g.weakDisclaimed - g.weakUncited > 0 || g.docRefPending > 0),
   true,
 );
 expect("缺口构成里的已声明数不超过该任务弱引用数", ev.gaps.every((g) => g.weakDisclaimed <= g.weakCitations), true);
+expect(
+  "缺口构成里两类之和不超过该任务弱引用数",
+  ev.gaps.every((g) => g.weakDisclaimed + g.weakUncited <= g.weakCitations),
+  true,
+);
 expect(
   "缺口任务按缺口大小倒序",
   ev.gaps.every(
@@ -245,7 +256,7 @@ expect("过滤数非负", ev.searchDropped >= 0 && ev.searchDroppedReplay >= 0, 
 expect("没有历史未过滤记录时回算为 0", legacy > 0 || ev.searchDroppedReplay === 0, true);
 expect("有历史未过滤记录时才回算", ev.searchDroppedReplay === 0 || legacy > 0, true);
 console.log(
-  `[verify] 证据可信度：检索 ${ev.searchCalls} 次（留来源 ${ev.searchWithUrls} / 仅元数据 ${ev.searchMetadataOnly}）· 引用 ${ev.citations} 条（工具留存 ${ev.citationsFromTools} + 结论正文 ${ev.citationsFromConclusion}；官方 ${ev.officialCitations} · 弱 ${ev.weakCitations}，其中 ${ev.weakWithReplacement} 条已找到替代来源、${ev.weakDisclaimed} 条已在结论中声明为背景参考）· 拦下无关结果 ${ev.searchDropped + ev.searchDroppedReplay} 条 · 文号 ${ev.docRefs} 处（可溯源 ${ev.docRefTraced} · 待复查 ${ev.docRefPending} · 已复查到出处 ${ev.docRefMatched}）· 缺口任务 ${ev.gaps.length} 个`,
+  `[verify] 证据可信度：检索 ${ev.searchCalls} 次（留来源 ${ev.searchWithUrls} / 仅元数据 ${ev.searchMetadataOnly}）· 引用 ${ev.citations} 条（工具留存 ${ev.citationsFromTools} + 结论正文 ${ev.citationsFromConclusion}；官方 ${ev.officialCitations} · 弱 ${ev.weakCitations}，其中 ${ev.weakWithReplacement} 条已找到替代来源、${ev.weakDisclaimed} 条已在结论中声明为背景参考、${ev.weakUncited} 条未进入结论正文）· 拦下无关结果 ${ev.searchDropped + ev.searchDroppedReplay} 条 · 文号 ${ev.docRefs} 处（可溯源 ${ev.docRefTraced} · 待复查 ${ev.docRefPending} · 已复查到出处 ${ev.docRefMatched}）· 缺口任务 ${ev.gaps.length} 个`,
 );
 
 // 交付文档必须与实时数据同源：作品说明里的口径串由生成器在生成时取数拼出。

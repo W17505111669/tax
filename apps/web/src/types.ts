@@ -243,6 +243,8 @@ export interface PlatformStats {
     weakCitations: number;
     /** weakCitations 中已在结论里声明「仅作背景参考，不作为政策依据」的条数，不算待处置欠账 */
     weakDisclaimed: number;
+    /** weakCitations 中只在检索留存里、从未进入结论正文的条数，不算待处置欠账 */
+    weakUncited: number;
     /** 弱证据引用中已检索到官方替代来源、只等人工写回结论的条数 */
     weakWithReplacement: number;
     /** 引用来源拆分：工具留存 / 结论正文（两者之和等于 citations） */
@@ -261,6 +263,7 @@ export interface PlatformStats {
       agentId: string;
       weakCitations: number;
       weakDisclaimed: number;
+      weakUncited: number;
       docRefPending: number;
     }>;
     /** 全平台证据核对台账：每任务一行，按欠账倒序，可直接导出 MD / CSV 归档 */

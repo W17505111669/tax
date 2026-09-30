@@ -157,11 +157,15 @@ export function AgentOverview({
     }
     return [...m.entries()].sort((a, b2) => b2[1].length - a[1].length);
   }, [p?.evidence]);
-  // 已在结论里声明「仅作背景参考，不作为政策依据」的弱证据不是待办：看板文案、缺口胶囊与批量按钮
-  // 一律按待处置数说话，否则既虚报欠账，又会拿联网预算去复查一批已经交代过的项
-  const weakOpen = (g: { weakCitations: number; weakDisclaimed: number }): number =>
-    Math.max(0, g.weakCitations - g.weakDisclaimed);
-  const weakOpenTotal = Math.max(0, (p?.evidence?.weakCitations ?? 0) - (p?.evidence?.weakDisclaimed ?? 0));
+  // 两类弱证据不是待办：已在结论里声明「仅作背景参考，不作为政策依据」的，以及只在检索留存里、
+  // 从未进入结论正文的。看板文案、缺口胶囊与批量按钮一律按待处置数说话，否则既虚报欠账，
+  // 又会拿联网预算去复查一批做不出结果的项
+  const weakOpen = (g: { weakCitations: number; weakDisclaimed: number; weakUncited: number }): number =>
+    Math.max(0, g.weakCitations - g.weakDisclaimed - g.weakUncited);
+  const weakOpenTotal = Math.max(
+    0,
+    (p?.evidence?.weakCitations ?? 0) - (p?.evidence?.weakDisclaimed ?? 0) - (p?.evidence?.weakUncited ?? 0),
+  );
   const agentName = (id: string) => agents.find((a) => a.id === id)?.shortName ?? id;
   // 缺口任务自身的未复核项合计（与「全平台待复核合计」不同：后者还包含待复核态任务）
   const backlogPending = (p?.reviewBacklog ?? []).reduce((s, b) => s + b.pending, 0);
@@ -848,8 +852,8 @@ export function AgentOverview({
                       {evidenceTrend("officialCitations", false)}）·
                       {p.evidence.gaps.length} 个任务有待处置的弱证据引用或待复查文号：证据力弱{" "}
                       {p.evidence.weakCitations} 条
-                      {p.evidence.weakDisclaimed > 0
-                        ? `（其中 ${p.evidence.weakDisclaimed} 条已在结论中声明为背景参考，待处置 ${weakOpenTotal} 条）`
+                      {p.evidence.weakDisclaimed + p.evidence.weakUncited > 0
+                        ? `（其中 ${p.evidence.weakDisclaimed} 条已在结论中声明为背景参考、${p.evidence.weakUncited} 条未进入结论正文，待处置 ${weakOpenTotal} 条）`
                         : ""}{" "}
                       {evidenceTrend("weakCitations", true)} ·
                       {p.evidence.weakWithReplacement > 0 && (
@@ -897,7 +901,7 @@ export function AgentOverview({
                             type="button"
                             className="action-btn !text-[11px] disabled:cursor-not-allowed disabled:opacity-40"
                             disabled={refBatchBusy !== ""}
-                            title="为各任务里判为「证据力弱」且还没在结论中声明为背景参考的引用（门户首页 / 百科词条 / 检索页）批量检索官方替代来源：检索词 = 去掉站点后缀的标题 + 该任务结论里的领域词，并排除引用自身；替代来源需人工确认后写回结论"
+                            title="为各任务里判为「证据力弱」、且既没在结论中声明为背景参考、也确实写进了结论正文的引用（门户首页 / 百科词条 / 检索页）批量检索官方替代来源：检索词 = 去掉站点后缀的标题 + 该任务结论里的领域词，并排除引用自身；替代来源需人工确认后写回结论"
                             onClick={() =>
                               armRefBatch(
                                 "citation",
@@ -935,7 +939,9 @@ export function AgentOverview({
                             className="action-btn !text-[11px]"
                             onClick={() => onOpenTask(g.id)}
                             title={`${g.title}（${agentName(agentId)}）：待处置弱证据引用 ${weakOpen(g)} 条${
-                              g.weakDisclaimed > 0 ? `（另有 ${g.weakDisclaimed} 条已在结论中声明为背景参考）` : ""
+                              g.weakDisclaimed + g.weakUncited > 0
+                                ? `（另有 ${g.weakDisclaimed} 条已在结论中声明为背景参考、${g.weakUncited} 条未进入结论正文）`
+                                : ""
                             } · 待复查文号 ${g.docRefPending} 处`}
                           >
                             {g.title.length > 16 ? `${g.title.slice(0, 16)}…` : g.title}

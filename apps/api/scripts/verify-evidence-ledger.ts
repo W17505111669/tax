@@ -48,6 +48,7 @@ const row = (over: Partial<LedgerRow> = {}): LedgerRow => ({
   official: 3,
   weak: 2,
   weakDisclaimed: 0,
+  weakUncited: 0,
   replaced: 1,
   searchCalls: 3,
   searchMetadataOnly: 1,
@@ -66,9 +67,21 @@ expect("没有欠账", rowGap(row({ weak: 0, docRefPending: 0 })), 0);
 expect("已声明为背景参考的弱证据不算欠账", rowGap(row({ weak: 3, weakDisclaimed: 3, docRefPending: 0 })), 0);
 expect("只声明了一部分时按剩下待处置的算", rowGap(row({ weak: 5, weakDisclaimed: 2, docRefPending: 1 })), 4);
 expect("声明数超过弱证据数也不会算出负欠账", rowGap(row({ weak: 1, weakDisclaimed: 4, docRefPending: 0 })), 0);
+// 只在检索留存里、从未进入结论正文的弱证据同样不是欠账：不是这份交付材料的依据，也没处补标注
+expect("未进结论正文的弱证据不算欠账", rowGap(row({ weak: 4, weakUncited: 4, docRefPending: 0 })), 0);
+expect(
+  "两类都不算欠账时只剩待复查文号",
+  rowGap(row({ weak: 6, weakDisclaimed: 2, weakUncited: 3, docRefPending: 1 })),
+  2,
+);
 expect(
   "弱证据全部声明且无待复查文号的任务不算欠账任务",
   ledgerTotals([row({ weak: 3, weakDisclaimed: 3, docRefPending: 0 })]).withGaps,
+  0,
+);
+expect(
+  "弱证据全部未进结论正文的任务也不算欠账任务",
+  ledgerTotals([row({ weak: 3, weakUncited: 3, docRefPending: 0 })]).withGaps,
   0,
 );
 const unsorted = [
@@ -98,6 +111,7 @@ const t = ledgerTotals([
     taskId: "a",
     weak: 2,
     weakDisclaimed: 2,
+    weakUncited: 0,
     docRefPending: 1,
     docRefTracedByRecheck: 1,
     citations: 6,
@@ -120,6 +134,7 @@ const t = ledgerTotals([
 expect("任务数", t.tasks, 3);
 expect("弱证据合计", t.weak, 3);
 expect("已声明背景参考合计", t.weakDisclaimed, 2);
+expect("未进结论正文合计", t.weakUncited, 0);
 expect("引用合计", t.citations, 8);
 expect("官方原文合计", t.official, 5);
 expect("替代来源就绪合计", t.replaced, 1);
@@ -143,12 +158,13 @@ expect("列数与表头一致", ledgerCells(row(), (x) => x).length, LEDGER_COLU
 // 界面按列名给欠账两列上色，列名一改就会静默失去高亮：这里替它盯着
 expect(
   "欠账相关列的列名仍在表头里",
-  (["待复查", "证据力弱", "已声明背景参考"] as const).every((c) =>
+  (["待复查", "证据力弱", "已声明背景参考", "未进结论正文"] as const).every((c) =>
     (LEDGER_COLUMNS as readonly string[]).includes(c),
   ),
   true,
 );
 expect("已声明条数单独成列", cell(row({ weakDisclaimed: 2 }), "已声明背景参考"), "2");
+expect("未进结论条数单独成列", cell(row({ weakUncited: 3 }), "未进结论正文"), "3");
 expect("文号列写成 有出处/总数", cell(row(), "文号 有出处/总数"), "2/4");
 expect("复查取得单独成列", cell(row(), "其中复查取得"), "1");
 expect("金额列写成 待确认/总数", cell(row(), "金额 待确认/总数"), "2/10");
@@ -201,7 +217,13 @@ expect("引用合计与看板一致", sum((r) => r.citations), ev.citations);
 expect("官方原文合计与看板一致", sum((r) => r.official), ev.officialCitations);
 expect("弱证据合计与看板一致", sum((r) => r.weak), ev.weakCitations);
 expect("已声明背景参考合计与看板一致", sum((r) => r.weakDisclaimed), ev.weakDisclaimed);
+expect("未进结论正文合计与看板一致", sum((r) => r.weakUncited), ev.weakUncited);
 expect("已声明数不超过弱证据数", sum((r) => r.weakDisclaimed) <= sum((r) => r.weak), true);
+expect(
+  "已声明与未进结论两类不重叠，加起来不超过弱证据总数",
+  sum((r) => r.weakDisclaimed) + sum((r) => r.weakUncited) <= sum((r) => r.weak),
+  true,
+);
 expect("替代来源就绪合计与看板一致", sum((r) => r.replaced), ev.weakWithReplacement);
 expect("待复查文号合计与看板一致", sum((r) => r.docRefPending), ev.docRefPending);
 expect("复查到出处合计与看板一致", sum((r) => r.docRefMatched), ev.docRefMatched);
@@ -217,7 +239,10 @@ expect("欠账任务数与缺口清单一致", ledgerTotals(led).withGaps, ev.ga
 const noConclusion = led.filter((r) => String(getTask(r.taskId)?.result ?? "").trim() === "");
 expect(
   "无结论的任务不计引用与弱证据",
-  noConclusion.every((r) => r.citations === 0 && r.weak === 0 && r.replaced === 0 && r.weakDisclaimed === 0),
+  noConclusion.every(
+    (r) =>
+      r.citations === 0 && r.weak === 0 && r.replaced === 0 && r.weakDisclaimed === 0 && r.weakUncited === 0,
+  ),
   true,
 );
 expect(
@@ -238,6 +263,7 @@ expect(
       r !== undefined &&
       r.weak === g.weakCitations &&
       r.weakDisclaimed === g.weakDisclaimed &&
+      r.weakUncited === g.weakUncited &&
       r.docRefPending === g.docRefPending
     );
   }),

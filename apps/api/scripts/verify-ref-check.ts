@@ -26,6 +26,8 @@ import {
   contextKeywords,
   deadLinkTargets,
   disclaimedWeakUrls,
+  settledWeakUrls,
+  uncitedWeakUrls,
   gradeRefCheck,
   isDisclaimedInConclusion,
   pendingRevisionItems,
@@ -495,6 +497,7 @@ const rowDisclaimer = [
   "| # | 项目 | URL | 说明 |",
   "| 1 | 国家数据 | https://data.stats.gov.cn/ | 未取得公开原文，仅作背景参考，不作为政策依据 |",
   "| 2 | 政策原文 | https://a.gov.cn/119.html | 2026-09-30 检索 |",
+  "| 3 | 12366纳税服务平台 | https://12366.chinatax.gov.cn/ | 2026-09-30 检索 |",
 ].join("\n");
 expect(
   "同一行写了交代的条目不再进指令，其余照旧",
@@ -524,7 +527,18 @@ expect(
   ),
   false,
 );
-expect("没有交代时照旧进指令", pendingRevisionItems(disclaimItems, "## 结论\n本所认为……").length, 4);
+const plainCited = [
+  "## 五、联网引用清单",
+  "",
+  "- 国家数据 https://data.stats.gov.cn/",
+  "- 12366纳税服务平台 https://12366.chinatax.gov.cn/",
+].join("\n");
+expect("没有交代、地址又确实在正文里时照旧进指令", pendingRevisionItems(disclaimItems, plainCited).length, 4);
+expect(
+  "从未进结论正文的引用不进指令：正文里没有它，模型无处标注",
+  pendingRevisionItems(disclaimItems, "## 联网引用\n\n- 政策原文 https://a.gov.cn/119.html\n").map((i) => i.text),
+  ["2021年第34号", "财税〔2015〕119号"],
+);
 expect("同一行有交代用语即认", isDisclaimedInConclusion(rowDisclaimer, "https://data.stats.gov.cn/"), true);
 expect(
   "交代写在别的行不算：不跨行认，否则密集表格里会错认成一片",
@@ -553,6 +567,44 @@ expect(
   "没交代过时一条也不算",
   disclaimedWeakUrls([{ url: "https://baike.baidu.com/item/x", title: "研发_百度百科" }], "| 研发_百度百科 | 2026-09-30 |").size,
   0,
+);
+expect(
+  "只存在于检索留存里的弱证据算「未进结论正文」",
+  uncitedWeakUrls(
+    [
+      { url: "https://baike.baidu.com/item/x", title: "研发_百度百科" },
+      { url: "https://fgk.chinatax.gov.cn/zcfgk/c1/content.html", title: "政策原文页" },
+    ],
+    "依据见 https://fgk.chinatax.gov.cn/zcfgk/c1/content.html（检索时间 2026-09-30）",
+  ).size,
+  1,
+);
+expect(
+  "只数弱证据：官方来源即使没进结论也不算这一类（该由链接核验与文号溯源去管）",
+  uncitedWeakUrls(
+    [{ url: "https://fgk.chinatax.gov.cn/zcfgk/c1/content.html", title: "政策原文页" }],
+    "本结论未引用任何地址",
+  ).size,
+  0,
+);
+expect(
+  "只被作废交代提到的地址不算在用，等同未进结论正文",
+  uncitedWeakUrls(
+    [{ url: "https://baike.baidu.com/item/x", title: "研发_百度百科" }],
+    "原引用 https://baike.baidu.com/item/x 经核验已失效，不再作为依据保留",
+  ).size,
+  1,
+);
+expect(
+  "已处置集合是两类的并集",
+  settledWeakUrls(
+    [
+      { url: "https://baike.baidu.com/item/x", title: "研发_百度百科" },
+      { url: "https://baike.baidu.com/item/y", title: "研发投入_百度百科" },
+    ],
+    "| 研发_百度百科 | https://baike.baidu.com/item/x | 仅作背景参考 |",
+  ).size,
+  2,
 );
 ok(
   "素材全部交代过时不再生成指令（按钮据此禁用）",
@@ -871,11 +923,11 @@ for (const t of listTasks()) {
     ...c,
     grade: gradeCitation(c.url, c.title).grade,
   }));
-  // 与结果页、服务端同一道过滤：已在结论中声明「仅作背景参考」的弱证据不进检索清单。
-  // 这类词条找不到同主题的官方原文，复查只能判 candidate，点一次只是白跑一轮联网检索
-  const disclaimed = disclaimedWeakUrls(citesForTargets, text);
+  // 与结果页、服务端同一道过滤：已声明「仅作背景参考」的、以及只在检索留存里从未进结论正文的，
+  // 都不进检索清单。前者找不到同主题的官方原文，后者没处写回，点一次只是白跑一轮联网检索
+  const settled = settledWeakUrls(citesForTargets, text);
   const wantCites = unresolvedTargets(
-    citationTargets(citesForTargets, topicHint(text, 2), 10).filter((c) => !disclaimed.has(c.excludeUrl ?? "")),
+    citationTargets(citesForTargets, topicHint(text, 2), 10).filter((c) => !settled.has(c.excludeUrl ?? "")),
     recs,
     stillOfficial,
   );
@@ -885,8 +937,8 @@ for (const t of listTasks()) {
     failures.push(`${t.id.slice(0, 8)} 服务端弱证据清单 ${gotCites.length} 条 ≠ 前端口径 ${wantCites.length} 条`);
   }
   checks += 1;
-  if (gotCites.some((c) => disclaimed.has(c.excludeUrl ?? ""))) {
-    failures.push(`${t.id.slice(0, 8)} 已声明为背景参考的弱证据仍进了服务端检索清单`);
+  if (gotCites.some((c) => settled.has(c.excludeUrl ?? ""))) {
+    failures.push(`${t.id.slice(0, 8)} 已处置的弱证据（已声明背景参考或未进结论正文）仍进了服务端检索清单`);
   }
   checks += 1;
   if (gotCites.some((c, i) => c.key !== wantCites[i]?.key || c.hint !== wantCites[i]?.hint)) {

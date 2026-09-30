@@ -68,6 +68,7 @@ import {
   citationTargets,
   disclaimedWeakUrls,
   pendingRevisionItems,
+  settledWeakUrls,
   refCheckTargets,
   refKey,
   REF_VERDICT_HINT,
@@ -676,10 +677,13 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
 
   // 引用证据力汇总：交付自检、整页 MD 与交付包清单共用同一口径（按全量算，不按界面截断算）
   const citationGrades = useMemo(() => summarizeGrades(allCitations), [allCitations]);
-  // 结论里已写明「仅作背景参考，不作为政策依据」的弱证据引用：交代过就不是待办，也不再进修订指令。
-  // 分级只看地址与标题，判不出结论有没有交代，所以这一层按正文单独算
+  // 两类弱证据引用不必再催办，判据都得回读正文（分级只看地址与标题）：结论里已写明「仅作背景参考，
+  // 不作为政策依据」的，以及只在检索留存里、从未进入结论正文的（不是这份交付材料的依据，也没处补标注）
   const weakDisclaimedUrls = useMemo(() => disclaimedWeakUrls(allCitations, finalResult), [allCitations, finalResult]);
-  const weakOpen = Math.max(0, citationGrades.weak - weakDisclaimedUrls.size);
+  const weakSettledUrls = useMemo(() => settledWeakUrls(allCitations, finalResult), [allCitations, finalResult]);
+  // settled 是两类的并集，扣掉已声明的那部分就是「未进结论正文」的条数，三个数刚好加回弱证据总数
+  const weakUncited = Math.max(0, weakSettledUrls.size - weakDisclaimedUrls.size);
+  const weakOpen = Math.max(0, citationGrades.weak - weakSettledUrls.size);
 
   // 步骤时间线：提问 → 工具核验 → 联网检索 → 结论生成 → 交付
   const totalDuration = useMemo(() => {
@@ -1080,13 +1084,13 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   // 弱证据引用（门户首页 / 百科词条 / 检索页）找可替换的官方原文
   const weakCitations = useMemo(() => allCitations.filter((c) => c.grade === "weak"), [allCitations]);
   const weakTargets = useMemo(
-    // 已在结论里声明为背景参考的不再进检索清单：这类词条找不到同主题的官方原文，
-    // 点一次只是白跑一轮联网检索（与服务端 pendingCitationTargets 同一道过滤）
+    // 已声明为背景参考的、以及从未进结论正文的都不进检索清单：前者找不到同主题的官方原文，
+    // 后者没处写回，点一次只是白跑一轮联网检索（与服务端 pendingCitationTargets 同一道过滤）
     () =>
       citationTargets(weakCitations, topicHint(finalResult, 2), 10).filter(
-        (t) => !weakDisclaimedUrls.has(t.excludeUrl ?? ""),
+        (t) => !weakSettledUrls.has(t.excludeUrl ?? ""),
       ),
-    [weakCitations, finalResult, weakDisclaimedUrls],
+    [weakCitations, finalResult, weakSettledUrls],
   );
   // 已经找到官方替代来源的弱证据引用（结论没改之前它仍是弱证据，只用于如实标注补救进度）
   const replacedKeys = useMemo(
@@ -1109,13 +1113,13 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
         }),
       weakCitations: weakCitations
         .filter((c) => !replacedKeys.has(refKey("citation", c.url)))
-        .filter((c) => !weakDisclaimedUrls.has(c.url))
+        .filter((c) => !weakSettledUrls.has(c.url))
         .map((c) => `${c.title} ${c.url}`),
       deadLinks: Object.values(linkChecks)
         .filter((r) => linkVerdict(r) === "dead")
         .map((r) => r.url),
     };
-  }, [refTargets, docRefChecks, refChecks, weakCitations, replacedKeys, weakDisclaimedUrls, linkChecks]);
+  }, [refTargets, docRefChecks, refChecks, weakCitations, replacedKeys, weakSettledUrls, linkChecks]);
 
   // 修订素材：只取与当前结论对得上、且还没写回过的复查记录，避免上一版结论留下的记录
   // 与已经交代过的项目反复进指令（实测同一节「仅作背景参考」表格被逐轮重写）
@@ -1180,7 +1184,9 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     pendingReview: pendingReviews,
     citations: allCitations.length,
     citationGrades:
-      allCitations.length > 0 ? { ...citationGrades, weakDisclaimed: weakDisclaimedUrls.size } : null,
+      allCitations.length > 0
+        ? { ...citationGrades, weakDisclaimed: weakDisclaimedUrls.size, weakUncited: weakUncited }
+        : null,
     // 与业务主题无关的泛词条引用：这类引用找不到同主题的官方原文，该删而不是该替换
     offTopicCitations: offTopicCitationTitles(allCitations, finalResult),
     searches: searches.calls > 0 ? searches : null,
@@ -1261,6 +1267,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       fromConclusion: allCitations.filter((c) => c.via === "conclusion").length,
       replaced: weakReplaced,
       disclaimed: weakDisclaimedUrls.size,
+      uncited: weakUncited,
     },
     citationChecks: {
       total: citationSummary.total,
@@ -1357,7 +1364,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       ? [
           `- 证据力分级：官方来源 ${citationGrades.official} 条 · 专业来源 ${citationGrades.professional} 条 · 证据力弱 ${citationGrades.weak} 条${
             weakDisclaimedUrls.size > 0 ? `（其中 ${weakDisclaimedUrls.size} 条已在结论中声明为背景参考）` : ""
-          }`,
+          }${weakUncited > 0 ? `（${weakUncited} 条只在检索留存里、未进入结论正文）` : ""}`,
           ...(weakOpen > 0
             ? ["- 证据力弱的引用指向门户首页、百科词条或检索结果页，不能替代政策原文，交付前请替换为具体文件页"]
             : []),

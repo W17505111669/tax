@@ -22,7 +22,7 @@ import { gradeCitation } from "../../../web/src/citation-grade.ts";
 import {
   buildRefQuery,
   citationTargets,
-  disclaimedWeakUrls,
+  settledWeakUrls,
   contextKeywords,
   evidenceCanReplace,
   gradeRefCheck,
@@ -274,11 +274,12 @@ export function pendingCitationTargets(taskId: string, limit: number = MAX_REF_C
   const result = String(getTask(taskId)?.result ?? "");
   // 任务主题词有两个用途：作检索补充词，以及判定已有替代来源是否仍与这份结论谈同一件事
   const hint = topicHint(result, 2);
-  // 结论里已声明「仅作背景参考，不作为政策依据」的弱引用不进清单：这类词条永远找不到同主题的官方
-  // 原文，复查只能判 candidate，白占联网预算（实测一轮批量复查 13 次、0 条 matched，多数是已交代过的）
-  const disclaimed = disclaimedWeakUrls(cites, result);
+  // 已经处置掉的弱引用不进清单：结论里声明过「仅作背景参考，不作为政策依据」的，以及只在检索留存里、
+  // 从未进入结论正文的。这两类都找不到同主题的官方原文（或压根没处可写回），复查只能判 candidate，
+  // 白占联网预算（实测一轮批量复查 13 次、0 条 matched，多数属于这两种）
+  const settled = settledWeakUrls(cites, result);
   return unresolvedTargets(
-    citationTargets(cites, hint, limit).filter((t) => !disclaimed.has(t.excludeUrl ?? "")),
+    citationTargets(cites, hint, limit).filter((t) => !settled.has(t.excludeUrl ?? "")),
     listRefChecks(taskId),
     (c) => matchedStillValid(c.kind ?? "citation", c.evidence, gradeCitation, c.text, hint),
   );

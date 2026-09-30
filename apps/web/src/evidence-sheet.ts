@@ -39,6 +39,8 @@ export type SheetInput = {
     replaced: number;
     /** 弱证据中已在结论里声明「仅作背景参考，不作为政策依据」的条数，不再是待办 */
     disclaimed?: number;
+    /** 弱证据中只在检索留存里、从未进入结论正文的条数：不是交付依据，也不再是待办 */
+    uncited?: number;
   };
   citationChecks: { total: number; matched: number; candidate: number; empty: number; error: number };
   linkCheck: {
@@ -99,7 +101,9 @@ export function evidenceSheetRows(i: SheetInput): SheetRow[] {
         ? "结论未引用联网来源，涉及政策依据请确认是否已完成在线核验"
         : `专业来源 ${c.professional} · 证据力弱 ${c.weak}${
             c.disclaimed ? `（其中 ${c.disclaimed} 条已在结论中声明为背景参考，不作为依据）` : ""
-          }${c.replaced > 0 ? `（${c.replaced} 条已找到官方替代来源，待人工写回结论）` : ""} · 来源：工具留存 ${c.fromTools} / 结论正文 ${c.fromConclusion}`,
+          }${c.uncited ? `（${c.uncited} 条只在检索留存里、未进入结论正文）` : ""}${
+            c.replaced > 0 ? `（${c.replaced} 条已找到官方替代来源，待人工写回结论）` : ""
+          } · 来源：工具留存 ${c.fromTools} / 结论正文 ${c.fromConclusion}`,
   });
   const cc = i.citationChecks;
   rows.push({
@@ -107,8 +111,8 @@ export function evidenceSheetRows(i: SheetInput): SheetRow[] {
     value: cc.total === 0 ? "未检索" : `找到官方原文 ${cc.matched}/${cc.total}`,
     note:
       cc.total === 0
-        ? Math.max(0, c.weak - (c.disclaimed ?? 0)) > 0
-          ? `尚有 ${Math.max(0, c.weak - (c.disclaimed ?? 0))} 条弱证据引用待处置，可在联网引用区一键检索官方替代来源`
+        ? Math.max(0, c.weak - (c.disclaimed ?? 0) - (c.uncited ?? 0)) > 0
+          ? `尚有 ${Math.max(0, c.weak - (c.disclaimed ?? 0) - (c.uncited ?? 0))} 条弱证据引用待处置，可在联网引用区一键检索官方替代来源`
           : "没有证据力弱的引用，无需检索替代来源"
         : `候选待确认 ${cc.candidate} · 未找到 ${cc.empty + cc.error}（替代来源需人工确认后写回结论并重新打包）`,
   });

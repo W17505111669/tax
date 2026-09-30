@@ -491,6 +491,27 @@ expect(
   ),
   false,
 );
+// 只在检索留存里、从未进入结论正文的弱证据同样不是交付前待办：不是这份材料的依据，也没处补标注
+const allUncited = {
+  ...base,
+  citationGrades: { ...grades({ official: 0, professional: 0, weak: 3 }), weakUncited: 3 },
+};
+expect("弱证据全部未进结论正文时不再提醒", deliveryCheck(allUncited).warns, 0);
+expect(
+  "未进结论正文的条数给说明而不是提醒",
+  deliveryCheck(allUncited).items.some(
+    (x) => x.level === "info" && x.text.includes("3 条弱证据引用只存在于检索留存"),
+  ),
+  true,
+);
+expect(
+  "两类同时存在时按剩下待处置的条数提醒",
+  deliveryCheck({
+    ...base,
+    citationGrades: { ...grades({ official: 0, professional: 0, weak: 6 }), weakDisclaimed: 2, weakUncited: 3 },
+  }).items.some((x) => x.level === "warn" && x.text.includes("1 条联网引用指向门户首页")),
+  true,
+);
 
 const sec = deliverySection({ ...base, pendingReview: 5 });
 expect("自检节首行给出结论", sec[0]?.startsWith("- 结论：不建议直接交付"), true);

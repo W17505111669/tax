@@ -32,6 +32,8 @@ export type LedgerRow = {
   replaced: number;
   /** weak 中已在结论里声明「仅作背景参考，不作为政策依据」的条数：交代过就不算欠账 */
   weakDisclaimed: number;
+  /** weak 中只在检索留存里、从未进入结论正文的条数：不是交付依据，也不算欠账 */
+  weakUncited: number;
   /** 联网检索：调用次数 / 只留元数据次数 / 拦下的无关结果条数 */
   searchCalls: number;
   searchMetadataOnly: number;
@@ -55,6 +57,7 @@ export type LedgerTotals = {
   weak: number;
   replaced: number;
   weakDisclaimed: number;
+  weakUncited: number;
   searchCalls: number;
   searchMetadataOnly: number;
   searchDropped: number;
@@ -69,11 +72,12 @@ export type LedgerTotals = {
 
 /**
  * 单行欠账数：待处置的弱证据引用 + 复查后仍无出处的文号（排序与合计共用）。
- * 已声明为背景参考的弱证据不算欠账：结论里已经写明「不作为政策依据」，再去催替换只是噪音，
- * 实测一个任务 14 条弱证据里 8 条属于这种，欠账被虚报成一倍多。
+ * 两类弱证据不算欠账：结论里已写明「不作为政策依据」的（再去催替换只是噪音，实测一个任务 14 条
+ * 弱证据里 8 条属于这种），以及只在检索留存里、从未进入结论正文的（不是这份交付材料的依据，也没处
+ * 补标注，实测 9 条待处置里 6 条属于这种）。
  */
 export function rowGap(r: LedgerRow): number {
-  return Math.max(0, r.weak - r.weakDisclaimed) + r.docRefPending;
+  return Math.max(0, r.weak - r.weakDisclaimed - r.weakUncited) + r.docRefPending;
 }
 
 /** 台账排序：欠账多的在前，其次按作品与标题，保证同一批数据每次导出的行序一致 */
@@ -97,6 +101,7 @@ export function ledgerTotals(rows: LedgerRow[]): LedgerTotals {
     weak: 0,
     replaced: 0,
     weakDisclaimed: 0,
+    weakUncited: 0,
     searchCalls: 0,
     searchMetadataOnly: 0,
     searchDropped: 0,
@@ -117,6 +122,7 @@ export function ledgerTotals(rows: LedgerRow[]): LedgerTotals {
     t.weak += r.weak;
     t.replaced += r.replaced;
     t.weakDisclaimed += r.weakDisclaimed;
+    t.weakUncited += r.weakUncited;
     t.searchCalls += r.searchCalls;
     t.searchMetadataOnly += r.searchMetadataOnly;
     t.searchDropped += r.searchDropped;
@@ -143,6 +149,7 @@ export const LEDGER_COLUMNS = [
   "官方来源",
   "证据力弱",
   "已声明背景参考",
+  "未进结论正文",
   "替代来源就绪",
   "检索次数",
   "仅元数据",
@@ -165,6 +172,7 @@ export function ledgerCells(r: LedgerRow, agentName: (id: string) => string): st
     String(r.official),
     String(r.weak),
     String(r.weakDisclaimed),
+    String(r.weakUncited),
     String(r.replaced),
     String(r.searchCalls),
     String(r.searchMetadataOnly),
@@ -192,6 +200,7 @@ export function ledgerCsv(rows: LedgerRow[], agentName: (id: string) => string =
       t.official,
       t.weak,
       t.weakDisclaimed,
+      t.weakUncited,
       t.replaced,
       t.searchCalls,
       t.searchMetadataOnly,
@@ -218,7 +227,7 @@ export function ledgerMarkdown(
     `- 政策文号：${t.docRefTotal} 处（有出处 ${t.docRefTraced}，其中复查取得 ${t.docRefTracedByRecheck} · 仍无出处 ${t.docRefPending} · 复查判定 matched ${t.docRefMatched}）`,
     `- 联网引用：${t.citations} 条（官方来源 ${t.official} · 证据力弱 ${t.weak}，其中 ${t.replaced} 条已找到替代来源待写回结论${
       t.weakDisclaimed > 0 ? ` · ${t.weakDisclaimed} 条已在结论中声明为背景参考、不作为依据` : ""
-    }）`,
+    }${t.weakUncited > 0 ? ` · ${t.weakUncited} 条只在检索留存里、未进入结论正文` : ""}）`,
     `- 联网检索：${t.searchCalls} 次（只留查询元数据 ${t.searchMetadataOnly} 次）· 拦下无关结果与门户首页 ${t.searchDropped} 条`,
     `- 结论金额：${t.amountTotal} 处，待人工确认 ${t.amountPending} 处`,
     `- 修订影响：${t.revisionCompared} 个任务有可对比的两轮结论，其中 ${t.revisionImproved} 个改善`,
@@ -242,6 +251,7 @@ export function ledgerMarkdown(
       String(t.official),
       String(t.weak),
       String(t.weakDisclaimed),
+      String(t.weakUncited),
       String(t.replaced),
       String(t.searchCalls),
       String(t.searchMetadataOnly),

@@ -12,7 +12,7 @@
 import { gradeCitation, isOfficialChannelPage } from "./citation-grade.ts";
 import { DOMAIN_KEYWORDS } from "./domain-keywords.ts";
 import { linkVerdict, type LinkCheckLike } from "./link-check.ts";
-import { CONCLUSION_VIA } from "./search-evidence.ts";
+import { CONCLUSION_VIA, extractTextCitations, UNCAPPED } from "./search-evidence.ts";
 import { extractDocRefs, normalizeRef } from "./policy-trace.ts";
 import type { RefTraceResult } from "./policy-trace.ts";
 
@@ -873,6 +873,44 @@ export function disclaimedWeakUrls(
 }
 
 /**
+ * 只在检索留存里、从未进结论正文的弱证据引用地址。
+ *
+ * 引用清单是「工具留存 + 结论正文」两份合并的，这是刻意口径：检索看到过什么也是留痕。但欠账不是留痕——
+ * 一条从没被写进结论的百科词条，既不是交付材料的依据，也没法在结论里给它补标注，催人替换等于催一件
+ * 无处可做的事。实测 9 条待处置弱证据里 6 条属于这种（7459b28a 的「研发_百度百科」两条、4bb22d34 的
+ * 电子税务局与 12366 门户四条）。
+ *
+ * 「进没进结论」按 extractTextCitations 的结果判，不用 includes 直接搜原文：提取走过同一份清理与截断规则，
+ * 也天然排除「原引用 X 已失效」这类作废交代——只被作废交代提到的地址同样不算在用。
+ */
+export function uncitedWeakUrls(
+  citations: Array<{ url: string; title?: string }>,
+  conclusion: string,
+): Set<string> {
+  const cited = new Set(extractTextCitations(conclusion ?? "", UNCAPPED).map((c) => c.url));
+  const out = new Set<string>();
+  for (const c of citations) {
+    if (gradeCitation(c.url, c.title ?? "").grade !== "weak") continue;
+    if (cited.has(c.url)) continue;
+    out.add(c.url);
+  }
+  return out;
+}
+
+/**
+ * 已经处置掉、不必再催的弱证据引用地址：结论里交代过为背景参考的 + 从未进结论正文的。
+ * 待处置数 = 弱证据总数 - 这个集合的大小，欠账、待办、批量复查预算一律按待处置数说话。
+ */
+export function settledWeakUrls(
+  citations: Array<{ url: string; title?: string }>,
+  conclusion: string,
+): Set<string> {
+  const out = disclaimedWeakUrls(citations, conclusion);
+  for (const u of uncitedWeakUrls(citations, conclusion)) out.add(u);
+  return out;
+}
+
+/**
  * 已经交代过的素材不再进修订指令。
  *
  * 此前【标注未取得原文】那一段没有任何「已写回」判据（写回脚本的注释写着「没有地址可比，仍会
@@ -881,9 +919,14 @@ export function disclaimedWeakUrls(
  * （同一轮里该撤的失效地址就没撤干净）。
  */
 export function pendingRevisionItems(items: RevisionItem[], conclusion: string): RevisionItem[] {
+  // 结论里真在用的地址：只在检索留存里出现过的引用没处可标注，列进指令模型无从下手
+  const cited = new Set(extractTextCitations(conclusion ?? "", UNCAPPED).map((c) => c.url));
   return items.filter((i) => {
     // 已找到出处的素材另有判据（结论里出现过证据地址即视为已写回），这里只管查不到原文的那两类
     if (i.verdict !== "candidate" && i.verdict !== "empty") return true;
+    if (i.kind === "citation" && i.subjectUrl !== undefined && i.subjectUrl !== "" && !cited.has(i.subjectUrl)) {
+      return false;
+    }
     const identity = (i.kind === "citation" ? i.subjectUrl || i.text : i.text).trim();
     return !isDisclaimedInConclusion(conclusion, identity);
   });

@@ -26,8 +26,10 @@ export type CheckInput = {
    * weakDisclaimed 是其中已在结论里写明「仅作背景参考，不作为政策依据」的条数：交代过的不再是
    * 交付前待办，否则自检会一直催替换一批模型已经处理过的引用（分级本身只看地址与标题，判不出
    * 结论有没有交代，因此由调用方按正文算好带进来）。
+   * weakUncited 是只在检索留存里、从未进入结论正文的条数：它们不是这份交付材料的依据，也没法在
+   * 结论里补标注，同样不算待办（口径与「没有结论就不计证据欠账」一致）。
    */
-  citationGrades: (GradeSummary & { weakDisclaimed?: number }) | null;
+  citationGrades: (GradeSummary & { weakDisclaimed?: number; weakUncited?: number }) | null;
   /**
    * 与业务主题无关的引用标题（标题与结论主题词没有任何完整涉税领域词交集）。
    * 空数组表示没有，或结论里取不到主题词因而无从判断。
@@ -245,7 +247,8 @@ export function deliveryCheck(i: CheckInput): CheckResult {
   }
   if (i.citationGrades) {
     const disclaimed = i.citationGrades.weakDisclaimed ?? 0;
-    const weakOpen = Math.max(0, i.citationGrades.weak - disclaimed);
+    const uncited = i.citationGrades.weakUncited ?? 0;
+    const weakOpen = Math.max(0, i.citationGrades.weak - disclaimed - uncited);
     if (weakOpen > 0) {
       items.push({
         level: "warn",
@@ -256,6 +259,12 @@ export function deliveryCheck(i: CheckInput): CheckResult {
       items.push({
         level: "ok",
         text: `另有 ${disclaimed} 条弱证据引用已在结论中声明「未取得公开原文，仅作背景参考，不作为政策依据」，无需再找替代来源`,
+      });
+    }
+    if (uncited > 0) {
+      items.push({
+        level: "info",
+        text: `${uncited} 条弱证据引用只存在于检索留存、未进入结论正文，不是本次交付的依据，无需替换`,
       });
     }
     if (i.citationGrades.official > 0) {

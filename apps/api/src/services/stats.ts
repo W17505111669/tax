@@ -16,7 +16,12 @@ import {
 } from "../../../web/src/search-evidence.ts";
 import { gradeCitation, summarizeGrades } from "../../../web/src/citation-grade.ts";
 import { traceDocRefs } from "../../../web/src/policy-trace.ts";
-import { disclaimedWeakUrls, summarizeRefChecks, type RefCheckVerdict } from "../../../web/src/ref-check.ts";
+import {
+  disclaimedWeakUrls,
+  summarizeRefChecks,
+  uncitedWeakUrls,
+  type RefCheckVerdict,
+} from "../../../web/src/ref-check.ts";
 import { refKey } from "../../../web/src/ref-check.ts";
 import { traceAmounts, amountKey } from "../../../web/src/amount-trace.ts";
 import { deltaVerdict, evidenceDelta, evidenceSnapshot } from "../../../web/src/revision-impact.ts";
@@ -61,6 +66,8 @@ export interface EvidenceStats {
   weakCitations: number;
   /** weakCitations 中已在结论里声明「仅作背景参考，不作为政策依据」的条数：交代过就不算欠账 */
   weakDisclaimed: number;
+  /** weakCitations 中只在检索留存里、从未进入结论正文的条数：不是交付依据，也不算欠账 */
+  weakUncited: number;
   /** 引用来源拆分：工具留存 / 结论正文（两者之和等于 citations） */
   citationsFromTools: number;
   citationsFromConclusion: number;
@@ -73,13 +80,14 @@ export interface EvidenceStats {
   docRefTracedByRecheck: number;
   docRefPending: number;
   docRefMatched: number;
-  /** 仍有证据缺口的任务（存在待处置的弱证据引用或待复查文号；已声明为背景参考的不算） */
+  /** 仍有证据缺口的任务（存在待处置的弱证据引用或待复查文号；已声明为背景参考的、未进结论正文的不算） */
   gaps: Array<{
     id: string;
     title: string;
     agentId: string;
     weakCitations: number;
     weakDisclaimed: number;
+    weakUncited: number;
     docRefPending: number;
   }>;
   /** 全平台证据核对台账：每任务一行，按欠账倒序，可直接导出归档 */
@@ -165,6 +173,7 @@ export function computePlatformStats(): PlatformStats {
     officialCitations: 0,
     weakCitations: 0,
     weakDisclaimed: 0,
+    weakUncited: 0,
     citationsFromTools: 0,
     citationsFromConclusion: 0,
     weakWithReplacement: 0,
@@ -309,6 +318,7 @@ export function computePlatformStats(): PlatformStats {
     // 既不该算证据欠账，也不该占批量复查预算——没有结论就没有主题，替代来源永远判不出 matched。
     // 检索活动本身照实计入：那是真实发生过的调用，与有没有结论无关。
     const hasConclusion = String(task.result ?? "").trim() !== "";
+    const resultText = String(task.result ?? "");
     const docRefPending = tr.untraced.length + tr.unverifiable;
     evidence.searchCalls += se.calls;
     evidence.searchMetadataOnly += se.metadataOnly;
@@ -325,23 +335,31 @@ export function computePlatformStats(): PlatformStats {
     const replacedCount = cites.filter(
       (c) => gradeCitation(c.url, c.title).grade === "weak" && replaced.has(refKey("citation", c.url)),
     ).length;
-    // 已在结论里交代过「不作为政策依据」的弱证据：分级只看地址与标题判不出来，得回读正文。
-    // 与任务结果页、交付自检、台账共用 disclaimedWeakUrls 一份实现，避免各处口径漂移
-    const disclaimedCount = hasConclusion ? disclaimedWeakUrls(cites, String(task.result ?? "")).size : 0;
+    // 两类弱证据不算欠账，都得回读正文才判得出来（分级只看地址与标题）：已在结论里交代过「不作为
+    // 政策依据」的，以及只在检索留存里、从未进入结论正文的。与任务结果页、交付自检、台账、批量复查
+    // 候选清单共用同一份实现，避免各处口径漂移。uncited 要扣掉与 disclaimed 重叠的部分，三个数才
+    // 刚好加回弱证据总数（按标题认出的交代，地址可能并不在正文里）
+    const disclaimedUrls = hasConclusion ? disclaimedWeakUrls(cites, resultText) : new Set<string>();
+    const disclaimedCount = disclaimedUrls.size;
+    const uncitedCount = hasConclusion
+      ? [...uncitedWeakUrls(cites, resultText)].filter((u) => !disclaimedUrls.has(u)).length
+      : 0;
     evidence.weakWithReplacement += hasConclusion ? replacedCount : 0;
     evidence.weakDisclaimed += disclaimedCount;
+    evidence.weakUncited += uncitedCount;
     evidence.docRefs += tr.total;
     evidence.docRefTraced += tr.traced;
     evidence.docRefTracedByRecheck += tr.tracedByRecheck;
     evidence.docRefPending += docRefPending;
     evidence.docRefMatched += rc.matched;
-    if (hasConclusion && (grades.weak - disclaimedCount > 0 || docRefPending > 0)) {
+    if (hasConclusion && (grades.weak - disclaimedCount - uncitedCount > 0 || docRefPending > 0)) {
       evidence.gaps.push({
         id: task.id,
         title: String(task.title ?? task.id),
         agentId: task.agent_id,
         weakCitations: grades.weak,
         weakDisclaimed: disclaimedCount,
+        weakUncited: uncitedCount,
         docRefPending,
       });
     }
@@ -381,6 +399,7 @@ export function computePlatformStats(): PlatformStats {
       weak: hasConclusion ? grades.weak : 0,
       replaced: hasConclusion ? replacedCount : 0,
       weakDisclaimed: disclaimedCount,
+      weakUncited: uncitedCount,
       searchCalls: se.calls,
       searchMetadataOnly: se.metadataOnly,
       searchDropped: sf.dropped,
