@@ -10,7 +10,7 @@
  * 分类只看错误正文，不猜工具内部实现；判不出来的老实归入 unknown，不硬塞进某一类。
  */
 
-export type FailureCause = "bad_args" | "unsupported" | "not_found" | "upstream" | "unknown";
+export type FailureCause = "bad_args" | "unsupported" | "tool_bug" | "not_found" | "upstream" | "unknown";
 
 export interface FailureItem {
   taskId: string;
@@ -34,6 +34,7 @@ export interface FailureGroup {
 export const CAUSE_LABELS: Record<FailureCause, string> = {
   bad_args: "模型传错参数",
   unsupported: "用法不支持",
+  tool_bug: "工具内部异常",
   not_found: "外部资源不存在",
   upstream: "外部服务拒绝或未配置",
   unknown: "未归类",
@@ -43,6 +44,8 @@ export const CAUSE_HINTS: Record<FailureCause, string> = {
   bad_args: "工具本身能跑，是入参组合不合法。处置：把该工具的合法参数组合写进系统提示词，别让模型继续猜",
   unsupported:
     "调用方式与工具能力不匹配（如拿本地文件路径去调远程抓取）。处置：本地上传资料走 parse_uploaded_files，远程抓取只接受 http/https",
+  tool_bug:
+    "工具自身抛了未捕获的异常，既不是入参问题也不是对方资源问题（实测 fetch_content 抓某些页面时抛 Cannot read properties of null (reading 'tagName')）。处置：换同类工具重试（fetch_content → fetch_public_document），并记下扩展版本与触发页面以便向上游反馈；不要反复重试同一个工具",
   not_found: "对方页面已不存在。处置：用检索找现行版本，或改引其他可核验出处，并在结论中如实标注链接失效",
   upstream:
     "对方拒绝请求，或本机抓取服务未配置。处置：换 fetch_public_document 等自有通道重试，或按错误提示补齐抓取服务配置",
@@ -54,6 +57,15 @@ const RULES: Array<{ cause: FailureCause; test: (error: string) => boolean }> = 
   // 「No query specified」「No URL specified」这类是工具在说「你没给我必需的入参」
   { cause: "bad_args", test: (e) => /^no (query|url|input|prompt|parameter)\b/i.test(e) || /missing required/i.test(e) },
   { cause: "unsupported", test: (e) => /only http and https/i.test(e) || /unsupported (protocol|scheme|url)/i.test(e) },
+  // 语言运行时抛出来的异常文本，说明是工具内部炸了；放在 not_found / upstream 之前，
+  // 因为异常消息里也可能顺带出现 "not found" 一类字样
+  {
+    cause: "tool_bug",
+    test: (e) =>
+      /Cannot read propert|is not a function|is not defined|is not iterable|\b(TypeError|ReferenceError|RangeError)\b/i.test(
+        e,
+      ),
+  },
   { cause: "not_found", test: (e) => /\b(HTTP\s*)?404\b/.test(e) || /not found/i.test(e) },
   {
     cause: "upstream",
@@ -70,8 +82,8 @@ export function classifyFailure(error: string): FailureCause {
   return "unknown";
 }
 
-/** 类别展示顺序：先摆能改代码/提示词治好的，再摆外部因素，未归类垫底 */
-const CAUSE_ORDER: FailureCause[] = ["bad_args", "unsupported", "upstream", "not_found", "unknown"];
+/** 类别展示顺序：先摆能改代码/提示词治好的，再摆工具与外部因素，未归类垫底 */
+const CAUSE_ORDER: FailureCause[] = ["bad_args", "unsupported", "tool_bug", "upstream", "not_found", "unknown"];
 
 /**
  * 按归因分组。组间按 CAUSE_ORDER，组内按时间倒序（最近的先看到）。

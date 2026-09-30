@@ -3,7 +3,10 @@
  * 检查项：系统提示词不同、工具集不重叠、会话中实际启用的工具与配置一致。
  * 运行：pnpm verify:agents
  */
-import { loadRuntimeConfig, createTaxAgentSession } from "@tax/agent-core";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { loadRuntimeConfig, createTaxAgentSession, readPromptFile } from "@tax/agent-core";
 import { resolveCommunityExtensions } from "../src/extensions.ts";
 import rdAuditAgent from "@tax/agent-rd-audit";
 import landVatAgent from "@tax/agent-land-vat";
@@ -44,6 +47,63 @@ for (const agent of agents) {
   pass = pass && same && noBuiltin;
   session.dispose();
 }
+
+const failures: string[] = [];
+function ok(name: string, cond: boolean, detail = ""): void {
+  if (!cond) failures.push(`${name}${detail ? `: ${detail}` : ""}`);
+}
+
+// 系统提示词必须是惰性 getter。在模块顶层 readFileSync 会让「改完 .md 不重启就不生效」，而且
+// 没有任何提示——实测 API 进程 23:07:31 启动、两份 system-prompt.md 23:28 才改，之后跑的仍是
+// 21 分钟前的旧提示词（tsx watch 盯的是 import 图，readFileSync 读的 .md 不在里面）。
+for (const agent of agents) {
+  const desc = Object.getOwnPropertyDescriptor(agent, "systemPrompt");
+  ok(
+    `${agent.shortName} 的 systemPrompt 是 getter（改完 .md 下个任务即生效，不必重启）`,
+    typeof desc?.get === "function",
+  );
+  ok(
+    `${agent.shortName} 的提示词确实读到了内容`,
+    (agent.systemPrompt ?? "").trim().length > 200,
+    `${(agent.systemPrompt ?? "").length} 字`,
+  );
+}
+
+// 缓存按 mtime + 大小失效：只比 mtime 时，同一毫秒内改写可能分辨不出来
+const tmpPrompt = path.join(os.tmpdir(), `taxai-prompt-cache-${process.pid}.md`);
+const V2 = "第二版（内容更长，确保大小也变了）";
+fs.writeFileSync(tmpPrompt, "第一版");
+ok("首次读取拿到内容", readPromptFile(tmpPrompt) === "第一版");
+ok("未修改时重复读取内容一致（走缓存）", readPromptFile(tmpPrompt) === "第一版");
+fs.writeFileSync(tmpPrompt, V2);
+ok("文件改动后再次读取拿到新内容", readPromptFile(tmpPrompt) === V2);
+fs.rmSync(tmpPrompt, { force: true });
+
+// 照着 7 条真实工具失败写进提示词的约束不能被悄悄删掉：其中 3 条是模型猜错 get_search_content
+// 的参数组合、1 条是拿 file:// 本地路径去调远程抓取，都属于「提示词能治」的那一类
+const PROMPT_RULES: Array<[string, string]> = [
+  ["get_search_content 必须带 responseId", "responseId"],
+  ["定位参数四选一（urlIndex）", "urlIndex"],
+  ["定位参数四选一（queryIndex）", "queryIndex"],
+  ["findText 是过滤器不是定位参数", "不能用来定位"],
+  ["findText 不得传 JSON 字符串化的数组", "JSON.stringify"],
+  ["两种误用的报错原文（便于模型自查）", "No URL specified"],
+  ["禁止拿 file:// 本地路径远程抓取", "file://"],
+  ["本地上传资料改用 parse_uploaded_files", "parse_uploaded_files"],
+  ["HTTP 404 的处置", "HTTP 404"],
+  ["HTTP 412 的处置与自有通道兜底", "HTTP 412"],
+];
+for (const [name, needle] of PROMPT_RULES) {
+  for (const agent of agents) {
+    ok(`${agent.shortName} 提示词含「${name}」`, agent.systemPrompt.includes(needle));
+  }
+}
+
+console.log(
+  `[verify] 提示词惰性加载与联网约束检查项=${PROMPT_RULES.length * agents.length + 2 * agents.length + 3} 失败=${failures.length}`,
+);
+for (const f of failures.slice(0, 20)) console.log(`  - ${f}`);
+pass = pass && failures.length === 0;
 
 console.log(pass ? "\n[PASS] 两个 Agent 相互独立，且未启用 Pi 内置系统操作工具。" : "\n[FAIL] Agent 独立性验证未通过。");
 process.exitCode = pass ? 0 : 1;

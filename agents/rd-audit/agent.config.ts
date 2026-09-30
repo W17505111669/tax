@@ -1,10 +1,10 @@
-import fs from "node:fs";
 import type { TaxAgentConfig } from "@tax/agent-core";
+import { readPromptFile } from "@tax/agent-core";
 import { sharedWebTools } from "@tax/business-tools";
 import { rdTools } from "./tools/rd-tools.ts";
 import { searchRdPolicyTool } from "./tools/policy-tools.ts";
 
-const systemPrompt = fs.readFileSync(new URL("./system-prompt.md", import.meta.url), "utf8");
+const systemPromptFile = new URL("./system-prompt.md", import.meta.url);
 
 export const rdAuditAgent: TaxAgentConfig = {
   id: "rd-audit",
@@ -20,7 +20,11 @@ export const rdAuditAgent: TaxAgentConfig = {
     "异常事项与待复核清单输出",
   ],
   accent: "#0f766e",
-  systemPrompt,
+  // 惰性读取，不在模块顶层 readFileSync：改完 system-prompt.md 下一个任务就生效，不必重启 API。
+  // agent-factory 里是 `systemPromptOverride: () => agent.systemPrompt`，每次建会话都会重新取值。
+  get systemPrompt() {
+    return readPromptFile(systemPromptFile);
+  },
   tools: [...rdTools, searchRdPolicyTool],
   sharedTools: sharedWebTools,
   samplePrompts: [

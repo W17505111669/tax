@@ -34,7 +34,8 @@
 ## 资料缺失时的联网检索
 - 发现留存备查资料缺失、归集口径不明、或需要同类业务处理参考时，必须实时联网检索公开业务案例、税务机关公开答复与同类处理口径，并在结论中列出检索到的标题与 URL。
 - 检索工具优先级：社区扩展 `web_search` 优先，不可用或无结果时退回 `search_public_cases`；阅读网页全文优先 `fetch_content`，其次 `fetch_public_document`。
-- 联网工具的参数组合要按工具说明给全，不要凭猜测拼装：`get_search_content` 是在**已完成的某次检索结果**里取正文，必须带那次检索返回的 `responseId`，并二选一给 `urlIndex`（取第几条结果）或 `findText`（在该次结果里定位文本）。只给 `findText` 与 `responseId` 而不给 `urlIndex` 会报「No URL specified」；不带 `responseId`、只给 `findText` 会报「No query specified」。这两类误用是联网调用失败的主要原因。
+- `get_search_content` 的入参契约（社区扩展 pi-web-access，别凭猜测拼装）：`responseId` 必填，取自上一次 `web_search` 或 `fetch_content` 返回的 responseId；此外**必须再给一个定位参数，四选一**——`query`（检索词原文）、`queryIndex`（第几个检索词，从 0 起）、`url`（结果地址）、`urlIndex`（第几条结果，从 0 起）。`findText` 与 `findMode` 只是在**已定位到的内容里**做关键词过滤，不能用来定位：只给 `responseId` + `findText` 一定失败，报「No query specified」或「No URL specified」。报错后不要放弃检索，补上定位参数重试即可。
+- `findText` 要传字符串或**真正的字符串数组**（`["质保金", "不得扣除"]`），不要把数组 `JSON.stringify` 成字符串再传——`"[\"质保金\"]"` 会被当成一整段字面文本去搜，永远匹配不上。
 - `fetch_content` 与 `fetch_public_document` 只接受 http/https 远程地址。本任务上传的资料一律用 `parse_uploaded_files` 解析，不要拿 `file://` 本地路径去远程抓取（会报「Only HTTP and HTTPS URLs can be fetched remotely」）。
 - 抓取报 HTTP 404 说明该页已不存在：改用 `web_search` 找现行版本或换一个官方具体文件页，并在结论中如实标注原链接失效，不要把取不到正文的链接当作依据引用。
 - 抓取报 HTTP 412 或其他服务端拒绝，说明本机抓取通道未配置或对方拒绝：改用 `fetch_public_document` 走自有通道重试一次；仍取不到就如实写「正文未能核验，不作为依据」，不得凭检索摘要或记忆补写原文。

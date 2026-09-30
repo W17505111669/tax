@@ -89,6 +89,9 @@
 | 渲染实测B 双口径对照 | rd-audit | DEMO-001 | completed | search_rd_policy → calculate_rd_adjustment | — | — |
 | 渲染实测C 关系图 | rd-audit | DEMO-001 | completed | — | — | — |
 | 渲染实测D 归属假设演算 | land-vat | DEMO-001 | waiting_review | match_contract_invoice → render_matching_diagram | — | — |
+| 提示词实测E 检索结果内定位正文 | rd-audit | DEMO-001 | completed | search_rd_policy → web_search → parse_uploaded_files → get_search_content(!) → fetch_content → get_search_content → get_search_content → get_search_content → fetch_public_document → fetch_public_document → fetch_content(!) | — | — |
+| 提示词实测F 检索结果内定位正文 | land-vat | DEMO-001 | completed | web_search → get_search_content(!) → get_search_content → get_search_content → get_search_content → get_search_content → get_search_content → web_search → get_search_content → web_search → get_search_content | — | — |
+| 提示词实测G 修正契约后复测 | rd-audit | DEMO-001 | completed | parse_uploaded_files → web_search → search_rd_policy → get_search_content → get_search_content → web_search → fetch_content(!) → fetch_public_document | — | — |
 
 ## 四、准确率统计（记录级比对口径）
 

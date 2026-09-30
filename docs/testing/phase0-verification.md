@@ -1406,3 +1406,64 @@ curl -L -o data/ocr-tessdata/eng.traineddata https://cdn.jsdelivr.net/gh/tessera
 验证方式也换对了：`dev.logs` 的计数不可靠（React 对同一条告警去重、导航之间缓冲不重置），改成**开一个全新标签页**——日志缓冲是干净的，加载 1 个任务结果页后 error/warn 总数 **0**，再连续加载 5 个页面（含 result / review / timeline 三种页签与两个作品的总览）仍是 **0**。上一节那条告警与侧栏嵌套 button 的告警都确认消失。
 
 一条方法论：**运行时看不见的东西，先问它是不是静态可判的。** 缺 key、缺 `alt`、写了 `any`、忘了 `await`——这类问题的共同点是「页面上完全正常」，靠点点点永远不会发现，但源码里一目了然。与其在浏览器里想办法抓栈，不如把判据写成扫描器，顺便永久守住。
+
+## 提示词改了不生效，而我上一轮把工具契约写错了
+
+要验证上一轮补进系统提示词的联网工具约束是否生效，先撞上一个更基础的问题：**改了根本没生效**。API 进程 23:07:31 启动，两份 `system-prompt.md` 23:28:53 / 23:29:07 才改——`tsx watch` 盯的是 import 图，`fs.readFileSync` 读的 `.md` 不在里面，所以进程没重启，之后 21 分钟跑的都是旧提示词。提示词是在模块顶层一次性读进 `const` 的，改文件对已启动的进程完全没有影响，而且没有任何提示。
+
+这比「没改」更危险：没改你知道没改，改了不生效你会以为「提示词这条路走不通」，从而得出错误结论。
+
+修法是根治而不是每次手动重启：`agent-factory` 里本来就是 `systemPromptOverride: () => agent.systemPrompt`，**每次建会话都重新取值**，所以把 `systemPrompt` 从「顶层常量」改成「getter」即可，消费方零改动。新增 `packages/agent-core/src/prompt-file.ts` 的 `readPromptFile`，按「mtime + 大小」缓存——只比 mtime 时，同一毫秒内改写成同样长度会分辨不出。两个 `agent.config.ts` 各改成：
+
+```ts
+const systemPromptFile = new URL("./system-prompt.md", import.meta.url);
+export const rdAuditAgent: TaxAgentConfig = {
+  get systemPrompt() { return readPromptFile(systemPromptFile); },
+};
+```
+
+### 上一轮写进提示词的契约本身是错的
+
+三个实测任务（E / F 用旧提示词，G 用改后的）跑出来一个意外结论：**第一次尝试仍然失败**。E 与 F 的首次 `get_search_content` 都是 `findText + responseId`、都报错，之后模型自行补上定位参数重试成功。看成功过的参数组合——`responseId+urlIndex`、`findText+responseId+urlIndex`、`responseId+url`、`findText+queryIndex+responseId`——才发现问题在我写的规则上。
+
+上一轮我照着 7 条失败样本归纳成「二选一给 `urlIndex` 或 `findText`」。**样本推不出契约**：`findText` 根本不是定位参数。去读扩展源码（`pi-web-access/index.ts` 的 `GetSearchContentParams`）拿到权威定义：
+
+```ts
+interface GetSearchContentParams {
+  responseId: string;              // 必填
+  query?: string;  queryIndex?: number;   // 定位参数，四选一
+  url?: string;    urlIndex?: number;
+  offset?: number; limit?: number;        // 分页
+  findText?: string | string[];  findMode?: FindMode;   // 只是已定位内容里的过滤器
+}
+```
+
+即：`responseId` 之外必须再给一个**定位**参数（四选一），`findText` / `findMode` 只在已定位到的内容里做关键词过滤。我那句「二选一给 urlIndex 或 findText」等于告诉模型「只给 findText 就行」，不但没治住误用，还可能诱导它。两份提示词按真实契约重写，并补一条：`findText` 要传字符串或**真正的数组**，不要 `JSON.stringify` 成字符串——历史失败里模型传的正是 `"[\"质保金\", \"质量保证金\"]"`，那会被当成一整段字面文本去搜，永远匹配不上。
+
+### 复测：G 任务同时验证了两件事
+
+G 任务（`rd-audit`，同样的诱发指令，**API 全程未重启**）：8 次工具调用，`get_search_content` 调用 2 次，**两次首次尝试就带对了定位参数**（`findText+responseId+urlIndex`、`findText+responseId+url`），`findText` 0 次被传成 JSON 字符串，参数误用失败 **0 次**（E/F 是 2 个任务各失败 1 次）。
+
+时序可以钉死惰性加载确实生效：进程 00:13:48 启动（晚于 `agent.config.ts` 00:13:37 与 `prompt-file.ts` 00:12:55，所以跑的是新代码），提示词 00:22:59 修改（**晚于进程启动 9 分钟**），G 任务在此之后创建执行并按新契约调用。
+
+E / F 也留下一个有用的观察：模型在报错后自行改正并重试成功，两个任务都 `completed` 且结论完整（4458 / 4192 字）。提示词里「报错后不要放弃检索，补上定位参数重试」这句起了作用；但让它**第一次就对**的，是把契约写准，而不是靠它自己试错。
+
+### G 还暴露了一类新失败：工具自己炸了
+
+G 的唯一一次失败是 `fetch_content` 抛 `Cannot read properties of null (reading 'tagName')`——社区扩展内部的未捕获异常，既不是入参问题也不是对方资源问题。归因分类补第五类 `tool_bug`，处置建议写明「换同类工具重试（`fetch_content` → `fetch_public_document`），记录扩展版本与触发页面以便向上游反馈，不要反复重试同一个工具」。模型这次已经自己回退到 `fetch_public_document` 并成功取到正文，与提示词里的兜底路径一致。
+
+### 上一轮漏配的门禁
+
+`tool-failures.ts` 是随失败面板一起加的，**当时没有配验证脚本**——分类规则一条断言都没有，改错了不会有人知道。补 `verify:tfails`（41 项）：断言用的错误正文全部取自库里真实出现过的失败，不是编的样例（分类规则本来就是照着这些样本写的，用别的字符串测等于没测）；类别表自洽（每类都有标签与含「处置」动作的建议、标签互不重复）；分组顺序确定、组内按时间倒序、同一批输入两次结果一致；`fixableByUs` 只算改提示词能治的两类，工具内部异常与外部因素不算；最后走查全库失败，断言**没有「未归类」**——出现未归类就说明遇到了没见过的错误模式，该补规则而不是放着。当前 11 条真实失败归类为：模型传错参数 5 · 用法不支持 1 · 工具内部异常 1 · 外部服务拒绝或未配置 1 · 外部资源不存在 3。
+
+`verify:agents` 也补了：两个作品的 `systemPrompt` 必须是 getter、`readPromptFile` 的缓存在文件变动后确实失效、以及照着真实失败写进提示词的 10 条联网约束不能被悄悄删掉（共 27 项）。
+
+### 顺带把上一轮那条 key 告警的判定收口
+
+上一轮用全新标签页测得 0 条告警。这一轮在旧标签页里又看到 1 条，需要判定它是陈旧的还是活跃的。办法是**整页重载前后的计数差**：重载会重置 React 的告警去重状态，但 `dev.logs` 缓冲不随之重置——两次重载（任务结果页 + 作品总览）后计数都停在 1、增量均为 0，说明当前代码不再触发，那 1 条是修复前留下的。
+
+三条方法论：
+
+1. **「改了不生效」比「没改」更危险。** 没改你知道没改；改了不生效你会以为这条路走不通，进而得出错误结论。凡是「配置文件 + 常驻进程」的组合，动手前先确认加载时机；能让它惰性加载就别靠人记得重启。
+2. **给别人（包括模型）写约束之前先读契约源码。** 从失败样本归纳规则，样本量不足以推出真实契约——我照 7 条样本写出「二选一」，规则本身是错的，反而可能诱导失败。读 20 行 interface 就能拿到权威答案，比归纳便宜也更准。
+3. **静态扫描报 0 不等于运行时干净，运行时看到的也可能是陈旧日志。** 判定「是否仍活跃」要用重载前后的计数差，不能用缓冲区的绝对值。

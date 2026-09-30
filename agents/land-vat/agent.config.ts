@@ -1,9 +1,9 @@
-import fs from "node:fs";
 import type { TaxAgentConfig } from "@tax/agent-core";
+import { readPromptFile } from "@tax/agent-core";
 import { sharedWebTools } from "@tax/business-tools";
 import { landVatTools } from "./tools/lv-tools.ts";
 
-const systemPrompt = fs.readFileSync(new URL("./system-prompt.md", import.meta.url), "utf8");
+const systemPromptFile = new URL("./system-prompt.md", import.meta.url);
 
 export const landVatAgent: TaxAgentConfig = {
   id: "land-vat",
@@ -19,7 +19,11 @@ export const landVatAgent: TaxAgentConfig = {
     "原始 Excel 底稿模板保留式填列",
   ],
   accent: "#9a3412",
-  systemPrompt,
+  // 惰性读取，不在模块顶层 readFileSync：改完 system-prompt.md 下一个任务就生效，不必重启 API。
+  // agent-factory 里是 `systemPromptOverride: () => agent.systemPrompt`，每次建会话都会重新取值。
+  get systemPrompt() {
+    return readPromptFile(systemPromptFile);
+  },
   tools: landVatTools,
   sharedTools: sharedWebTools,
   taskToolKits: ["documents", "template", "extract"],
