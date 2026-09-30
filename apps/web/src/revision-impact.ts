@@ -11,6 +11,7 @@
 
 import { gradeCitation } from "./citation-grade.ts";
 import { extractDocRefs } from "./policy-trace.ts";
+import { disclaimedWeakUrls } from "./ref-check.ts";
 import { extractTextCitations, UNCAPPED } from "./search-evidence.ts";
 
 export type EvidenceSnapshot = {
@@ -19,6 +20,8 @@ export type EvidenceSnapshot = {
   official: number;
   professional: number;
   weak: number;
+  /** weak 中已在同一段正文里写明「仅作背景参考，不作为政策依据」的条数：不算质量退步 */
+  weakDisclaimed: number;
   /** 结论正文里出现的政策文号数（按核心去重） */
   docRefs: number;
 };
@@ -29,8 +32,19 @@ export function evidenceSnapshot(text: string): EvidenceSnapshot {
   // 实测一次写回真加了 2 条官方原文（全量 official 11 → 13），却因前 20 条窗口挪动被算成
   // official 11 → 10，判为「证据质量退步」，把假警报送进了交付自检与整页 MD。
   const cites = extractTextCitations(text, UNCAPPED);
-  const out: EvidenceSnapshot = { citations: cites.length, official: 0, professional: 0, weak: 0, docRefs: 0 };
+  const out: EvidenceSnapshot = {
+    citations: cites.length,
+    official: 0,
+    professional: 0,
+    weak: 0,
+    weakDisclaimed: 0,
+    docRefs: 0,
+  };
   for (const c of cites) out[gradeCitation(c.url, c.title).grade] += 1;
+  // 已声明为背景参考的弱证据不参与质量判断：模型一边补官方原文、一边把查不到原文的词条如实标注，
+  // 这是修订指令要求的动作，按弱证据原始条数算就会判成「有增有减」（实测 aabd138a 一轮补了
+  // 官方来源、新增 2 条已当场标注的弱证据，被判为质量有增有减并要求人工核对）
+  out.weakDisclaimed = disclaimedWeakUrls(cites, text).size;
   out.docRefs = extractDocRefs(text).length;
   return out;
 }
@@ -41,10 +55,12 @@ export type EvidenceDelta = {
   citations: number;
   official: number;
   weak: number;
+  /** 待处置弱证据（weak - weakDisclaimed）的变化：质量判断按这个，不按原始条数 */
+  weakOpen: number;
   docRefs: number;
-  /** 至少一项改善：弱证据减少、官方原文增加或政策文号出处增加 */
+  /** 至少一项改善：待处置弱证据减少、官方原文增加或政策文号出处增加 */
   improved: boolean;
-  /** 出现退步：弱证据增加、官方原文减少或政策文号出处减少 */
+  /** 出现退步：待处置弱证据增加、官方原文减少或政策文号出处减少 */
   regressed: boolean;
   /** 证据质量持平：三项都没变（引用合计的变化仍会在明细里给出） */
   unchanged: boolean;
@@ -55,18 +71,22 @@ export function evidenceDelta(before: EvidenceSnapshot, after: EvidenceSnapshot)
   const citations = after.citations - before.citations;
   const official = after.official - before.official;
   const weak = after.weak - before.weak;
+  const weakOpen = after.weak - after.weakDisclaimed - (before.weak - before.weakDisclaimed);
   const docRefs = after.docRefs - before.docRefs;
   // 判断看证据质量与可溯源性：弱证据减少、官方原文增加、政策文号出处增加都算改善；
   // 反过来弱证据增加、官方原文减少、文号出处减少都算退步。引用总条数本身不计入——
   // 「多引了几条同样强度的来源」不是质量变化，计入反而会让三种判断出现都不成立的空档。
-  const improved = weak < 0 || official > 0 || docRefs > 0;
-  const regressed = weak > 0 || official < 0 || docRefs < 0;
+  // 弱证据按「待处置」算：已在正文里声明为背景参考的既不是依据、也不再催办，
+  // 把它们计进退步就会把「如实标注」这件事判成质量下降
+  const improved = weakOpen < 0 || official > 0 || docRefs > 0;
+  const regressed = weakOpen > 0 || official < 0 || docRefs < 0;
   return {
     before,
     after,
     citations,
     official,
     weak,
+    weakOpen,
     docRefs,
     improved,
     regressed,
@@ -91,6 +111,7 @@ export function deltaVerdict(d: EvidenceDelta): string {
 export function deltaDetail(d: EvidenceDelta): string {
   return [
     `弱证据引用 ${d.before.weak} → ${d.after.weak}（${signed(d.weak)}）`,
+    `其中已声明为背景参考 ${d.before.weakDisclaimed} → ${d.after.weakDisclaimed}、待处置 ${signed(d.weakOpen)}`,
     `官方来源 ${d.before.official} → ${d.after.official}（${signed(d.official)}）`,
     `引用合计 ${d.before.citations} → ${d.after.citations}（${signed(d.citations)}）`,
     `政策文号 ${d.before.docRefs} → ${d.after.docRefs}（${signed(d.docRefs)}）`,

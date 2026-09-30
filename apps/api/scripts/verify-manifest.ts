@@ -169,8 +169,8 @@ const base: ManifestInput = {
     checkedAt: "2026-09-29T03:00:00.000Z",
   },
   revision: {
-    before: { citations: 3, official: 1, professional: 1, weak: 1, docRefs: 2 },
-    after: { citations: 3, official: 2, professional: 1, weak: 0, docRefs: 2 },
+    before: { citations: 3, official: 1, professional: 1, weak: 1, weakDisclaimed: 0, docRefs: 2 },
+    after: { citations: 3, official: 2, professional: 1, weak: 0, weakDisclaimed: 0, docRefs: 2 },
     verdict: "证据质量改善",
   },
   amounts: { total: 10, traced: 8, fromInput: 1, pending: 1, acked: 0 },

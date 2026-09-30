@@ -4,6 +4,7 @@
  * 运行：pnpm verify:revimpact
  */
 import {
+  deltaDetail,
   deltaText,
   deltaVerdict,
   evidenceDelta,
@@ -41,8 +42,43 @@ expect("弱证据条数（百科 + 门户栏目页）", s.weak, 2);
 expect("专业来源条数", s.professional, 0);
 expect("文号数", s.docRefs, 2);
 expect("四项分级之和等于引用数", s.official + s.professional + s.weak, s.citations);
-expect("空文本快照", evidenceSnapshot(""), { citations: 0, official: 0, professional: 0, weak: 0, docRefs: 0 });
+expect("空文本快照", evidenceSnapshot(""), {
+  citations: 0,
+  official: 0,
+  professional: 0,
+  weak: 0,
+  weakDisclaimed: 0,
+  docRefs: 0,
+});
 expect("没有链接的文本只算文号", evidenceSnapshot("按财税〔2015〕119号执行").citations, 0);
+// 新增的弱证据若已在同一段正文里声明为背景参考，就不算质量退步：那正是修订指令要求的动作
+//（实测 aabd138a 一轮补了官方来源、新增 2 条当场标注的弱证据，被判成「有增有减，请核对」）
+const labelBefore = "依据见 https://fgk.chinatax.gov.cn/zcfgk/c1/content.html";
+const labelAfter = [
+  "依据见 https://fgk.chinatax.gov.cn/zcfgk/c1/content.html 与 https://www.gov.cn/zhengce/a.html",
+  "",
+  "## 未取得公开原文的项目",
+  "",
+  "| 项目 | URL | 说明 |",
+  "| 研发_百度百科 | https://baike.baidu.com/item/x | 未取得公开原文，仅作背景参考，不作为政策依据 |",
+  "| 研发 - MBA智库百科 | https://wiki.mbalib.com/wiki/y | 仅作背景参考，不作为政策依据 |",
+].join("\n");
+const labeled = evidenceDelta(evidenceSnapshot(labelBefore), evidenceSnapshot(labelAfter));
+expect("原始弱证据条数照实给出", labeled.weak, 2);
+expect("已声明的两条不计入待处置", labeled.weakOpen, 0);
+expect("补了官方原文且新增弱证据均已声明 → 判改善", deltaVerdict(labeled), "证据质量改善");
+ok(
+  "明细同时给出原始条数、已声明与待处置",
+  deltaDetail(labeled).includes("弱证据引用 0 → 2") &&
+    deltaDetail(labeled).includes("其中已声明为背景参考 0 → 2、待处置 0"),
+  deltaDetail(labeled),
+);
+const unlabeled = evidenceDelta(
+  evidenceSnapshot(labelBefore),
+  evidenceSnapshot("依据见 https://fgk.chinatax.gov.cn/zcfgk/c1/content.html 与 https://baike.baidu.com/item/x"),
+);
+expect("新增弱证据没声明 → 仍判退步", unlabeled.regressed, true);
+expect("没声明时待处置数跟着涨", unlabeled.weakOpen, 1);
 
 // 2) 差值与总体判断
 // 修订后：百科词条换成政策法规库原文（标题也一并换掉——只换地址而标题仍写「百度百科」时，
@@ -59,6 +95,7 @@ expect("文号数不变", d.docRefs, 0);
 expect("判定为改善", [d.improved, d.regressed], [true, false]);
 expect("改善文案", deltaVerdict(d), "证据质量改善");
 ok("对比文本含前后值与差值", deltaText(d).includes("弱证据引用 2 → 1（-1）"), deltaText(d));
+ok("对比文本给出已声明与待处置的拆分", deltaText(d).includes("其中已声明为背景参考 0 → 0、待处置 -1"), deltaText(d));
 ok("对比文本以判断开头", deltaText(d).startsWith("证据质量改善："), deltaText(d).slice(0, 20));
 
 expect("同一文本对比为质量持平", deltaVerdict(evidenceDelta(s, s)), "证据质量持平（弱证据与官方来源条数未变）");
