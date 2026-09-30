@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { db, nowIso } from "../db.ts";
+import { buildDerivedFrom, isTemplateCompare } from "./compare-stats.ts";
 
 export interface TaskIssue {
   id: string;
@@ -27,13 +28,45 @@ function fmtVal(v: unknown): string {
  * - 业务工具返回的 details.issues（账账差异、资料缺失、未匹配等）
  * - compare_workpapers 返回的差异/单方缺失格
  * 同一问题跨多次调用去重（按 source+type+description）。
+ *
+ * 两道过滤，都是为了让这份清单只列**当前还需要人看**的项：没有结论的任务整条不列，比对类问题只取
+ * 最近一次与人工底稿的比对。改之前全平台 135 条待复核里，43 条来自一个 failed 任务、15 条来自
+ * 与自身模板的比对、还有一批来自被后续运行取代的旧比对——真正要人看的项被埋在里面。
  */
 export function extractIssues(taskId: string): TaskIssue[] {
+  // 没有结论就没有可交付物：失败或中断那次运行留下的差异与缺失项是残渣，不是待复核欠账
+  //（与「没有结论的任务不计证据欠账」同一条口径）。直接读库而不走 task-store：task-store 反过来
+  // 依赖本模块的 pendingReviewCount，互相 import 会成环
+  const taskRow = db.prepare(`SELECT result FROM tasks WHERE id = ?`).get(taskId) as
+    | { result: string | null }
+    | undefined;
+  if (String(taskRow?.result ?? "").trim() === "") return [];
+
   const calls = db
-    .prepare(`SELECT id, tool_name, result FROM tool_calls WHERE task_id = ? AND ok = 1 AND result IS NOT NULL ORDER BY started_at ASC`)
-    .all(taskId) as unknown as Array<{ id: string; tool_name: string; result: string }>;
+    .prepare(
+      `SELECT id, tool_name, args, result, started_at FROM tool_calls
+        WHERE task_id = ? AND ok = 1 AND result IS NOT NULL ORDER BY started_at ASC`,
+    )
+    .all(taskId) as unknown as Array<{
+    id: string;
+    tool_name: string;
+    args: string | null;
+    result: string;
+    started_at: string | null;
+  }>;
 
   const seen = new Map<string, TaskIssue>();
+
+  // 比对类问题只取最近一次「与人工底稿」的比对：
+  // 1. 与自己的原始模板比对不算问题——模板本来是空的，「只有一侧有」正是填进去的值；
+  // 2. 同一任务反复比对时，早先那次的差异已被后来那次取代（实测 aabd138a 09-29 05:57 那次有 48 处
+  //    「仅系统底稿」，06:36 重跑后只剩 1 处差异；留着旧的那些，等于让人复核一个已经不存在的状态）。
+  // calls 已按 started_at 升序，最后一条即最近一次
+  const derived = buildDerivedFrom(calls);
+  const peerCompares = calls.filter(
+    (c) => c.tool_name === "compare_workpapers" && !isTemplateCompare(c.args, derived),
+  );
+  const latestCompareId = peerCompares.length > 0 ? peerCompares[peerCompares.length - 1]!.id : null;
 
   for (const call of calls) {
     let parsed: unknown;
@@ -62,6 +95,7 @@ export function extractIssues(taskId: string): TaskIssue[] {
 
     const sheets = (parsed as { sheets?: unknown } | null)?.sheets;
     if (Array.isArray(sheets)) {
+      if (call.id !== latestCompareId) continue;
       sheets.forEach((s, si) => {
         const diffs = (s as { diffs?: unknown }).diffs;
         if (!Array.isArray(diffs)) return;

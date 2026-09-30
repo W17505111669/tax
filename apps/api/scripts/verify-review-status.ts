@@ -5,13 +5,16 @@
  * 运行：pnpm verify:review
  */
 import {
+  extractIssues,
   needsReopenReview,
   pendingReviewCount,
   pendingReviewIssues,
   selectReopenTargets,
 } from "../src/services/issues.ts";
-import { listTasks } from "../src/services/task-store.ts";
+import { getTask, listTasks } from "../src/services/task-store.ts";
 import { computePlatformStats } from "../src/services/stats.ts";
+import { buildDerivedFrom, isTemplateCompare } from "../src/services/compare-stats.ts";
+import { db } from "../src/db.ts";
 
 const failures: string[] = [];
 let checks = 0;
@@ -96,9 +99,39 @@ expect(
   stats.reviewBacklog.length,
 );
 
+// 待复核清单只列「当前还需要人看」的项。两条过滤都得有断言盯着，否则清单会重新长回一百多条：
+// 实测改之前 135 条里有 43 条来自一个 failed 任务（没有结论，那次运行的差异是残渣）、
+// 15 条来自「与自己的原始模板比对」（只有一侧有的格子正是填进去的值，不是问题）、
+// 其余多是同一任务反复比对时早先那一次留下的、已经被后来那次取代的差异
+let noConclusionViolations = 0;
+let staleCompareIssues = 0;
+let compareIssues = 0;
+for (const t of tasks) {
+  const issues = extractIssues(t.id);
+  const hasConclusion = String(getTask(t.id)?.result ?? "").trim() !== "";
+  if (!hasConclusion && issues.length > 0) noConclusionViolations += issues.length;
+  const rows = db
+    .prepare(
+      `SELECT id, tool_name, args FROM tool_calls
+        WHERE task_id = ? AND ok = 1 AND result IS NOT NULL ORDER BY started_at ASC`,
+    )
+    .all(t.id) as unknown as Array<{ id: string; tool_name: string; args: string | null }>;
+  const derived = buildDerivedFrom(rows);
+  const peers = rows.filter((c) => c.tool_name === "compare_workpapers" && !isTemplateCompare(c.args, derived));
+  const latestId = peers.length > 0 ? peers[peers.length - 1]!.id : null;
+  for (const i of issues) {
+    if (i.source !== "compare_workpapers") continue;
+    compareIssues += 1;
+    if (i.id.split(":")[0] !== latestId) staleCompareIssues += 1;
+  }
+}
+expect("没有结论的任务不列待复核问题", noConclusionViolations, 0);
+expect("比对类问题只来自最近一次与人工底稿的比对", staleCompareIssues, 0);
+
 console.log(
   `[verify] 任务数=${tasks.length} 待复核态=${waiting} 完成但仍需重开复核=${reopenable} 待复核问题合计=${totalPending}`,
 );
+console.log(`[verify] 其中比对类问题 ${compareIssues} 条（均来自各任务最近一次与人工底稿的比对）`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  - ${f}`);
   console.log("[FAIL] 复核状态一致性检查失败");

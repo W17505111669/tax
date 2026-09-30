@@ -30,10 +30,15 @@ function ok(name: string, cond: boolean, detail = ""): void {
   if (!cond) failures.push(`${name}${detail ? `: ${detail}` : ""}`);
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyDetails = any;
-const detailsOf = async (tool: { execute: (id: string, p: never) => Promise<unknown> }, params: unknown): Promise<AnyDetails> =>
-  ((await tool.execute("verify", params as never)) as { details?: AnyDetails }).details;
+// 工具的 execute 由 SDK 定义（除 id 与入参外还有若干上下文参数），这里只关心 details 与正文，
+// 因此按宽松签名包装一次，避免为了跑断言去凑 SDK 的完整参数表
+/* eslint-disable @typescript-eslint/no-explicit-any */
+type AnyTool = { execute: (...args: any[]) => Promise<{ details?: any; content?: Array<{ text?: string }> }> };
+const asTool = (t: unknown): AnyTool => t as AnyTool;
+const matchTool = asTool(matchContractInvoiceTool);
+const ledgerTool = asTool(matchInvoiceLedgerTool);
+const consistencyTool = asTool(checkAmountConsistencyTool);
+const detailsOf = async (tool: AnyTool, params: unknown): Promise<any> => (await tool.execute("verify", params)).details;
 
 // 1) 合同发票关联：逐份合同的金额与差异 + 三个总计
 const contracts = [
@@ -48,7 +53,7 @@ const invoices = [
   { invoiceNo: "FP-004", contractNo: "", amountYuan: "500000.00" },
   { invoiceNo: "FP-005", contractNo: "HT-999", amountYuan: "300000.00" },
 ];
-const d = await detailsOf(matchContractInvoiceTool, { projectName: "样例项目", contracts, invoices });
+const d = await detailsOf(matchTool, { projectName: "样例项目", contracts, invoices });
 expect("合同份数与发票张数如实回报", [d.contractCount, d.invoiceCount], [3, 5]);
 expect("合同号归一后仍能关联（小写与前后空格）", d.matched[0].invoiceTotalYuan, "11900000.00");
 expect("金额不一致判 difference_pending 并给出差额", [d.matched[0].status, d.matched[0].differenceYuan], [
@@ -93,10 +98,15 @@ ok(
   d.issues.some((i: { description: string }) => i.description.includes("HT-001") && i.description.includes("100000.00")),
   JSON.stringify(d.issues),
 );
-ok("工具正文里给出合计行，模型不必自己加", String((await matchContractInvoiceTool.execute("v", { projectName: "样例项目", contracts, invoices } as never) as { content: Array<{ text?: string }> }).content[0]?.text ?? "").includes("合计：合同金额 23800000.00 元"));
+ok(
+  "工具正文里给出合计行，模型不必自己加",
+  String((await matchTool.execute("v", { projectName: "样例项目", contracts, invoices })).content?.[0]?.text ?? "").includes(
+    "合计：合同金额 23800000.00 元",
+  ),
+);
 
 // 重复发票号
-const dup = await detailsOf(matchContractInvoiceTool, {
+const dup = await detailsOf(matchTool, {
   projectName: "重复号项目",
   contracts: [{ contractNo: "HT-001", contractName: "总承包", amountYuan: "1000.00" }],
   invoices: [
@@ -107,7 +117,7 @@ const dup = await detailsOf(matchContractInvoiceTool, {
 expect("发票号归一后识别为疑似重复", dup.summary.duplicateCount, 1);
 
 // 2) 发票与账面记录关联
-const ledger = await detailsOf(matchInvoiceLedgerTool, {
+const ledger = await detailsOf(ledgerTool, {
   invoices: [
     { invoiceNo: "FP-001", contractNo: "HT-001", amountYuan: "1000000.00" },
     { invoiceNo: "FP-002", contractNo: "HT-001", amountYuan: "100.00" },
@@ -131,7 +141,7 @@ expect(
 expect("汇总四项计数自洽", ledger.summary.exactCount + ledger.summary.candidateCount + ledger.summary.unmatchedCount, 2);
 
 // 3) 金额一致性检查
-const consistency = await detailsOf(checkAmountConsistencyTool, {
+const consistency = await detailsOf(consistencyTool, {
   items: [
     { label: "合同额", expectedYuan: "1000.00", actualYuan: "1000.00" },
     { label: "发票额", expectedYuan: "1000.00", actualYuan: "990.00" },
