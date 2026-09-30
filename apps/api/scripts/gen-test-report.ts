@@ -10,6 +10,8 @@ import { fileURLToPath } from "node:url";
 import { db } from "../src/db.ts";
 import { LEDGER_COLUMNS } from "../../web/src/evidence-ledger.ts";
 import { computePlatformStats } from "../src/services/stats.ts";
+import { summarizeTaskCompares, type CompareCall } from "../src/services/compare-stats.ts";
+import { compareRates, rateText } from "@tax/document-tools";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..", "..", "..");
@@ -248,53 +250,48 @@ let matchedTotal = 0;
 let mismatchTotal = 0;
 let onlyATotal = 0;
 let onlyBTotal = 0;
+// 「已填列底稿 vs 它自己的原始模板」那一类单独统计：模板本来是空的，只有一侧有的格子正是填进去的值
+let templateRuns = 0;
+let templateFilled = 0;
+let templateMismatched = 0;
 
 for (const task of tasks) {
   const calls = db
-    .prepare(`SELECT tool_name, ok FROM tool_calls WHERE task_id = ? ORDER BY started_at ASC`)
-    .all(task.id) as unknown as Array<{ tool_name: string; ok: number | null }>;
+    .prepare(`SELECT tool_name, ok, args, result, started_at FROM tool_calls WHERE task_id = ? ORDER BY started_at ASC`)
+    .all(task.id) as unknown as CompareCall[];
   const chain = calls.map((c) => `${c.tool_name}${c.ok === 1 ? "" : c.ok === 0 ? "(!)" : "(…)"}`).join(" → ") || "—";
 
-  const compares = db
-    .prepare(
-      `SELECT result FROM tool_calls
-        WHERE task_id = ? AND tool_name = 'compare_workpapers' AND ok = 1
-        ORDER BY started_at ASC`,
-    )
-    .all(task.id) as unknown as Array<{ result: string }>;
+  const compares = calls.filter((c) => c.tool_name === "compare_workpapers" && c.ok === 1);
   let accuracy = "—";
-  // 与平台统计同一口径：每个任务只取「最近一次记录级比对」计入合计。
-  // 原来取的是最后一次比对且不分模式，逐格比对排在后面时该任务就整个不计入，
+  // 与平台统计、作品说明共用 compare-stats.ts 那一份实现：每个任务只取「最近一次记录级比对」计入合计。
+  // 原来这里自己写过一遍，且取的是最后一次比对、不分模式，逐格比对排在后面时该任务就整个不计入，
   // 于是报告与看板给出两个累计准确率（实测 60% vs 33.33%）——是本脚本自己的 WARN 抓到的。
-  type Totals = {
-    compared?: number;
-    matched?: number;
-    mismatched?: number;
-    onlyA?: number;
-    onlyB?: number;
-    accuracyPercent?: number;
-  };
-  let lastRecord: Totals | null = null;
-  let lastAny: Totals | null = null;
-  for (const c of compares) {
-    try {
-      const parsed = JSON.parse(c.result) as { totals?: Totals; sheets?: Array<{ mode?: string }> };
-      if (!parsed.totals) continue;
-      lastAny = parsed.totals;
-      if (parsed.sheets?.[0]?.mode === "record") lastRecord = parsed.totals;
-    } catch {
-      // 忽略坏记录
-    }
+  // 必须把该任务的**全部**调用传进去：分类靠产物溯源（填列/生成类调用的 outputName ← fileName），
+  // 只传比对调用就建不出溯源表，模板核对会被误当成同行评审——实测报告因此仍打 33.33%、
+  // 而平台已是 60%，是本脚本自己那条「两处口径不一致」的 WARN 抓到的
+  const cmp = summarizeTaskCompares(calls);
+  if (cmp.peer !== null) {
+    comparedTotal += cmp.peer.compared;
+    matchedTotal += cmp.peer.matched;
+    mismatchTotal += cmp.peer.mismatched;
+    onlyATotal += cmp.peer.onlyA;
+    onlyBTotal += cmp.peer.onlyB;
+    accuracy = `${cmp.peer.accuracyPercent}%`;
   }
-  if (lastRecord) {
-    comparedTotal += lastRecord.compared ?? 0;
-    matchedTotal += lastRecord.matched ?? 0;
-    mismatchTotal += lastRecord.mismatched ?? 0;
-    onlyATotal += lastRecord.onlyA ?? 0;
-    onlyBTotal += lastRecord.onlyB ?? 0;
-    accuracy = `${lastRecord.accuracyPercent}%`;
-  } else if (lastAny) {
-    accuracy = `${lastAny.accuracyPercent}%（地址模式）`;
+  templateRuns += cmp.template.runs;
+  templateFilled += cmp.template.filledCells;
+  templateMismatched += cmp.template.mismatched;
+  if (cmp.peer === null && cmp.template.runs > 0) accuracy = `模板核对 ${cmp.template.runs} 次`;
+  // 逐格（address）模式与记录级不是同一个量纲，只在表格里标一下，不进合计
+  if (cmp.peer === null && cmp.template.runs === 0) {
+    const hasAddress = compares.some((c) => {
+      try {
+        return (JSON.parse(c.result ?? "{}") as { sheets?: Array<{ mode?: string }> }).sheets?.[0]?.mode === "address";
+      } catch {
+        return false;
+      }
+    });
+    if (hasAddress) accuracy = "地址模式";
   }
 
   const outDir = path.join(root, "data", "outputs", task.id);
@@ -311,11 +308,26 @@ lines.push("");
 
 lines.push(`## 四、准确率统计（记录级比对口径）`);
 lines.push("");
-if (comparedTotal > 0) {
-  const acc = Math.round((matchedTotal / comparedTotal) * 10000) / 100;
-  lines.push(`- 比对项合计 ${comparedTotal}：一致 ${matchedTotal}、差异 ${mismatchTotal}、仅系统 ${onlyATotal}、仅人工 ${onlyBTotal}`);
-  lines.push(`- 记录级比对总准确率：**${acc}%**`);
-  lines.push(`- 口径说明：一致=正确识别；差异=错误识别；仅人工=未识别；仅系统=系统多出项（需人工复核）。差异项一律列为待核查事项，不计入正确。`);
+if (comparedTotal > 0 || templateRuns > 0) {
+  const rates = compareRates(matchedTotal, mismatchTotal, onlyATotal);
+  if (comparedTotal > 0) {
+    lines.push(
+      `- 与人工参考底稿的同行评审（每任务取最近一次）：比对项合计 ${comparedTotal}，一致 ${matchedTotal}、差异 ${mismatchTotal}、仅自动底稿有 ${onlyBTotal}、仅人工底稿有 ${onlyATotal}`,
+    );
+    lines.push(
+      `- 一致率 **${rateText(rates.matchRatePercent)}**（= 一致 /（一致 + 差异），只看两边都有的项，回答「填得对不对」）· 覆盖率 **${rateText(
+        rates.coveragePercent,
+      )}**（= 一致 /（一致 + 仅人工底稿有），回答「人工底稿有的项自动填到了多少」）`,
+    );
+    lines.push(
+      `- 口径说明：一致=正确识别；差异=错误识别；仅人工=未识别；仅自动底稿有=系统多出项（需人工复核）。差异项一律列为待核查事项，不计入正确。不再报「总准确率」——它把「填错」与「范围没对上」混成一个数，两类问题会互相掩盖。`,
+    );
+  }
+  if (templateRuns > 0) {
+    lines.push(
+      `- 另有「已填列底稿 vs 它自己的原始模板」核对 ${templateRuns} 次：填列新增 ${templateFilled} 处、与模板既有内容冲突 ${templateMismatched} 处。**不计入上面两个比率**——模板本来是空的，只有一侧有的格子正是填进去的值，算成覆盖缺口等于把「填了多少」记成「漏了多少」。`,
+    );
+  }
 } else {
   lines.push(`- 暂无记录级比对数据。`);
 }

@@ -212,7 +212,14 @@ export interface PlatformStats {
   compareAccuracyOverall: number | null;
   /** 累计口径的构成：填错与「只有一侧有」分开摆，免得一个准确率把两类问题互相掩盖 */
   compareMismatched: number;
-  compareOnlyA: number;
+    compareOnlyA: number;
+    /**
+     * 「已填列底稿 vs 它自己的原始模板」核对：次数 / 填列新增的单元格数 / 与模板既有内容冲突的单元格数。
+     * 这一类不进一致率与覆盖率——模板本来是空的，只有一侧有的格子正是填进去的值
+     */
+    compareTemplateRuns: number;
+    compareFilledCells: number;
+    compareTemplateMismatched: number;
   compareOnlyB: number;
   /** 累计一致率 = 一致 /（一致 + 填错）：只看两边都有的项，回答「填得对不对」 */
   compareMatchRateOverall: number | null;

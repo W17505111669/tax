@@ -343,12 +343,19 @@ export function AgentOverview({
       `- 累计任务：${p.tasks}（已完成 ${p.completed}）`,
       `- 工具调用：${p.toolCalls} 次 · 成功 ${p.toolOk} · 成功率 ${percentText(p.toolOk, p.toolCalls)}`,
       `- 底稿产物：${p.artifacts} 份`,
-      `- 记录级比对准确率：最近一次 ${percentFrom(p.compareAccuracy)}（共 ${p.compareRuns} 次，按调用时间取最新）· 累计 ${percentFrom(
+      `- 记录级比对·与人工参考底稿的同行评审（共 ${p.compareRuns} 次，每任务取最近一次合计）：一致率 ${percentFrom(
+        p.compareMatchRateOverall,
+      )}（一致 ${p.compareMatched} / 差异 ${p.compareMismatched}，只看两边都有的项，回答「填得对不对」）· 覆盖率 ${percentFrom(
+        p.compareCoverageOverall,
+      )}（人工底稿有的 ${p.compareMatched + p.compareOnlyA} 项里自动填到 ${p.compareMatched} 项，回答「填得全不全」）· 仅自动底稿有 ${
+        p.compareOnlyB
+      } 项`,
+      `- 记录级比对·与自己的原始模板核对（共 ${p.compareTemplateRuns} 次）：填列新增 ${p.compareFilledCells} 处 · 与模板既有内容冲突 ${
+        p.compareTemplateMismatched
+      } 处。不计入上面两个比率——模板本来是空的，只有一侧有的格子正是填进去的值，算成覆盖缺口等于把「填了多少」记成「漏了多少」`,
+      `- 记录级比对总准确率（最近一次 ${percentFrom(p.compareAccuracy)} · 累计 ${percentFrom(
         p.compareAccuracyOverall,
-      )}（一致 ${p.compareMatched} / 比对 ${p.compareCompared}）`,
-      `- 记录级比对构成：填错 ${p.compareMismatched} 项 · 仅人工底稿有 ${p.compareOnlyA} 项 · 仅自动底稿有 ${p.compareOnlyB} 项`,
-      `- 记录级比对一致率（累计）：${percentFrom(p.compareMatchRateOverall)}——只看两边都有的项，回答「填得对不对」`,
-      `- 记录级比对覆盖率（累计）：${percentFrom(p.compareCoverageOverall)}——人工底稿有的项里自动填到了多少，回答「填得全不全」`,
+      )}）：把「填错」与「范围没对上」混在一个数里，只作参考`,
       `- OCR 平均置信度：${percentFrom(p.ocrAvgConfidence)}（${p.ocrRuns} 次）`,
       `- 复核闭环：待复核问题合计 ${p.reviewPendingIssues} 项；已完成但仍有未复核问题的任务 ${p.reviewBacklog.length} 个`,
       ...(p.reviewBacklog.length > 0
@@ -442,6 +449,9 @@ export function AgentOverview({
       `记录级比对准确率（累计）\t${percentFrom(p.compareAccuracyOverall)}`,
       `记录级比对一致率（累计）\t${percentFrom(p.compareMatchRateOverall)}`,
       `记录级比对覆盖率（累计）\t${percentFrom(p.compareCoverageOverall)}`,
+      `与原始模板核对次数\t${p.compareTemplateRuns}`,
+      `填列新增单元格\t${p.compareFilledCells}`,
+      `与模板既有内容冲突\t${p.compareTemplateMismatched}`,
       `记录级比对项合计\t${p.compareCompared}`,
       `记录级比对一致项\t${p.compareMatched}`,
       `记录级比对填错项\t${p.compareMismatched}`,
@@ -476,7 +486,10 @@ export function AgentOverview({
           : `业务工具 ${agent.tools.length} 个`,
     },
     { label: p ? `底稿产物 ${p.artifacts} 份` : `核心能力 ${agent.capabilities.length} 项` },
-    { label: p && p.compareAccuracy !== null ? `比对准确率 ${p.compareAccuracy}%` : `历史任务 ${stats.tasks} 个` },
+    {
+      label:
+        p && p.compareMatchRateOverall !== null ? `比对一致率 ${p.compareMatchRateOverall}%` : `历史任务 ${stats.tasks} 个`,
+    },
   ];
 
   return (
@@ -728,15 +741,19 @@ export function AgentOverview({
                 { label: "底稿产物", key: "artifacts", value: stats.platform.artifacts.toLocaleString("zh-CN"), unit: "份", desc: "各任务 outputs 目录文件计数" },
                 {
                   label: "记录级比对准确率",
-                  desc: `最近一次记录级比对的准确率（共 ${stats.platform.compareRuns} 次，按调用时间取最新${
+                  desc: `最近一次记录级比对的准确率（同行评审共 ${stats.platform.compareRuns} 次，按调用时间取最新${
                     stats.platform.compareLatestAt ? `：${stats.platform.compareLatestAt}` : ""
                   }）；累计口径为各任务最近一次记录级比对的 一致项/比对项 合计 = ${stats.platform.compareMatched}/${
                     stats.platform.compareCompared
-                  }。构成：填错 ${stats.platform.compareMismatched} 项、仅人工底稿有 ${stats.platform.compareOnlyA} 项、仅自动底稿有 ${
+                  }。构成：差异 ${stats.platform.compareMismatched} 项、仅人工底稿有 ${stats.platform.compareOnlyA} 项、仅自动底稿有 ${
                     stats.platform.compareOnlyB
                   } 项。一致率 ${percentFrom(stats.platform.compareMatchRateOverall)} 只看两边都有的项（填得对不对），覆盖率 ${percentFrom(
                     stats.platform.compareCoverageOverall,
-                  )} 看人工底稿有的项自动填到了多少（填得全不全）。总准确率把这两类问题混在一个数里，实测有过填错 0 项、仅范围差异 48 项却显示准确率 0% 的一次`,
+                  )} 看人工底稿有的项自动填到了多少（填得全不全）。总准确率把这两类问题混在一个数里，实测有过填错 0 项、仅范围差异 48 项却显示准确率 0% 的一次。另有「已填列底稿 vs 它自己的原始模板」核对 ${
+                    stats.platform.compareTemplateRuns
+                  } 次（填列新增 ${stats.platform.compareFilledCells} 处、与模板既有内容冲突 ${
+                    stats.platform.compareTemplateMismatched
+                  } 处），这一类不计入上面两个比率：模板本来是空的，只有一侧有的格子正是填进去的值`,
                   value: stats.platform.compareAccuracy !== null ? String(stats.platform.compareAccuracy) : "—",
                   // 单位串保持原长度量级：这张卡在 xl:grid-cols-6 的窄格里，写长了会折行挤动整排布局
                   unit:

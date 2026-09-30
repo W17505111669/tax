@@ -162,14 +162,20 @@ function build(agent: TaxAgentConfig, extra: Array<{ name: string; label: string
   lines.push(`- 工具调用 ${stats.toolCalls} 次，成功 ${stats.toolOk} 次（成功率 ${okRate}%）`);
   lines.push(`- 生成专业底稿/产物 ${stats.artifacts} 份`);
   lines.push(
-    stats.compareAccuracy !== null
-      ? `- 与人工底稿记录级比对：总准确率 ${stats.compareAccuracy}%（${stats.compareRuns} 次比对）。总准确率把「填错」与「两份底稿范围没对上」混在一个数里，拆开才说得清——一致率 ${rateText(
-          stats.compareMatchRate,
-        )}（一致 ${stats.compareMatched} / 填错 ${stats.compareMismatched}，只看两边都有的项，回答「填得对不对」）、覆盖率 ${rateText(
+    stats.compareRuns > 0 || stats.compareTemplateRuns > 0
+      ? `- 底稿记录级比对分两类，各自回答一个问题。① 与人工参考底稿的**同行评审** ${
+          stats.compareRuns
+        } 次（每个任务只取最近一次计入合计）：一致率 ${rateText(stats.compareMatchRate)}（一致 ${
+          stats.compareMatched
+        } / 差异 ${stats.compareMismatched}，只看两边都有的项，回答「填得对不对」）、覆盖率 ${rateText(
           stats.compareCoverage,
         )}（人工底稿有的 ${stats.compareMatched + stats.compareOnlyA} 项里自动填到 ${
           stats.compareMatched
-        } 项，回答「填得全不全」）、仅自动底稿有 ${stats.compareOnlyB} 项；差异项均为预埋或真实口径差异，已列待核查`
+        } 项，回答「填得全不全」）、仅自动底稿有 ${stats.compareOnlyB} 项；差异项均为预埋或真实口径差异，已逐条列为待核查事项。② 与**它自己的原始模板**核对 ${
+          stats.compareTemplateRuns
+        } 次：填列新增 ${stats.compareFilledCells} 处、与模板既有内容冲突 ${
+          stats.compareTemplateMismatched
+        } 处，用来证明「保留式填列」只往空格子里写值、没有改坏模板原有内容与公式。这一类不计入上面两个比率——模板本来是空的，「只有一侧有」恰恰是填进去的值，把它算成覆盖缺口等于把「填了多少」记成「漏了多少」（口径改前它一度把累计覆盖率从 100% 拉到 36.84%）。两个比率都由原始计数现算，不读比对记录里存的百分比字段`
       : `- 暂无记录级比对数据`,
   );
   lines.push(`- 自动化验证：verify:pi / verify:docs / verify:template / verify:policy / verify:compare / verify:ocr / verify:agents 全部 PASS（见 docs/testing/test-report-*.md）`);

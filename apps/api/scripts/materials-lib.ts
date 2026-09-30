@@ -4,6 +4,11 @@ import path from "node:path";
 import { db } from "../src/db.ts";
 import { dirs } from "../src/config.ts";
 import { computePlatformStats } from "../src/services/stats.ts";
+import {
+  aggregatePeerCompares,
+  summarizeTaskCompares,
+  type PeerCompare,
+} from "../src/services/compare-stats.ts";
 import { BATCH_REF_BUDGET, BATCH_REF_MAX } from "../src/services/ref-checks.ts";
 import { compareRates, rateText } from "@tax/document-tools";
 
@@ -135,6 +140,10 @@ export interface Stats {
   compareOnlyB: number;
   compareMatchRate: number | null;
   compareCoverage: number | null;
+  /** 与自己的原始模板核对：次数 / 填列新增的单元格数 / 与模板既有内容冲突的单元格数 */
+  compareTemplateRuns: number;
+  compareFilledCells: number;
+  compareTemplateMismatched: number;
 }
 
 export function statsFor(agentId: string): Stats {
@@ -154,10 +163,19 @@ export function statsFor(agentId: string): Stats {
   let compareOnlyB = 0;
   let compareMatchRate: number | null = null;
   let compareCoverage: number | null = null;
+  let compareTemplateRuns = 0;
+  let compareFilledCells = 0;
+  let compareTemplateMismatched = 0;
+  // 比对口径与平台看板、测试报告共用 compare-stats.ts 那一份实现：本文档曾自己写过一遍
+  //「取最近一次」，结果作品说明的准确率与看板对不上（09-28 的旧比对压过了 09-29 的最新一次）
+  const peers: PeerCompare[] = [];
+  let peerRuns = 0;
+  let latestPeer: PeerCompare | null = null;
   for (const t of tasks) {
-    const calls = db.prepare(`SELECT ok, tool_name, result, started_at FROM tool_calls WHERE task_id = ?`).all(t.id) as unknown as Array<{
+    const calls = db.prepare(`SELECT ok, tool_name, args, result, started_at FROM tool_calls WHERE task_id = ?`).all(t.id) as unknown as Array<{
       ok: number | null;
       tool_name: string;
+      args: string | null;
       result: string | null;
       started_at: string | null;
     }>;
@@ -165,42 +183,25 @@ export function statsFor(agentId: string): Stats {
     toolOk += calls.filter((c) => c.ok === 1).length;
     const dir = path.join(dirs.outputs, t.id);
     if (fs.existsSync(dir)) artifacts += fs.readdirSync(dir).filter((f) => fs.statSync(path.join(dir, f)).isFile()).length;
-    for (const c of calls) {
-      if (c.tool_name !== "compare_workpapers" || c.ok !== 1 || !c.result) continue;
-      try {
-        const parsed = JSON.parse(c.result) as {
-          sheets?: Array<{ mode?: string }>;
-          totals?: {
-            accuracyPercent?: number;
-            matched?: number;
-            mismatched?: number;
-            onlyA?: number;
-            onlyB?: number;
-          };
-        };
-        if (parsed.sheets?.[0]?.mode === "record" && parsed.totals?.accuracyPercent !== undefined) {
-          compareRuns += 1;
-          // 「最近一次」按调用开始时间判定，与平台看板同一口径。早先按遍历顺序取最后一条，
-          // 实测取到的是 09-28 的旧比对（2 项 / 一致 1）而不是 09-29 的最新一次（3 项 / 一致 2），
-          // 于是作品说明写的准确率与看板上的对不上——正是本文档反复承诺不会发生的事。
-          const at = String(c.started_at ?? "");
-          if (at < compareAt) continue;
-          compareAt = at;
-          compareAccuracy = parsed.totals.accuracyPercent;
-          compareMatched = parsed.totals.matched ?? 0;
-          compareMismatched = parsed.totals.mismatched ?? 0;
-          compareOnlyA = parsed.totals.onlyA ?? 0;
-          compareOnlyB = parsed.totals.onlyB ?? 0;
-          // 比率按原始计数现算：拆分上线前的旧记录里没有这两个字段
-          const rates = compareRates(compareMatched, compareMismatched, compareOnlyA);
-          compareMatchRate = rates.matchRatePercent;
-          compareCoverage = rates.coveragePercent;
-        }
-      } catch {
-        // 忽略坏记录
-      }
+    const cmp = summarizeTaskCompares(calls);
+    peerRuns += cmp.peerRuns;
+    compareTemplateRuns += cmp.template.runs;
+    compareFilledCells += cmp.template.filledCells;
+    compareTemplateMismatched += cmp.template.mismatched;
+    if (cmp.peer !== null) {
+      peers.push(cmp.peer);
+      if (latestPeer === null || cmp.peer.at >= latestPeer.at) latestPeer = cmp.peer;
     }
   }
+  const agg = aggregatePeerCompares(peers);
+  compareRuns = peerRuns;
+  compareAccuracy = latestPeer?.accuracyPercent ?? null;
+  compareMatched = agg.matched;
+  compareMismatched = agg.mismatched;
+  compareOnlyA = agg.onlyA;
+  compareOnlyB = agg.onlyB;
+  compareMatchRate = agg.matchRatePercent;
+  compareCoverage = agg.coveragePercent;
   return {
     tasks: tasks.length,
     completed: tasks.filter((t) => t.status === "completed").length,
@@ -215,6 +216,9 @@ export function statsFor(agentId: string): Stats {
     compareOnlyB,
     compareMatchRate,
     compareCoverage,
+    compareTemplateRuns,
+    compareFilledCells,
+    compareTemplateMismatched,
   };
 }
 

@@ -11,6 +11,12 @@ import { computePlatformStats } from "../src/services/stats.ts";
 import { db } from "../src/db.ts";
 import { dirs } from "../src/config.ts";
 import { compareRates } from "@tax/document-tools";
+import {
+  aggregatePeerCompares,
+  buildDerivedFrom,
+  isTemplateCompare,
+  summarizeTaskCompares,
+} from "../src/services/compare-stats.ts";
 import { docRefSnapshotText, evidenceSnapshotText } from "./materials-lib.ts";
 
 const failures: string[] = [];
@@ -28,11 +34,11 @@ const s = computePlatformStats();
 // 1) 记录级比对：独立按时间顺序重算一遍
 const calls = db
   .prepare(
-    `SELECT task_id, result, started_at FROM tool_calls
+    `SELECT task_id, args, result, started_at FROM tool_calls
      WHERE tool_name = 'compare_workpapers' AND ok = 1 AND task_id IN (SELECT id FROM tasks)
      ORDER BY started_at ASC`,
   )
-  .all() as Array<{ task_id: string; result: string | null; started_at: string | null }>;
+  .all() as Array<{ task_id: string; args: string | null; result: string | null; started_at: string | null }>;
 let runs = 0;
 let matched = 0;
 let compared = 0;
@@ -41,6 +47,27 @@ let onlyA = 0;
 let onlyB = 0;
 let matchedAll = 0;
 let comparedAll = 0;
+let templateRuns = 0;
+let templateFilled = 0;
+let templateMismatched = 0;
+// 「哪次比对是跟自己的原始模板比」这条分类规则与平台共用一份实现（靠产物溯源判定，不靠文件名猜）；
+// 但下面的累计仍由本脚本独立按 SQL 时间顺序重算一遍，专门用来抓平台侧的漂移
+const argsByTask = new Map<string, Array<{ args: string | null }>>();
+for (const row of db
+  .prepare(`SELECT task_id, args FROM tool_calls WHERE args IS NOT NULL AND task_id IN (SELECT id FROM tasks)`)
+  .all() as Array<{ task_id: string; args: string | null }>) {
+  const list = argsByTask.get(row.task_id);
+  if (list) list.push(row);
+  else argsByTask.set(row.task_id, [row]);
+}
+const derivedCache = new Map<string, Map<string, string>>();
+const derivedOf = (taskId: string): Map<string, string> => {
+  const hit = derivedCache.get(taskId);
+  if (hit) return hit;
+  const built = buildDerivedFrom(argsByTask.get(taskId) ?? []);
+  derivedCache.set(taskId, built);
+  return built;
+};
 // 累计口径按「每个任务最近一次记录级比对」合计：同任务反复比对时只有最近一次代表当前状态
 const perTask = new Map<
   string,
@@ -66,6 +93,13 @@ for (const c of calls) {
       };
     };
     if (p.sheets?.[0]?.mode !== "record" || p.totals?.accuracyPercent === undefined) continue;
+    // 与自己的原始模板核对：只有一侧有的格子正是填进去的值，不进一致率与覆盖率
+    if (isTemplateCompare(c.args, derivedOf(c.task_id))) {
+      templateRuns += 1;
+      templateFilled += p.totals.onlyA ?? 0;
+      templateMismatched += p.totals.mismatched ?? 0;
+      continue;
+    }
     runs += 1;
     const at = String(c.started_at ?? "");
     comparedAll += p.totals.compared ?? 0;
@@ -99,6 +133,83 @@ for (const v of perTask.values()) {
   onlyB += v.onlyB;
 }
 expect("记录级比对次数一致", s.compareRuns, runs);
+expect("与原始模板核对的次数一致", s.compareTemplateRuns, templateRuns);
+expect("填列新增单元格数一致", s.compareFilledCells, templateFilled);
+expect("与模板既有内容冲突数一致", s.compareTemplateMismatched, templateMismatched);
+// 分类与合计的单元口径：合成调用就能覆盖，不依赖真实数据里恰好存在哪一种比对
+const cmpCall = (args: unknown, totals: unknown, mode: string, at: string) => ({
+  tool_name: "compare_workpapers",
+  ok: 1 as number | null,
+  args: JSON.stringify(args),
+  result: JSON.stringify({ sheets: [{ mode }], totals }),
+  started_at: at,
+});
+const fillCall = {
+  tool_name: "fill_land_vat_workpaper",
+  ok: 1 as number | null,
+  args: JSON.stringify({ fileName: "土增清算底稿-合成模板.xlsx", outputName: "已填列-土增清算底稿-合成模板.xlsx" }),
+  result: null,
+  started_at: "2026-09-29T01:00:00.000Z",
+};
+const derived = buildDerivedFrom([fillCall]);
+expect(
+  "b 侧正是 a 的生成源 → 判为与自己的模板核对",
+  isTemplateCompare(
+    JSON.stringify({ a: { name: "已填列-土增清算底稿-合成模板.xlsx" }, b: { name: "土增清算底稿-合成模板.xlsx" } }),
+    derived,
+  ),
+  true,
+);
+expect(
+  "b 侧是别的上传件（人工参考底稿）→ 仍算同行评审，不按 kind 猜",
+  isTemplateCompare(
+    JSON.stringify({ a: { kind: "artifact", name: "自动底稿.xlsx" }, b: { kind: "upload", name: "人工参考底稿.xlsx" } }),
+    derived,
+  ),
+  false,
+);
+const synthetic = [
+  fillCall,
+  cmpCall(
+    { a: { kind: "artifact", name: "已填列-土增清算底稿-合成模板.xlsx" }, b: { kind: "upload", name: "土增清算底稿-合成模板.xlsx" } },
+    { compared: 16, matched: 4, mismatched: 0, onlyA: 12, onlyB: 0, accuracyPercent: 25 },
+    "record",
+    "2026-09-29T02:00:00.000Z",
+  ),
+  cmpCall(
+    { a: { kind: "artifact", name: "自动底稿.xlsx" }, b: { kind: "upload", name: "人工参考底稿.xlsx" } },
+    { compared: 3, matched: 2, mismatched: 1, onlyA: 0, onlyB: 0, accuracyPercent: 66.67 },
+    "record",
+    "2026-09-29T03:00:00.000Z",
+  ),
+  cmpCall(
+    { a: { kind: "artifact", name: "自动底稿.xlsx" }, b: { kind: "upload", name: "人工参考底稿.xlsx" } },
+    { compared: 2, matched: 1, mismatched: 1, onlyA: 0, onlyB: 0, accuracyPercent: 50 },
+    "record",
+    "2026-09-28T03:00:00.000Z",
+  ),
+];
+const summary = summarizeTaskCompares(synthetic);
+expect("模板核对单独归类，不混进行评审", summary.template.runs, 1);
+expect("填列新增取自 onlyA", summary.template.filledCells, 12);
+expect("同行评审只取最近一次", summary.peer?.compared, 3);
+expect("同行评审次数照实计（含被后来那次取代的）", summary.peerRuns, 2);
+expect(
+  "逐格（address）模式不进记录级口径：量纲不同，混在一起没法解释",
+  summarizeTaskCompares([
+    cmpCall(
+      { a: { name: "x.xlsx" }, b: { name: "y.xlsx" } },
+      { compared: 28, matched: 16, mismatched: 0, onlyA: 12, onlyB: 0, accuracyPercent: 57.14 },
+      "address",
+      "2026-09-29T04:00:00.000Z",
+    ),
+  ]).peer,
+  null,
+);
+const agg = aggregatePeerCompares([summary.peer]);
+expect("合计一致率按原始计数现算", agg.matchRatePercent, 66.67);
+expect("合计覆盖率按原始计数现算", agg.coveragePercent, 100);
+expect("合计只含同行评审那一次", agg.compared, 3);
 expect("最近一次准确率按调用时间取值", s.compareAccuracy, latestAcc);
 expect("最近一次时间戳一致", s.compareLatestAt, latestAt);
 expect("累计一致项一致", s.compareMatched, matched);

@@ -28,6 +28,7 @@ import { traceAmounts, amountKey } from "../../../web/src/amount-trace.ts";
 import { deltaVerdict, evidenceDelta, evidenceSnapshot } from "../../../web/src/revision-impact.ts";
 import { ledgerSort, type LedgerRow } from "../../../web/src/evidence-ledger.ts";
 import { listAmountChecks } from "./amount-checks.ts";
+import { aggregatePeerCompares, summarizeTaskCompares, type PeerCompare } from "./compare-stats.ts";
 import { listConclusions } from "./task-store.ts";
 
 /** 落库记录里的计数可能缺字段（比率拆分上线前的旧记录），一律按 0 处理，不让 undefined 参与运算 */
@@ -114,6 +115,16 @@ export interface PlatformStats {
   compareMismatched: number;
   compareOnlyA: number;
   compareOnlyB: number;
+  /**
+   * 「填列产物 vs 它自己的原始模板」这类比对的次数。模板本来是空的，只有一侧有的格子正是填进去的
+   * 值，把它算成覆盖缺口就等于把「填了多少」记成「漏了多少」（实测 ff4c9a3c 一次比对贡献了全平台
+   * 12 处 onlyA，累计覆盖率因此从 100% 掉到 36.84%）。按产物溯源识别，单独统计、不进一致率与覆盖率。
+   */
+  compareTemplateRuns: number;
+  /** 这类比对里只在填列产物一侧出现的单元格数，也就是本次填列新增的值 */
+  compareFilledCells: number;
+  /** 这类比对里与模板既有内容不一致的单元格数：填列改坏了模板原有内容才算问题 */
+  compareTemplateMismatched: number;
   /** 累计一致率 = 一致 /（一致 + 填错）：只看两边都有的项，回答「填得对不对」 */
   compareMatchRateOverall: number | null;
   /** 累计覆盖率 = 一致 /（一致 + 仅人工底稿有）：回答「人工底稿有的项自动填到了多少」 */
@@ -154,11 +165,16 @@ export function computePlatformStats(): PlatformStats {
   let compareAccuracy: number | null = null;
   let compareRuns = 0;
   let compareLatestAt = "";
+  // 每个任务最近一次「同行评审」比对（与人工参考底稿比），跨任务合计；与自己的原始模板核对另算
+  const taskPeers: PeerCompare[] = [];
   let compareMatched = 0;
   let compareCompared = 0;
   let compareMismatched = 0;
   let compareOnlyA = 0;
   let compareOnlyB = 0;
+  let compareTemplateRuns = 0;
+  let compareFilledCells = 0;
+  let compareTemplateMismatched = 0;
   let compareMatchRate: number | null = null;
   let compareCoverage: number | null = null;
   let ocrConfSum = 0;
@@ -201,10 +217,11 @@ export function computePlatformStats(): PlatformStats {
     if (task.status === "completed") agent.completed += 1;
 
     const calls = db
-      .prepare(`SELECT ok, tool_name, result, started_at FROM tool_calls WHERE task_id = ?`)
+      .prepare(`SELECT ok, tool_name, args, result, started_at FROM tool_calls WHERE task_id = ?`)
       .all(task.id) as unknown as Array<{
       ok: number | null;
       tool_name: string;
+      args: string | null;
       result: string | null;
       started_at: string | null;
     }>;
@@ -213,15 +230,6 @@ export function computePlatformStats(): PlatformStats {
     const okCount = calls.filter((c) => c.ok === 1).length;
     agent.toolOk += okCount;
     toolOk += okCount;
-    // 记录级比对的累计口径按「每个任务最近一次」合计：同一任务反复比对时只有最近一次
-    // 代表当前状态，把历史每一次都加进去会让一次失败的重复比对永久拉低准确率
-    let taskCompareAt = "";
-    let taskCompareFound = false;
-    let taskCompared = 0;
-    let taskMatched = 0;
-    let taskMismatched = 0;
-    let taskOnlyA = 0;
-    let taskOnlyB = 0;
     for (const call of calls) {
       let bucket = perToolMap.get(call.tool_name);
       if (!bucket) {
@@ -439,55 +447,35 @@ export function computePlatformStats(): PlatformStats {
           // 忽略坏记录
         }
       }
-      if (call.tool_name !== "compare_workpapers" || call.ok !== 1 || !call.result) continue;
-      try {
-        const parsed = JSON.parse(call.result) as {
-          sheets?: Array<{ mode?: string }>;
-          totals?: {
-            accuracyPercent?: number;
-            compared?: number;
-            matched?: number;
-            mismatched?: number;
-            onlyA?: number;
-            onlyB?: number;
-          };
-        };
-        if (parsed.sheets?.[0]?.mode === "record" && parsed.totals?.accuracyPercent !== undefined) {
-          compareRuns += 1;
-          // 「最近一次」按调用开始时间判定，与任务在表中的顺序无关
-          const at = String(call.started_at ?? "");
-          if (at >= compareLatestAt) {
-            compareLatestAt = at;
-            compareAccuracy = parsed.totals.accuracyPercent;
-            // 比率一律用原始计数现算，不读记录里的字段：旧记录没有这两个字段，
-            // 而「过滤规则上线前的历史记录按现行规则回算」是本看板既定的口径
-            const latest = compareRates(numOf(parsed.totals.matched), numOf(parsed.totals.mismatched), numOf(parsed.totals.onlyA));
-            compareMatchRate = latest.matchRatePercent;
-            compareCoverage = latest.coveragePercent;
-          }
-          if (!taskCompareFound || at >= taskCompareAt) {
-            taskCompareFound = true;
-            taskCompareAt = at;
-            taskCompared = typeof parsed.totals.compared === "number" ? parsed.totals.compared : 0;
-            taskMatched = typeof parsed.totals.matched === "number" ? parsed.totals.matched : 0;
-            taskMismatched = numOf(parsed.totals.mismatched);
-            taskOnlyA = numOf(parsed.totals.onlyA);
-            taskOnlyB = numOf(parsed.totals.onlyB);
-          }
-        }
-      } catch {
-        // 忽略坏记录
-      }
     }
-    if (taskCompareFound) {
-      compareCompared += taskCompared;
-      compareMatched += taskMatched;
-      compareMismatched += taskMismatched;
-      compareOnlyA += taskOnlyA;
-      compareOnlyB += taskOnlyB;
+    // 记录级比对：口径与作品说明、测试报告共用 compare-stats.ts 那一份实现。
+    // 累计口径按「每个任务最近一次」合计：同一任务反复比对时只有最近一次代表当前状态，
+    // 把历史每一次都加进去会让一次失败的重复比对永久拉低准确率
+    const cmp = summarizeTaskCompares(calls);
+    compareRuns += cmp.peerRuns;
+    compareTemplateRuns += cmp.template.runs;
+    compareFilledCells += cmp.template.filledCells;
+    compareTemplateMismatched += cmp.template.mismatched;
+    if (cmp.peer !== null) {
+      taskPeers.push(cmp.peer);
+      if (cmp.peer.at >= compareLatestAt) {
+        compareLatestAt = cmp.peer.at;
+        compareAccuracy = cmp.peer.accuracyPercent;
+        // 比率一律用原始计数现算，不读记录里的字段：旧记录没有这两个字段，
+        // 而「过滤规则上线前的历史记录按现行规则回算」是本看板既定的口径
+        const latest = compareRates(cmp.peer.matched, cmp.peer.mismatched, cmp.peer.onlyA);
+        compareMatchRate = latest.matchRatePercent;
+        compareCoverage = latest.coveragePercent;
+      }
     }
   }
 
+  const peerAgg = aggregatePeerCompares(taskPeers);
+  compareCompared = peerAgg.compared;
+  compareMatched = peerAgg.matched;
+  compareMismatched = peerAgg.mismatched;
+  compareOnlyA = peerAgg.onlyA;
+  compareOnlyB = peerAgg.onlyB;
   const overallRates = compareRates(compareMatched, compareMismatched, compareOnlyA);
   return {
     tasks: tasks.length,
@@ -504,6 +492,9 @@ export function computePlatformStats(): PlatformStats {
     compareMismatched,
     compareOnlyA,
     compareOnlyB,
+    compareTemplateRuns,
+    compareFilledCells,
+    compareTemplateMismatched,
     compareMatchRateOverall: overallRates.matchRatePercent,
     compareCoverageOverall: overallRates.coveragePercent,
     compareMatchRate,

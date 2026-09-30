@@ -10,7 +10,7 @@ import { LEDGER_COLUMNS } from "../../web/src/evidence-ledger.ts";
 import rdAuditAgent from "@tax/agent-rd-audit";
 import landVatAgent from "@tax/agent-land-vat";
 import type { TaxAgentConfig } from "@tax/agent-core";
-import { BACKGROUND, FLOWS, GOALS, INNOVATIONS, recentTaskLinks, statsFor } from "./materials-lib.ts";
+import { BACKGROUND, FLOWS, GOALS, INNOVATIONS, rateText, recentTaskLinks, statsFor } from "./materials-lib.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..", "..", "..");
@@ -55,7 +55,11 @@ function build(agent: TaxAgentConfig): string {
     `累计任务 ${stats.tasks} 个、已完成 ${stats.completed} 个`,
     `工具调用 ${stats.toolCalls} 次、成功率 ${okRate}%`,
     `生成底稿/产物 ${stats.artifacts} 份`,
-    stats.compareAccuracy !== null ? `与人工底稿记录级比对准确率 ${stats.compareAccuracy}%` : "比对准确率：待真实案例",
+    stats.compareRuns > 0
+      ? `与人工参考底稿记录级比对：一致率 ${rateText(stats.compareMatchRate)}（填得对不对）· 覆盖率 ${rateText(
+          stats.compareCoverage,
+        )}（填得全不全）`
+      : "比对准确率：待真实案例",
     `自动化验证 ${verifyCount} 项全部 PASS（见测试报告）`,
     `全平台证据核对台账：每任务一行 ${LEDGER_COLUMNS.length} 列，欠账按倒序排列，可导出 MD/CSV 直接当整改清单`,
   ], "数字全部来自平台数据库与验证脚本，可现场复算。", "KPI 大数字页");
