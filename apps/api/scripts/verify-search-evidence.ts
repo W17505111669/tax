@@ -216,6 +216,34 @@ expect(
   ),
   ["https://fgk.chinatax.gov.cn/zcfgk/c1/content.html"],
 );
+// 作废交代也可能写在地址**后面**：实测替换映射表那一行是「| 19 | 标题 https://…c5185946/content.html
+// （服务端 GET 返回 4xx，地址已失效） | 替代标题 | https://gov.cn/… |」。只往前看会漏掉它，
+// 已经换好的地址又被列进修订指令，模型白跑一轮（实测：写回续跑 300 秒后同一条失效地址仍挂在引用表里）
+const mappingRow =
+  "| 19 | 研发费用税前加计扣除政策即问即答_国家税务总局 https://www.chinatax.gov.cn/chinatax/n810356/n3010387/c5185946/content.html（**服务端 GET 返回 4xx，地址已失效**） | 《即问即答_政策解读_中国政府网》 | https://www.gov.cn/zhengce/2023-04/02/content_5749772.htm | 2026-09-29 |";
+expect(
+  "映射行里写在地址后面的失效说明也认得，只留替代地址",
+  extractTextCitations(mappingRow).map((c) => c.url),
+  ["https://www.gov.cn/zhengce/2023-04/02/content_5749772.htm"],
+);
+expect(
+  "往后看到下一条地址即止，不把别的地址的失效说明算到前一条头上",
+  extractTextCitations("现行有效页 https://a.gov.cn/live.html | 注：旧页 https://a.gov.cn/old.html 已失效").map(
+    (c) => c.url,
+  ),
+  ["https://a.gov.cn/live.html"],
+);
+expect(
+  "往后看遇换行即止，下一段的失效说明不影响上一行引用",
+  extractTextCitations("依据 https://a.gov.cn/p.html\n（另：某门户同栏目页面存在已失效情形）").map((c) => c.url),
+  ["https://a.gov.cn/p.html"],
+);
+expect(
+  "写在地址后面的失效说明在窗口内即判为已作废",
+  isRetiredMention("https://a.gov.cn/x.html（地址已失效）", 0, "https://a.gov.cn/x.html".length),
+  true,
+);
+expect("不传地址长度时只往前看，保持既有调用口径", isRetiredMention("https://a.gov.cn/x.html 已失效", 0), false);
 expect("同一地址只留一条", extractTextCitations("https://a.cn/x 与 https://a.cn/x").length, 1);
 expect("markdown 链接优先于裸链接", extractTextCitations("[标题](https://a.cn/x) https://a.cn/x")[0]?.title, "标题");
 expect("表格里的链接也能取到", extractTextCitations("| 依据 | [文号](https://a.gov.cn/y) |").length, 1);
@@ -313,7 +341,7 @@ for (const t of listTasks()) {
     for (const m of text.matchAll(/https?:\/\/[^\s)\]>"'|，。；、]+/g)) {
       // 与提取共用同一份实现：清理规则与「已作废交代」的排除都必须同源。
       // 这里曾自己抄了一套正则，提取口径一改两边就对不上（实测 20 项失败）
-      if (isRetiredMention(text, m.index ?? 0)) continue;
+      if (isRetiredMention(text, m.index ?? 0, (m[0] ?? "").length)) continue;
       const u = cleanBareUrl(m[0] ?? "");
       checks += 1;
       if (!merged.some((x) => x.url === u)) {

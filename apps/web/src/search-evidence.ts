@@ -149,8 +149,11 @@ export function cleanBareUrl(raw: string): string {
   return head.replace(/[)\]>"'）】\],.;:!?，。；：！？、]+$/, "");
 }
 
+/** 作废交代的判定窗口（字）。实测「原引用的」距地址 22 字，40 字够覆盖且不误伤密集表格 */
+const RETIRE_WINDOW = 40;
+
 /**
- * 只会「引出那一条已作废地址」的说法。
+ * 只会「引出那一条已作废地址」的说法（往前看，即写在地址**前面**的）。
  *
  * 词表刻意收窄：「已判定失效」「不再作为」「已替换为」这类是跟在作废地址**后面**、或出现在
  * 替代地址**前面**的，收进来会把刚换上的有效地址一起误杀（第一版正是这么错的，测试当场抓出来）。
@@ -159,16 +162,42 @@ export function cleanBareUrl(raw: string): string {
 const RETIRED_MARKERS = ["原引用", "原地址", "原链接", "原网址", "已失效：", "失效地址", "已作废："];
 
 /**
+ * 写在地址**后面**的作废交代。与前面的词表分开，因为方向决定了会不会误杀：
+ * 「已替换为」出现在替代地址前面，往前看时收进来会杀掉刚换上的有效地址；往后看时它恰恰
+ * 是在交代旧地址的下场，必须收。同理「不再引用」「不再作为」。
+ * 不收裸「失效」二字：实测有「其他页面存在同类失效风险」这种泛泛说法，收了会误伤。
+ */
+const RETIRED_AFTER_MARKERS = ["已失效", "已作废", "不再引用", "不再作为", "已替换为", "4xx"];
+
+/**
  * 这处地址出现是不是在交代「它已作废」。
  *
- * 模型按修订指令撤下失效链接后，会留一句「原引用的 X 经核验返回 4xx，已判定失效，不再作为
- * 依据地址保留」。这句交代是好事，但里面的地址若仍被当成当前引用，失效链接就永远挂在待办与
- * 交付自检里——修一次报一次，形成解不掉的假警报。窗口取 40 字：实测那句交代里「原引用的」
- * 距地址 22 字，够覆盖；窗口再大容易误伤密集表格里相邻的正常引用。
+ * 模型按修订指令撤下失效链接后，会留下作废交代。这句交代是好事，但里面的地址若仍被当成当前
+ * 引用，失效链接就永远挂在待办与交付自检里——修一次报一次，形成解不掉的假警报。
+ *
+ * 交代可能写在地址前面，也可能写在后面：实测「失效地址说明：原引用的《X》 https://… 经核验
+ * 返回 4xx」是前置，而替换映射表那一行「| 19 | X https://…c5185946/content.html（服务端 GET
+ * 返回 4xx，地址已失效） | 替代标题 | https://gov.cn/… |」是后置。只往前看会漏掉后者，于是
+ * 已经换好的地址又被列进修订指令，模型白跑一轮。
+ *
+ * @param urlLength 地址本身的长度，用于定位「地址之后」的起点；缺省 0 表示只往前看。
  */
-export function isRetiredMention(text: string, index: number): boolean {
-  const before = text.slice(Math.max(0, index - 40), index);
-  return RETIRED_MARKERS.some((w) => before.includes(w));
+export function isRetiredMention(text: string, index: number, urlLength = 0): boolean {
+  const before = text.slice(Math.max(0, index - RETIRE_WINDOW), index);
+  if (RETIRED_MARKERS.some((w) => before.includes(w))) return true;
+  if (urlLength <= 0) return false;
+  // 往后看的范围必须收得住，否则会把下一行、下一条引用的说明算到这条头上：
+  // 遇到下一个地址、换行，或超出窗口即止。
+  const from = index + urlLength;
+  const nextUrl = text.indexOf("http", from);
+  const nextLine = text.indexOf("\n", from);
+  const stop = Math.min(
+    from + RETIRE_WINDOW,
+    nextUrl < 0 ? Number.MAX_SAFE_INTEGER : nextUrl,
+    nextLine < 0 ? Number.MAX_SAFE_INTEGER : nextLine,
+  );
+  const after = text.slice(from, stop);
+  return RETIRED_AFTER_MARKERS.some((w) => after.includes(w));
 }
 /** 没有链接文字时给个可读标签：末段是有意义的文件名就用它，否则用域名 */
 export function labelFromUrl(raw: string): string {
@@ -195,7 +224,7 @@ export function extractTextCitations(text: string, limit: number = CITATION_LIMI
   const seen = new Set<string>();
   const push = (url: string, title: string, at: number): void => {
     if (out.length >= limit) return;
-    if (isRetiredMention(text, at)) return;
+    if (isRetiredMention(text, at, url.length)) return;
     const clean = cleanBareUrl(url);
     if (!/^https?:\/\//i.test(clean) || seen.has(clean)) return;
     seen.add(clean);
