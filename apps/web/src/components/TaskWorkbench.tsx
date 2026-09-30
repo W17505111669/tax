@@ -2369,6 +2369,9 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         {topWords.map((x, i) => (
                           <button
+                            // 关键词云的按钮此前完全没写 key：它在每个有结论的任务页都渲染，
+                            // 正是控制台那条「unique key」告警每次挂载都出现一次的原因
+                            key={`${i}-${x.w}`}
                             type="button"
                             onClick={() => setKwFilter((v) => (v === x.w ? null : x.w))}
                             className={`rounded-full border px-2 py-0.5 text-glow-300 transition-colors ${

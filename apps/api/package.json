@@ -21,6 +21,7 @@
     "verify:rdtools": "tsx scripts/verify-rd-tools.ts",
     "verify:toutcome": "tsx scripts/verify-tool-outcome.ts",
     "verify:mdtext": "tsx scripts/verify-md-text.ts",
+    "verify:jsxkeys": "tsx scripts/verify-jsx-keys.ts",
     "repair:toolcalls": "tsx scripts/repair-tool-calls.ts",
     "verify:dcheck": "tsx scripts/verify-delivery-check.ts",
     "verify:links": "tsx scripts/verify-link-check.ts",
