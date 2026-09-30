@@ -2669,7 +2669,12 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
           }`}
         >
           <div className="kicker">任务指令</div>
-          <p className="mt-1.5 whitespace-pre-wrap rounded-md bg-night-800 px-3 py-2 text-[12.5px] leading-5 text-mist-300">
+          {/* data-keep-raw：这两处是用户输入的逐字回显，有意不剥 Markdown 记号（见 verify-md-text
+              最后一条断言）。标出来是为了让界面扫描脚本（scan-ui-markdown）认识它、不当成残留。 */}
+          <p
+            data-keep-raw="instruction"
+            className="mt-1.5 whitespace-pre-wrap rounded-md bg-night-800 px-3 py-2 text-[12.5px] leading-5 text-mist-300"
+          >
             {task.instruction}
           </p>
 
@@ -3251,7 +3256,10 @@ function TimelineView({
         </details>
       )}
       <div className="flex justify-end">
-        <div className="user-bubble max-w-[78%] whitespace-pre-wrap px-4 py-2.5 text-[13px] leading-6">
+        <div
+          data-keep-raw="instruction"
+          className="user-bubble max-w-[78%] whitespace-pre-wrap px-4 py-2.5 text-[13px] leading-6"
+        >
           {instruction}
         </div>
       </div>

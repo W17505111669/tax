@@ -60,6 +60,39 @@ export function markdownToPlainText(md: string): string {
     .trim();
 }
 
+/**
+ * 从原文里切出来的一小段（金额、文号的上下文）转成可读片段。
+ *
+ * 这类片段是跨行切片再压成一行的，`>` 引用记号会落在行中间，plainLine 的行首规则够不着。
+ * 实测复核页「结论金额核对」清单里出现过
+ * 「…其他相关费用为8万元。** > > **（一）按照9…」——粗体记号与引用记号一起显示了出来。
+ *
+ * 顺带的好处：同一段上下文还会被拿去拼联网复查的检索词（ref-check 的 buildRefQuery），
+ * 记号混在里面等于给检索词掺噪声，剥掉之后更贴近正式写法。
+ *
+ * 与 plainLine 的分工：plainLine 面向「一行 Markdown」（行首记号 + 表格竖线换中点），
+ * plainContext 面向「压成一行的原文切片」（行中间的引用记号也要清），两者都走行内记号剥离。
+ */
+export function plainContext(text: string): string {
+  let s = stripInlineMarkdown(String(text ?? ""));
+  // 落单的反引号也要清：切片只有几十字宽，成对反引号常被切掉一半
+  //（实测「…alculate_rd_adjustment`）得出 1,755,555.55 元」只剩闭合那一个），
+  // stripInlineMarkdown 的成对规则够不着，界面上就会显示出一个孤零零的 `。
+  s = s.replace(/`/g, "");
+  // 行首或空白后的井号标题记号
+  s = s.replace(/(^|\s)#{1,6}\s+/g, "$1");
+  // 行首或空白后的引用记号（含 "> >" 连写）。带空格的半角 > 在中文结论里几乎只可能是引用记号，
+  // 数学比较通常写成 "增值率>50%"（无空格）或全角「＞」，不会误伤。
+  // 连写的 "> >" 要一次吃掉：正则不重叠匹配，写成 /(^|\s)>\s*/ 只能消掉第一个，
+  // 第二个 > 的前导空格已被上一次替换消耗，实测会留下 "8万元。 > （一）按照…"。
+  s = s.replace(/(^|\s)(?:>\s*)+/g, "$1");
+  s = s.replace(/\s+/g, " ");
+  // 记号清掉后常在中文标点后面留一个空格（「。** > > **（一）」剥完就是「。 （一）」），
+  // 中文排版里标点后不接空格，这段又要直接显示在界面上，顺手收掉
+  s = s.replace(/([。，、；：！？）」』】〉》”’…—])\s+/g, "$1");
+  return s.trim();
+}
+
 /** 取一段可读摘要：先转纯文本，再按长度截断加省略号；空输入返回空串，不填占位文字 */
 export function plainSnippet(md: string, max = 160): string {
   const text = markdownToPlainText(md);

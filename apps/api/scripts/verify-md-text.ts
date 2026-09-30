@@ -14,6 +14,7 @@ import {
   countTables,
   markdownToPlainText,
   plainLine,
+  plainContext,
   plainSnippet,
   stripInlineMarkdown,
   tocEntries,
@@ -175,6 +176,38 @@ expect("自由文本列表的 key 一律带下标（标签 / 步骤 / 核对项 
 // 任务指令面板是**有意**保留原文的：那是用户提交的输入逐字回显，与对话流里的用户气泡同一口径。
 // 把它也转成富文本反而篡改了「当时提交的是什么」，所以这里断言它保持原样，防止被顺手「修」掉。
 ok("任务指令面板保持输入原文回显（有意不渲染）", wb.includes("{task.instruction}"));
+// 9) 原文切片（金额与文号的上下文）：跨行压成一行后，行中间的记号也要清掉。
+//    plainLine 只处理行首，够不着这种片段——实测复核页的待确认清单里出现过
+//    「…其他相关费用为8万元。** > > **（一）按照97号公告…」，粗体与引用记号一起显示了出来。
+expect(
+  "粗体与连写的引用记号都清掉",
+  plainContext("其他相关费用为8万元。** > > **（一）按照97号公告"),
+  "其他相关费用为8万元。（一）按照97号公告",
+);
+expect("行首井号清掉", plainContext("### 1.2 限额为 100,000.00 元"), "1.2 限额为 100,000.00 元");
+expect(
+  "行内代码的反引号清掉，工具名保留",
+  plainContext("调用 `calculate_rd_adjustment` 得出 100,000.00 元"),
+  "调用 calculate_rd_adjustment 得出 100,000.00 元",
+);
+expect("换行与多余空白压成单个空格", plainContext("限额\n  为 100,000.00  元 "), "限额 为 100,000.00 元");
+expect("空输入给空串", plainContext(""), "");
+expect(
+  "无空格的数学比较不动（增值率>50% 不是引用记号）",
+  plainContext("增值率>50% 时适用 40% 税率，应纳税额 100,000.00 元"),
+  "增值率>50% 时适用 40% 税率，应纳税额 100,000.00 元",
+);
+expect(
+  "链接留文字（上下文里带引用来源时也读得通）",
+  plainContext("见 [28号公告](https://gov.cn/a) 第 100,000.00 元"),
+  "见 28号公告 第 100,000.00 元",
+);
+// 上游两处切片（金额溯源 / 文号溯源）都必须走这个函数，否则记号又会漏到界面上
+const at = fs.readFileSync(path.resolve(here, "..", "..", "web", "src", "amount-trace.ts"), "utf8");
+const pt = fs.readFileSync(path.resolve(here, "..", "..", "web", "src", "policy-trace.ts"), "utf8");
+ok("金额溯源的上下文走 plainContext", at.includes('import { plainContext } from "./md-text.ts"') && at.includes("context: plainContext("));
+ok("文号溯源的上下文走 plainContext", pt.includes('import { plainContext } from "./md-text.ts"') && pt.includes("const ctx = plainContext("));
+
 console.log(`[verify] Markdown 纯文本化：真实任务 ${withConclusion} 个 · 目录条目 ${tocTotal} 条 · 残留 ${leaks.length} 处`);
 console.log(`[verify] 真实结论表格计数：旧口径 ${oldTables} 张 → 新口径 ${newTables} 张`);
 console.log(`[verify] 纯文本化检查项=${checks} 失败=${failures.length}`);

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentInfo, TaskInfo } from "../types.ts";
 import { downloadCsv } from "../download.ts";
+import { plainSnippet } from "../md-text.ts";
 import {
   asBoolRecord,
   asStringArray,
@@ -387,10 +388,12 @@ export function Sidebar({
           dragOverId === task.id ? "ring-1 ring-glow-400" : ""
         }`}
       >
+        {/* 悬停提示是「这个任务问了什么」，不是逐字回显：剥掉记号更好读（实测提示里出现过
+            「读取正文后**原文摘引**关于…」）。逐字回显的那两处见 TaskWorkbench 的 data-keep-raw。 */}
         <button
           type="button"
           onClick={() => onSelectTask(task.id)}
-          title={task.instruction ? `${task.title}\n${task.instruction.slice(0, 140)}` : task.title}
+          title={task.instruction ? `${task.title}\n${plainSnippet(task.instruction, 140)}` : task.title}
           className="block w-full rounded-lg px-2.5 py-2 pr-8 text-left"
         >
           <span className={`block truncate text-[12.5px] ${active ? "text-mist-100" : "text-mist-300"}`}>

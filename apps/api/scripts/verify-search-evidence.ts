@@ -360,6 +360,36 @@ console.log(
   `[verify] 真实任务走查：${taskTotal} 个任务 · ${withSearch} 个用过联网检索 · 引用 ${citeTotal} 条（工具留存 ${toolCiteTotal} + 结论正文 ${textCiteTotal}，去重后 ${citeTotal}；政府/税务机关站点 ${officialTotal} 条）· 只留元数据的检索 ${metaOnlyCalls} 次`,
 );
 
+// 地址与标题都不能把 Markdown 记号带进界面：引用胶囊只有 260px 宽还要 truncate，记号白占字宽；
+// 更严重的是带反引号的地址点开必然 404，链接核验也跟着白跑一次（实测「…content.html`」）。
+const MD_CITE = [
+  "详见 [`28号公告解读`](https://gov.cn/a.html) 与 [**官方解读**](https://gov.cn/b.html)。",
+  "另有裸地址 https://gov.cn/c.html` 与 **https://gov.cn/d.html** 两处。",
+].join("\n");
+const mdCites = extractTextCitations(MD_CITE, UNCAPPED);
+expect("链接文字里的行内代码记号不进标题", mdCites.find((c) => c.url.includes("/a.html"))?.title, "28号公告解读");
+expect("链接文字里的粗体记号不进标题", mdCites.find((c) => c.url.includes("/b.html"))?.title, "官方解读");
+expect("反引号包住的裸地址，地址本身干净", mdCites.some((c) => c.url === "https://gov.cn/c.html"), true);
+expect("粗体包住的裸地址也能提取", mdCites.some((c) => c.url === "https://gov.cn/d.html"), true);
+ok(
+  "提取出的地址都不带反引号与星号",
+  mdCites.every((c) => !c.url.includes("`") && !c.url.includes("*")),
+  JSON.stringify(mdCites.map((c) => c.url)),
+);
+ok(
+  "提取出的标题都不带 Markdown 记号",
+  mdCites.every((c) => !/(\*\*|`)/.test(c.title)),
+  JSON.stringify(mdCites.map((c) => c.title)),
+);
+expect("地址尾部的反引号被剥掉", cleanBareUrl("https://gov.cn/a_content.html`"), "https://gov.cn/a_content.html");
+expect("地址尾部的星号被剥掉", cleanBareUrl("https://gov.cn/a.html**"), "https://gov.cn/a.html");
+// 工具留存那条路径同样要去记号：标题来自工具结果，也可能带着从页面正文抠出来的记号
+const toolTitles = urlsOfCall("search_public_cases", {
+  results: [{ url: "https://gov.cn/e.html", title: "**《公告》**全文" }],
+});
+expect("工具留存标题也去记号", toolTitles[0]?.title, "《公告》全文");
+expect("标题为空时仍退回地址本身", urlsOfCall("fetch_public_document", { url: "https://gov.cn/f.html" })[0]?.title, "https://gov.cn/f.html");
+
 console.log(`[verify] 检索留痕检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
   for (const f of failures.slice(0, 20)) console.log(`  - ${f}`);

@@ -8,6 +8,8 @@
  * 纯函数，便于 apps/api/scripts/verify-policy-trace.ts 直接校验。
  */
 
+import { plainContext } from "./md-text.ts";
+
 export type DocRef = {
   core: string;
   text: string;
@@ -71,7 +73,8 @@ export function extractDocRefs(text: string): DocRef[] {
       const raw = m[0];
       const core = normalizeRef(raw);
       if (core.length < 4) continue;
-      const ctx = text.slice(Math.max(0, m.index - 28), m.index + raw.length + 20).replace(/\s+/g, " ");
+      // 与金额溯源同一口径：上下文既要给人看，也要拿去拼复查检索词，不能带着 Markdown 记号
+      const ctx = plainContext(text.slice(Math.max(0, m.index - 28), m.index + raw.length + 20));
       const hit = byCore.get(core);
       if (hit) {
         hit.occurrences += 1;

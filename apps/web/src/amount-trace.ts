@@ -12,6 +12,8 @@
  * 纯函数，便于 apps/api/scripts/verify-amount-trace.ts 直接校验。
  */
 
+import { plainContext } from "./md-text.ts";
+
 export type Amount = {
   /** 归一化后的展示形式（含符号与单位，不含空格） */
   raw: string;
@@ -87,7 +89,8 @@ export function extractAmounts(text: string): Amount[] {
       match: full.replace(/^\s+|\s+$/g, ""),
       cents,
       index: idx,
-      context: text.slice(Math.max(0, idx - 24), idx + full.length + 16).replace(/\s+/g, " "),
+      // 上下文是给人扫读的，也要拿去拼复查检索词：剥掉 Markdown 记号，别把 ** 与 > 一起端出来
+      context: plainContext(text.slice(Math.max(0, idx - 24), idx + full.length + 16)),
     });
     if (full.length === 0) AMOUNT_RE.lastIndex += 1;
   }

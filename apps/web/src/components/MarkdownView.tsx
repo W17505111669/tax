@@ -4,6 +4,7 @@ import { marked } from "marked";
 import { downloadText } from "../download.ts";
 import { downloadDiagramPng } from "../diagram-download.ts";
 import { diagramFilename, sanitizeSvgForExport, withExportInit } from "../diagram-export.ts";
+import { prepareMarkdown } from "../md-render-fix.ts";
 
 type MermaidApi = typeof import("mermaid").default;
 
@@ -51,7 +52,9 @@ function extractMermaid(text: string): { prepared: string; fences: string[] } {
 
 function renderMarkdown(el: HTMLElement, text: string, live: boolean): void {
   const { prepared, fences } = extractMermaid(text);
-  const raw = marked.parse(prepared, { gfm: true, breaks: true }) as string;
+  // mermaid 抽出后再做中文修正（裸地址包尖括号、** 紧贴全角标点时把标点外移）：
+  // 这两类写法 marked 按 CommonMark 处理不了，会把记号原样吐到界面上，详见 md-render-fix.ts
+  const raw = marked.parse(prepareMarkdown(prepared), { gfm: true, breaks: true }) as string;
   el.innerHTML = DOMPurify.sanitize(raw, { ADD_ATTR: ["data-mermaid"] });
 
   if (live) return;

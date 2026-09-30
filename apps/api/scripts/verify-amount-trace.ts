@@ -217,6 +217,33 @@ expect(
   [0, 1],
 );
 
+// 上下文片段既显示在复核页「结论金额核对」清单与 tooltip 里，也会拼进联网复查的检索词：
+// 不能带着 Markdown 记号。实测清单里出现过「…其他相关费用为8万元。** > > **（一）按照9…」。
+const CTX_MD = [
+  "> 项目A的其他相关费用限额为 **100,000.00 元**[90*10%/(1-10%)]：",
+  "### 1.2 加计扣除测算（`calculate_rd_adjustment`）得出 1,755,555.55 元",
+  "可加计扣除基数 2,040,000.00 元",
+].join("\n");
+const ctxAmounts = extractAmounts(CTX_MD);
+expect("确实从带记号的原文里提到了金额", ctxAmounts.length > 0, true);
+for (const a of ctxAmounts) {
+  expect(`金额 ${a.raw} 的上下文不含粗体记号`, /\*\*/.test(a.context), false);
+  expect(`金额 ${a.raw} 的上下文不含反引号`, a.context.includes("`"), false);
+  expect(`金额 ${a.raw} 的上下文不含引用记号`, /(^|\s)>\s/.test(a.context), false);
+  expect(`金额 ${a.raw} 的上下文不含标题井号`, /(^|\s)#{1,6}\s/.test(a.context), false);
+}
+// 上下文窗口只有金额前 24 字，23 字的工具名放不下整个，断言按能落进窗口的那截写。
+// 要验的是下划线没被当成斜体记号啃掉（calculate_rd_adjustment 里有两个 _）。
+expect(
+  "上下文里的工具名下划线保留（不被当斜体啃掉）",
+  ctxAmounts.some((a) => a.context.includes("rd_adjustment")),
+  true,
+);
+// raw 与 match 仍必须是原文：正文就地标注靠 match 精确匹配渲染后的文本，改了标不上
+// raw 是归一化后的展示形式，带单位：剥记号只动 context，不动 raw 与 match
+expect("raw 保持原文写法（含单位）", ctxAmounts.some((a) => a.raw === "1,755,555.55元"), true);
+expect("match 保持原文精确片段", ctxAmounts.every((a) => CTX_MD.includes(a.match)), true);
+
 console.log(`[verify] 金额溯源检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  - ${f}`);

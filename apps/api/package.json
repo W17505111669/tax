@@ -21,7 +21,9 @@
     "verify:rdtools": "tsx scripts/verify-rd-tools.ts",
     "verify:toutcome": "tsx scripts/verify-tool-outcome.ts",
     "verify:mdtext": "tsx scripts/verify-md-text.ts",
+    "verify:mdrender": "tsx scripts/verify-md-render.ts",
     "verify:jsxkeys": "tsx scripts/verify-jsx-keys.ts",
+    "scan:uimd": "tsx scripts/scan-ui-markdown.ts",
     "verify:tfails": "tsx scripts/verify-tool-failures.ts",
     "repair:toolcalls": "tsx scripts/repair-tool-calls.ts",
     "verify:dcheck": "tsx scripts/verify-delivery-check.ts",
@@ -71,6 +73,7 @@
   },
   "devDependencies": {
     "@types/turndown": "^5.0.5",
+    "playwright-core": "^1.63.0",
     "tsx": "^4.20.6"
   }
 }

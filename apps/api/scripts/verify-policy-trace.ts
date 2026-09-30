@@ -185,6 +185,23 @@ expect(
   [META_ONLY.url],
 );
 
+// 文号上下文与金额溯源同一口径：既显示在界面上，也会拼进联网复查的检索词，不能带 Markdown 记号
+//（记号混进检索词等于掺噪声，引擎按字面匹配，多两个 ** 就搜不到原文页）。
+const CTX_REF =
+  "> 根据 **财税〔2015〕119号** 第一条（`search_rd_policy`）与《国家税务总局公告2021年第28号》：限额 100,000.00 元";
+const ctxRefs = extractDocRefs(CTX_REF);
+expect("确实从带记号的原文里提到了文号", ctxRefs.length > 0, true);
+for (const r of ctxRefs) {
+  expect(`文号 ${r.text} 的上下文不含粗体记号`, /\*\*/.test(r.context), false);
+  expect(`文号 ${r.text} 的上下文不含反引号`, r.context.includes("`"), false);
+  expect(`文号 ${r.text} 的上下文不含引用记号`, /(^|\s)>\s/.test(r.context), false);
+  expect(`文号 ${r.text} 的每一处上下文同样干净`, r.contexts.some((c) => /(\*\*|`)/.test(c)), false);
+}
+// 剥记号只针对上下文：文号本身要按正式写法进检索词，不能被顺手改掉。
+// 提取出的是文号核心（不含机关代号「财税」），断言按核心写。
+expect("文号本身保持原文", ctxRefs.some((r) => r.text.includes("〔2015〕119号")), true);
+expect("文号本身不含 Markdown 记号", ctxRefs.every((r) => !/(\*\*|`)/.test(r.text)), true);
+
 console.log(`[verify] 文号溯源检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  - ${f}`);

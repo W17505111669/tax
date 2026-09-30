@@ -93,6 +93,11 @@
 | 提示词实测F 检索结果内定位正文 | land-vat | DEMO-001 | completed | web_search → get_search_content(!) → get_search_content → get_search_content → get_search_content → get_search_content → get_search_content → web_search → get_search_content → web_search → get_search_content | — | — |
 | 提示词实测G 修正契约后复测 | rd-audit | DEMO-001 | completed | parse_uploaded_files → web_search → search_rd_policy → get_search_content → get_search_content → web_search → fetch_content(!) → fetch_public_document | — | — |
 | 正文留存实测H 引文可核对 | rd-audit | DEMO-001 | completed | web_search → search_public_cases → fetch_content → get_search_content → get_search_content → get_search_content → get_search_content → get_search_content | — | — |
+| 渲染实测E 政策问答短结论 | rd-audit | DEMO-001 | completed | search_rd_policy → calculate_rd_adjustment | — | — |
+| 渲染实测F 多表格长文 | rd-audit | DEMO-001 | completed | search_rd_policy → calculate_rd_adjustment → calculate_rd_adjustment → calculate_rd_adjustment → calculate_rd_adjustment → parse_uploaded_files | — | — |
+| 渲染实测G 合同发票核验 | land-vat | DEMO-001 | waiting_review | parse_uploaded_files → match_contract_invoice → render_matching_diagram | — | — |
+| 渲染实测H 联网政策检索摘引 | rd-audit | DEMO-001 | completed | web_search → search_public_cases → fetch_content → get_search_content → get_search_content → get_search_content → get_search_content → fetch_content → fetch_public_document → get_search_content → fetch_content(!) → fetch_public_document → fetch_public_document → fetch_public_document → fetch_public_document → fetch_content → fetch_content | — | — |
+| 渲染实测I 清算流程图解 | land-vat | DEMO-001 | completed | — | — | — |
 
 ## 四、准确率统计（记录级比对口径）
 

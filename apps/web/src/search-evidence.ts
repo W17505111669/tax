@@ -11,6 +11,8 @@
  * 前端引用清单与交付包 manifest 走查共用同一份提取逻辑，避免两处口径漂移。
  */
 
+import { stripInlineMarkdown } from "./md-text.ts";
+
 /** 参与统计的联网检索/读取工具（与时间线、进度推导使用同一批名字） */
 export const SEARCH_TOOL_NAMES = new Set([
   "web_search",
@@ -53,6 +55,19 @@ function numOf(v: unknown): number {
   return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : 0;
 }
 
+/**
+ * 标题去记号：工具留存与结论正文两条提取路径共用。
+ *
+ * 引用胶囊上的标题是从 Markdown 里抠出来的，实测出现过两类脏东西：
+ * 写成 [`…content.html`](url) 的行内代码把反引号带进了标题，写成 [**官方解读**](url)
+ * 的粗体把 `**` 带进了标题——胶囊只有 260px 宽、还要 truncate，记号占了字宽还看不出是标题。
+ * 空标题退回 fallback（工具路径用地址本身，正文路径用 labelFromUrl），口径与改动前一致。
+ */
+function plainTitle(raw: unknown, fallback: string): string {
+  const t = typeof raw === "string" ? stripInlineMarkdown(raw).replace(/\s+/g, " ").trim() : "";
+  return t === "" ? fallback : t.slice(0, 120);
+}
+
 /** 从一次工具调用的结果里取出可引用的 URL 与标题（覆盖自建工具与扩展 fetch_content 两种形状） */
 export function urlsOfCall(toolName: string, result: unknown): Array<{ url: string; title: string }> {
   const r = asRecord(result);
@@ -65,7 +80,7 @@ export function urlsOfCall(toolName: string, result: unknown): Array<{ url: stri
     // 否则假地址会进引用清单：核验必然 404，还会把同一个原文页重复计成两条。
     const clean = cleanBareUrl(url);
     if (!/^https?:\/\//i.test(clean)) return;
-    out.push({ url: clean, title: typeof title === "string" && title.trim() !== "" ? title.trim() : clean });
+    out.push({ url: clean, title: plainTitle(title, clean) });
   };
   // search_public_cases：results[] 带 title/url
   if (Array.isArray(r.results)) {
@@ -146,7 +161,10 @@ const URL_TERMINATOR = /[\u2013\u2014\u2018-\u201F\u2026\u3000-\u303F\uFF00-\uFF
 export function cleanBareUrl(raw: string): string {
   const cut = raw.search(URL_TERMINATOR);
   const head = cut === -1 ? raw : raw.slice(0, cut);
-  return head.replace(/[)\]>"'）】\],.;:!?，。；：！？、]+$/, "");
+  // 反引号与星号也算结尾噪声：结论里把地址写成行内代码或粗体时（`https://…` / **https://…**），
+  // 记号会黏在地址尾巴上。实测「…c5185946/content.html`」就是这么进引用清单的——标题难看是小事，
+  // 带着反引号的地址点开必然 404，链接核验也会白跑一次。
+  return head.replace(/[)\]>"'`*）】\],.;:!?，。；：！？、]+$/, "");
 }
 
 /** 作废交代的判定窗口（字）。实测「原引用的」距地址 22 字，40 字够覆盖且不误伤密集表格 */
@@ -229,7 +247,7 @@ export function extractTextCitations(text: string, limit: number = CITATION_LIMI
     if (!/^https?:\/\//i.test(clean) || seen.has(clean)) return;
     seen.add(clean);
     out.push({
-      title: title.trim() === "" ? labelFromUrl(clean) : title.trim().slice(0, 120),
+      title: plainTitle(title, labelFromUrl(clean)),
       url: clean,
       via: CONCLUSION_VIA,
     });
@@ -237,7 +255,9 @@ export function extractTextCitations(text: string, limit: number = CITATION_LIMI
   for (const m of text.matchAll(/\[([^\]]{0,120})\]\((https?:\/\/[^)\s]+)\)/g)) {
     push(m[2] ?? "", m[1] ?? "", m.index ?? 0);
   }
-  for (const m of text.matchAll(/https?:\/\/[^\s)\]>"'|，。；、]+/g)) push(m[0], "", m.index ?? 0);
+  // 裸地址的字符类里同样要排除反引号与星号，否则记号被当成地址的一部分吃进来（cleanBareUrl
+  // 只能剥结尾，剥不掉夹在中间的）
+  for (const m of text.matchAll(/https?:\/\/[^\s)\]>"'|，。；、`*]+/g)) push(m[0], "", m.index ?? 0);
   return out.slice(0, limit);
 }
 
