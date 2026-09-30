@@ -63,14 +63,33 @@ export const matchContractInvoiceTool: ToolDefinition = {
   name: "match_contract_invoice",
   label: "合同发票关联",
   description:
-    "按合同编号把发票关联到工程合同，支持一份合同对应多张发票。输出每份合同的发票清单、发票金额合计、合同与发票差异、未匹配发票、无发票合同、疑似重复发票号码。金额汇总由程序完成。",
-  promptSnippet: "match_contract_invoice: 按合同编号关联发票并汇总金额、识别差异与重复",
+    "按合同编号把发票关联到工程合同，支持一份合同对应多张发票。输出每份合同的发票清单、发票金额合计、合同与发票差异、未匹配发票、无发票合同、疑似重复发票号码。传入 allocationScenarios 可对未匹配发票做归属假设演算，给出假设成立时的残余差异。金额汇总与差额一律由程序完成，不要自行相减。",
+  promptSnippet:
+    "match_contract_invoice: 按合同编号关联发票并汇总金额、识别差异与重复；传 allocationScenarios 可演算未匹配发票的归属假设",
   parameters: Type.Object({
     projectName: Type.String(),
     contracts: Type.Array(ContractSchema),
     invoices: Type.Array(InvoiceSchema),
+    allocationScenarios: Type.Optional(
+      Type.Array(
+        Type.Object({
+          invoiceNo: Type.String({ description: "待归属发票号码，通常是未注明合同编号的那张" }),
+          contractNo: Type.String({ description: "假设归属的合同编号" }),
+          note: Type.Optional(Type.String({ description: "假设说明，原样回显" })),
+        }),
+        {
+          description:
+            "归属假设演算：不改变实际关联结果，只按假设计算该合同的残余差异与全项目差异合计。未匹配发票按执业规则不得自行归属，需要说明「若归某合同还剩多少差异」时用本参数取数。",
+        },
+      ),
+    ),
   }),
-  async execute(_toolCallId, params: { projectName: string; contracts: Contract[]; invoices: Invoice[] }) {
+  async execute(_toolCallId, params: {
+    projectName: string;
+    contracts: Contract[];
+    invoices: Invoice[];
+    allocationScenarios?: Array<{ invoiceNo: string; contractNo: string; note?: string }>;
+  }) {
     const contractByKey = new Map<string, Contract>();
     for (const c of params.contracts) contractByKey.set(normalizeCode(c.contractNo), c);
 
@@ -132,6 +151,68 @@ export const matchContractInvoiceTool: ToolDefinition = {
       }
     }
 
+    // 归属假设演算：未注明合同编号的发票「不得自行归属」，但底稿要说明「若归某合同还剩多少差异」。
+    // 这个减法以前只能模型自己算，工具结果里没有出处，金额溯源判为待人工确认（实测 09046f0a
+    // 的「若归 HT-003 仍留 1,800,000.00 元差异」= 2,000,000 - 200,000）。这里由程序按假设计算，
+    // 且只输出演算结果，不改动上面 matched / unmatchedInvoices 的实际关联结论。
+    const scenarios: Array<{
+      invoiceNo: string;
+      contractNo: string;
+      note?: string;
+      ok: boolean;
+      error?: string;
+      invoiceAmountYuan?: string;
+      contractName?: string;
+      contractAmountYuan?: string;
+      invoiceTotalBeforeYuan?: string;
+      differenceBeforeYuan?: string;
+      invoiceTotalAfterYuan?: string;
+      differenceAfterYuan?: string;
+      overallDifferenceYuan?: string;
+      status?: "cleared" | "difference_pending" | "over_invoiced";
+    }> = [];
+    for (const sc of params.allocationScenarios ?? []) {
+      const invKey = normalizeCode(sc.invoiceNo);
+      const inv = invKey ? params.invoices.find((i) => normalizeCode(i.invoiceNo) === invKey) : undefined;
+      const row = matched.find((m) => normalizeCode(m.contractNo) === normalizeCode(sc.contractNo));
+      if (!inv || !row) {
+        scenarios.push({
+          invoiceNo: sc.invoiceNo,
+          contractNo: sc.contractNo,
+          note: sc.note,
+          ok: false,
+          error: !inv
+            ? `发票 ${sc.invoiceNo} 未在发票清单中找到`
+            : `合同 ${sc.contractNo} 未在合同清单中找到`,
+        });
+        continue;
+      }
+      const contractCents = yuanToCents(row.contractAmountYuan);
+      const beforeCents = yuanToCents(row.invoiceTotalYuan);
+      const invCents = yuanToCents(inv.amountYuan);
+      const afterCents = sumCents([beforeCents, invCents]);
+      const diffAfter = contractCents - afterCents;
+      // 全项目差异合计按「假设成立」重算：只替换被这份发票影响的那一份合同
+      const overall = sumCents(
+        matched.map((m) => (m.contractNo === row.contractNo ? diffAfter : yuanToCents(m.differenceYuan))),
+      );
+      scenarios.push({
+        invoiceNo: inv.invoiceNo,
+        contractNo: row.contractNo,
+        note: sc.note,
+        ok: true,
+        invoiceAmountYuan: centsToYuan(invCents),
+        contractName: row.contractName,
+        contractAmountYuan: row.contractAmountYuan,
+        invoiceTotalBeforeYuan: row.invoiceTotalYuan,
+        differenceBeforeYuan: row.differenceYuan,
+        invoiceTotalAfterYuan: centsToYuan(afterCents),
+        differenceAfterYuan: centsToYuan(diffAfter),
+        overallDifferenceYuan: centsToYuan(overall),
+        status: diffAfter === 0 ? "cleared" : diffAfter < 0 ? "over_invoiced" : "difference_pending",
+      });
+    }
+
     const issues = [
       ...matched
         .filter((m) => m.status === "difference_pending")
@@ -170,6 +251,7 @@ export const matchContractInvoiceTool: ToolDefinition = {
       matched,
       unmatchedInvoices,
       duplicates,
+      allocationScenarios: scenarios,
       issues,
       summary: {
         consistent: matched.filter((m) => m.status === "consistent").length,
@@ -196,6 +278,16 @@ export const matchContractInvoiceTool: ToolDefinition = {
         (m) =>
           `  · ${m.contractNo} ${m.contractName} | 合同 ${m.contractAmountYuan} | 发票 ${m.invoiceCount} 张合计 ${m.invoiceTotalYuan} | 差异 ${m.differenceYuan} | ${m.status}`,
       ),
+      ...(scenarios.length > 0
+        ? [
+            "- 归属假设演算（仅为假设，未改变实际关联结果，发票仍按待人工确认处理）：",
+            ...scenarios.map((s) =>
+              s.ok
+                ? `  · 若 ${s.invoiceNo}（${s.invoiceAmountYuan} 元）归 ${s.contractNo} ${s.contractName}：发票合计 ${s.invoiceTotalBeforeYuan} → ${s.invoiceTotalAfterYuan}，差异 ${s.differenceBeforeYuan} → ${s.differenceAfterYuan}，全项目差异合计 ${s.overallDifferenceYuan}（${s.status}）`
+                : `  · 若 ${s.invoiceNo} 归 ${s.contractNo}：${s.error}`,
+            ),
+          ]
+        : []),
       ...issues.map((i, idx) => `  ${idx + 1}. [${i.issueType}] ${i.description}`),
     ].join("\n");
 

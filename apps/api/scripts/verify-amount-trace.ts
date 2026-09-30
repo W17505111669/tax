@@ -32,6 +32,15 @@ expect("百分号不计入", extractAmounts("加计扣除比例 100%").length, 0
 expect("年份不计入", extractAmounts("2025 年度研发项目").length, 0);
 expect("量词不计入", extractAmounts("共 3 份合同、6 大类费用").length, 0);
 expect("URL 中的数字不计入", extractAmounts("见 https://x.gov.cn/t.php?tid=27828 与 /c100012/c5194166/").length, 0);
+// 冒号后的金额必须计入：工具正文与结论大量写成「限额: 175555.55 元」，正则的前导 \s* 会让匹配
+// 从冒号后的空格起算，若按匹配起点判「是不是长记号的一部分」，前一个字符正好是 ":"，整条金额被
+// 跳过——等于给手算数字留了「写成 冒号+空格 就查不到」的口子（实测平台少了 24 处金额没被核对）。
+expect("冒号+空格后的金额计入", extractAmounts("其他相关费用限额: 175555.55 元").map((a) => a.cents), [17555555]);
+expect("冒号后的千分位金额计入", extractAmounts("前五类合计: 1,580,000.00 元").map((a) => a.cents), [158000000]);
+expect("冒号后的负数金额计入且保留符号", extractAmounts("差额: -10,000.00 元").map((a) => a.cents), [-1000000]);
+expect("负号金额不被自己的负号误杀", extractAmounts("差异 -460,000.00 元").map((a) => a.cents), [-46000000]);
+expect("紧挨冒号的数字仍视为记号一部分（时间）", extractAmounts("检索时间 09:17 完成").length, 0);
+expect("紧挨等号的数字仍视为记号一部分（查询串）", extractAmounts("见 https://x.gov.cn/t.php?tid=278280").length, 0);
 expect("短编号不计入（12366 热线）", extractAmounts("国家税务总局12366纳税服务平台的答复").length, 0);
 expect("6 位以上无单位数字计入", extractAmounts("辅助账 860000 与财务账 0").map((a) => a.cents), [86000000]);
 expect("无单位但带千分位/位数足够时计入", extractAmounts("金额 1,200,000 与 860000").map((a) => a.cents), [

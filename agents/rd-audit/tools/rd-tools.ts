@@ -45,6 +45,64 @@ function groupByCategory(items: ExpenseItem[]): Map<string, number> {
   return map;
 }
 
+/** 单个口径的测算中间量。全程整数分，出口再统一转元，避免浮点误差。 */
+interface RdScenarioCents {
+  grouped: Map<string, number>;
+  base5: number;
+  otherActual: number;
+  otherLimit: number;
+  otherAllowed: number;
+  otherExceeded: number;
+  deductibleBase: number;
+  deduction: number;
+}
+
+function computeRdScenarioCents(expenses: ExpenseItem[], deductionRatePercent: number): RdScenarioCents {
+  const grouped = groupByCategory(expenses);
+  const firstFive = RD_CATEGORIES.filter((c) => c !== "other");
+  const base5 = sumCents(firstFive.map((c) => grouped.get(c) ?? 0));
+  const otherActual = grouped.get("other") ?? 0;
+  const otherLimit = multiplyCents(base5, 10, 90);
+  const otherAllowed = Math.min(otherActual, otherLimit);
+  const otherExceeded = otherActual - otherAllowed;
+  const deductibleBase = base5 + otherAllowed;
+  const deduction = multiplyCents(deductibleBase, deductionRatePercent, 100);
+  return { grouped, base5, otherActual, otherLimit, otherAllowed, otherExceeded, deductibleBase, deduction };
+}
+
+/** 一个口径的完整测算结果（元字符串）。既是工具主输出，也是双口径对照表的一列。 */
+function rdScenarioDetails(label: string, s: RdScenarioCents, deductionRatePercent: number) {
+  return {
+    label,
+    deductionRatePercent,
+    byCategory: RD_CATEGORIES.map((c) => ({
+      category: c,
+      label: RD_CATEGORY_LABELS[c],
+      amountYuan: centsToYuan(s.grouped.get(c) ?? 0),
+    })),
+    firstFiveTotalYuan: centsToYuan(s.base5),
+    otherActualYuan: centsToYuan(s.otherActual),
+    otherLimitYuan: centsToYuan(s.otherLimit),
+    otherAllowedYuan: centsToYuan(s.otherAllowed),
+    otherExceededYuan: centsToYuan(s.otherExceeded),
+    deductibleBaseYuan: centsToYuan(s.deductibleBase),
+    deductionYuan: centsToYuan(s.deduction),
+  };
+}
+
+type RdScenarioDetails = ReturnType<typeof rdScenarioDetails>;
+
+/** 对照表逐行口径：行名 + 两个口径的值 + 差额，差额一律由程序相减。 */
+const COMPARISON_ROWS: Array<{ key: keyof Omit<RdScenarioDetails, "label" | "deductionRatePercent" | "byCategory">; row: string }> = [
+  { key: "firstFiveTotalYuan", row: "前五类费用合计" },
+  { key: "otherActualYuan", row: "其他相关费用实际发生" },
+  { key: "otherLimitYuan", row: "其他相关费用限额" },
+  { key: "otherAllowedYuan", row: "可加计的其他相关费用" },
+  { key: "otherExceededYuan", row: "超限额部分（不得加计）" },
+  { key: "deductibleBaseYuan", row: "可加计扣除基数" },
+  { key: "deductionYuan", row: "加计扣除额" },
+];
+
 /**
  * 研发费用加计扣除确定性测算。
  * 规则：其他相关费用限额 = 前五类费用之和 × 10% / (1 - 10%)。
@@ -54,8 +112,9 @@ export const calculateRdAdjustmentTool: ToolDefinition = {
   name: "calculate_rd_adjustment",
   label: "研发费用加计扣除测算",
   description:
-    "按确定性规则测算研发费用加计扣除金额。输入研发项目、费用年度、六大类归集金额与加计扣除比例，输出其他相关费用限额、超限金额、可加计扣除基数与加计扣除额。涉及金额必须调用本工具。",
-  promptSnippet: "calculate_rd_adjustment: 测算研发费用加计扣除额与其他相关费用限额",
+    "按确定性规则测算研发费用加计扣除金额。输入研发项目、费用年度、六大类归集金额与加计扣除比例，输出其他相关费用限额、超限金额、可加计扣除基数与加计扣除额。需要比较两个归集口径（如辅助账口径与财务明细账口径）时，用 alternative 传入第二个口径，工具会同时输出两口径对照表与逐项差额；不要自行把两次测算结果相减。涉及金额必须调用本工具。",
+  promptSnippet:
+    "calculate_rd_adjustment: 测算研发费用加计扣除额与其他相关费用限额；传 alternative 可一次得到两口径对照与差额",
   parameters: Type.Object({
     projectName: Type.String(),
     year: Type.Integer({ minimum: 2008, maximum: 2100 }),
@@ -65,48 +124,67 @@ export const calculateRdAdjustmentTool: ToolDefinition = {
       maximum: 200,
       description: "加计扣除比例，一般企业为 100，集成电路和工业母机企业为 120",
     }),
+    label: Type.Optional(Type.String({ description: "主口径名称，如「辅助账口径」，缺省为「主口径」" })),
+    alternative: Type.Optional(
+      Type.Object({
+        label: Type.String({ description: "对照口径名称，如「财务明细账口径」" }),
+        expenses: Type.Array(ExpenseItemSchema, {
+          minItems: 1,
+          description: "对照口径的六大类归集金额，与主口径同一年度、同一比例",
+        }),
+      }),
+    ),
   }),
   async execute(_toolCallId, params: {
     projectName: string;
     year: number;
     expenses: ExpenseItem[];
     deductionRatePercent: number;
+    label?: string;
+    alternative?: { label: string; expenses: ExpenseItem[] };
   }) {
-    const grouped = groupByCategory(params.expenses);
-    const firstFive = RD_CATEGORIES.filter((c) => c !== "other");
-    const base5Cents = sumCents(firstFive.map((c) => grouped.get(c) ?? 0));
-    const otherActualCents = grouped.get("other") ?? 0;
-    const otherLimitCents = multiplyCents(base5Cents, 10, 90);
-    const otherAllowedCents = Math.min(otherActualCents, otherLimitCents);
-    const otherExceededCents = otherActualCents - otherAllowedCents;
-    const deductibleBaseCents = base5Cents + otherAllowedCents;
-    const deductionCents = multiplyCents(deductibleBaseCents, params.deductionRatePercent, 100);
+    const primaryLabel = params.label?.trim() || "主口径";
+    const primary = computeRdScenarioCents(params.expenses, params.deductionRatePercent);
+    const primaryDetails = rdScenarioDetails(primaryLabel, primary, params.deductionRatePercent);
 
-    const byCategory = RD_CATEGORIES.map((c) => ({
-      category: c,
-      label: RD_CATEGORY_LABELS[c],
-      amountYuan: centsToYuan(grouped.get(c) ?? 0),
-    }));
+    // 对照口径只在调用方明确要求时才算，差额一律由程序相减。结论里不该再出现手算的减法：
+    // 实测 17a56468 的「财务明细账口径前五类 2,040,000.00 / 限额 226,666.66 / 两口径差额
+    // 454,444.45」三个数都是模型自己算的，工具结果里找不到出处，被金额溯源判为待人工确认。
+    const altLabel = params.alternative?.label.trim() || "对照口径";
+    const altCents = params.alternative
+      ? computeRdScenarioCents(params.alternative.expenses, params.deductionRatePercent)
+      : null;
+    const altDetails = altCents ? rdScenarioDetails(altLabel, altCents, params.deductionRatePercent) : null;
+    const delta: Record<string, string> | null = altDetails
+      ? Object.fromEntries(
+          COMPARISON_ROWS.map(({ key }) => [
+            key,
+            centsToYuan(yuanToCents(altDetails[key]) - yuanToCents(primaryDetails[key])),
+          ]),
+        )
+      : null;
 
     const details = {
+      ...primaryDetails,
       projectName: params.projectName,
       year: params.year,
-      deductionRatePercent: params.deductionRatePercent,
-      byCategory,
-      firstFiveTotalYuan: centsToYuan(base5Cents),
-      otherActualYuan: centsToYuan(otherActualCents),
-      otherLimitYuan: centsToYuan(otherLimitCents),
-      otherAllowedYuan: centsToYuan(otherAllowedCents),
-      otherExceededYuan: centsToYuan(otherExceededCents),
-      deductibleBaseYuan: centsToYuan(deductibleBaseCents),
-      deductionYuan: centsToYuan(deductionCents),
       limitRule: "其他相关费用限额 = 前五类费用之和 × 10% ÷ (1 - 10%)",
       amountUnit: "元（内部按整数分计算）",
+      ...(altDetails && delta
+        ? {
+            comparison: {
+              primary: primaryDetails,
+              alternative: altDetails,
+              deltaLabel: `${altLabel} - ${primaryLabel}`,
+              delta,
+            },
+          }
+        : {}),
     };
 
-    const text = [
+    const lines = [
       `项目「${params.projectName}」${params.year} 年度研发费用加计扣除测算结果：`,
-      ...byCategory.map((c) => `- ${c.label}: ${c.amountYuan} 元`),
+      ...primaryDetails.byCategory.map((c) => `- ${c.label}: ${c.amountYuan} 元`),
       `- 前五类合计: ${details.firstFiveTotalYuan} 元`,
       `- 其他相关费用实际发生: ${details.otherActualYuan} 元`,
       `- 其他相关费用限额: ${details.otherLimitYuan} 元`,
@@ -114,9 +192,22 @@ export const calculateRdAdjustmentTool: ToolDefinition = {
       `- 可加计扣除基数: ${details.deductibleBaseYuan} 元`,
       `- 加计扣除比例: ${params.deductionRatePercent}%`,
       `- 加计扣除额: ${details.deductionYuan} 元`,
-    ].join("\n");
+    ];
 
-    return { content: [{ type: "text", text }], details };
+    if (altDetails && delta) {
+      // 对照表直接进正文，模型可以整段照抄，不必自己把两个口径的数拼起来
+      lines.push(
+        "",
+        `两口径对照（差额 = ${altLabel} - ${primaryLabel}，由工具计算）：`,
+        `| 项目 | ${primaryLabel} | ${altLabel} | 差额 |`,
+        "|---|---|---|---|",
+        ...COMPARISON_ROWS.map(
+          ({ key, row }) => `| ${row} | ${primaryDetails[key]} | ${altDetails[key]} | ${delta[key]} |`,
+        ),
+      );
+    }
+
+    return { content: [{ type: "text", text: lines.join("\n") }], details };
   },
 };
 

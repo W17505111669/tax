@@ -64,7 +64,14 @@ export function extractAmounts(text: string): Amount[] {
     const [full, sign, symbol, digits, unit] = m;
     if (full === undefined || digits === undefined) continue;
     const idx = m.index;
-    const before = idx > 0 ? text[idx - 1] : "";
+    // 判「这个数字是不是某个更长记号的一部分」要看紧挨记号起点的那个字符，不能看匹配起点：
+    // 正则带前导 \s*，"限额: 175555.55 元" 的匹配从冒号后的空格起算，起点前一个字符是 ":"，
+    // 整条金额就被当成 URL / 编号的一部分跳过了——冒号后的金额此前根本进不了溯源核对，等于给
+    // 手算数字留了「写成 冒号+空格 就查不到」的口子。记号起点取第一个非空白字符，负号与货币
+    // 符号都算记号的一部分（否则 "-460,000.00 元" 会因为紧邻自己的负号被误杀）。
+    const tokenAt = Math.max(0, full.search(/\S/));
+    const beforeIdx = idx + tokenAt;
+    const before = beforeIdx > 0 ? text[beforeIdx - 1] : "";
     if (before && TOKEN_BEFORE.test(before)) continue;
     const after = text.slice(idx + full.length);
     const hasSep = digits.includes(",");

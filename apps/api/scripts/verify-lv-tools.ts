@@ -116,6 +116,78 @@ const dup = await detailsOf(matchTool, {
 });
 expect("发票号归一后识别为疑似重复", dup.summary.duplicateCount, 1);
 
+// 1b) 归属假设演算：未匹配发票「不得自行归属」，但残余差异必须由工具算，不能让模型手减。
+// 此前结论里「若归 HT-003 仍留 1,800,000.00 元差异」是模型自己算的 2,000,000 - 200,000，
+// 工具结果里没有出处，金额溯源判为待人工确认（实测 09046f0a）。
+const scenContracts = [
+  { contractNo: "HT-001", contractName: "总承包", amountYuan: "12000000.00" },
+  { contractNo: "HT-003", contractName: "幕墙", amountYuan: "6800000.00" },
+];
+const scenInvoices = [
+  { invoiceNo: "FP-001", contractNo: "HT-001", amountYuan: "11900000.00" },
+  { invoiceNo: "FP-004", contractNo: "HT-003", amountYuan: "4800000.00" },
+  { invoiceNo: "FP-005", amountYuan: "200000.00" },
+];
+const scen = await detailsOf(matchTool, {
+  projectName: "归属演算项目",
+  contracts: scenContracts,
+  invoices: scenInvoices,
+  allocationScenarios: [
+    { invoiceNo: "FP-005", contractNo: "HT-003", note: "假设归幕墙" },
+    { invoiceNo: "FP-005", contractNo: "HT-001", note: "假设归总承包" },
+    { invoiceNo: "FP-404", contractNo: "HT-003", note: "发票不存在" },
+    { invoiceNo: "FP-005", contractNo: "HT-999", note: "合同不存在" },
+  ],
+});
+const [s1, s2, s3, s4] = scen.allocationScenarios;
+expect("演算条数与入参一致", scen.allocationScenarios.length, 4);
+expect("假设归 HT-003：残余差异由工具给出", [s1.ok, s1.differenceAfterYuan], [true, "1800000.00"]);
+expect("假设成立后的发票合计", s1.invoiceTotalAfterYuan, "5000000.00");
+expect("演算同时回报假设前的差异，便于对照", s1.differenceBeforeYuan, "2000000.00");
+expect("差异未清零判 difference_pending", s1.status, "difference_pending");
+expect("假设归 HT-001：开超合同价判 over_invoiced", [s2.ok, s2.differenceAfterYuan, s2.status], [
+  true,
+  "-100000.00",
+  "over_invoiced",
+]);
+expect(
+  "全项目差异合计按假设重算，只替换受影响的那份合同（100000 + 1800000）",
+  s1.overallDifferenceYuan,
+  "1900000.00",
+);
+expect("另一个假设下的全项目差异合计（-100000 + 2000000）", s2.overallDifferenceYuan, "1900000.00");
+expect("note 原样回显", [s1.note, s2.note], ["假设归幕墙", "假设归总承包"]);
+expect("发票号不存在时明确报错、不静默算数", [s3.ok, String(s3.error).includes("未在发票清单中找到")], [false, true]);
+expect("合同号不存在时明确报错", [s4.ok, String(s4.error).includes("未在合同清单中找到")], [false, true]);
+expect(
+  "演算不改变实际关联结果：FP-005 仍是未匹配发票",
+  scen.unmatchedInvoices.map((u: { invoiceNo: string }) => u.invoiceNo),
+  ["FP-005"],
+);
+expect("演算不改变逐份合同的差异", scen.matched.map((m: { differenceYuan: string }) => m.differenceYuan), [
+  "100000.00",
+  "2000000.00",
+]);
+expect("演算不改变差异合计", scen.summary.totalDifferenceYuan, "2100000.00");
+expect("未匹配发票仍作为待复核问题保留", scen.issues.some((i: { issueType: string }) => i.issueType === "未匹配发票"), true);
+
+const noScen = await detailsOf(matchTool, { projectName: "无演算", contracts: scenContracts, invoices: scenInvoices });
+expect("不传演算参数时字段为空数组，不影响既有输出", noScen.allocationScenarios, []);
+expect("不传演算参数时其余口径不变", noScen.summary.totalDifferenceYuan, "2100000.00");
+ok(
+  "工具正文里给出演算行，模型不必自己减",
+  String(
+    (
+      await matchTool.execute("v", {
+        projectName: "归属演算项目",
+        contracts: scenContracts,
+        invoices: scenInvoices,
+        allocationScenarios: [{ invoiceNo: "FP-005", contractNo: "HT-003" }],
+      })
+    ).content?.[0]?.text ?? "",
+  ).includes("差异 2000000.00 → 1800000.00"),
+);
+
 // 2) 发票与账面记录关联
 const ledger = await detailsOf(ledgerTool, {
   invoices: [

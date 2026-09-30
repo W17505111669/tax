@@ -29,9 +29,11 @@ function fmtVal(v: unknown): string {
  * - compare_workpapers 返回的差异/单方缺失格
  * 同一问题跨多次调用去重（按 source+type+description）。
  *
- * 两道过滤，都是为了让这份清单只列**当前还需要人看**的项：没有结论的任务整条不列，比对类问题只取
- * 最近一次与人工底稿的比对。改之前全平台 135 条待复核里，43 条来自一个 failed 任务、15 条来自
- * 与自身模板的比对、还有一批来自被后续运行取代的旧比对——真正要人看的项被埋在里面。
+ * 三道过滤，都是为了让这份清单只列**当前还需要人看**的项：没有结论的任务整条不列；与自身原始模板
+ * 的比对不列（模板本来是空的，「只有一侧有」正是填进去的值）；被后续运行取代的旧结果不列——底稿
+ * 比对只取最近一次与人工底稿的比对，返回完整 issues 清单的业务工具只取同名工具最近一次成功调用。
+ * 改之前全平台 135 条待复核里，43 条来自一个 failed 任务、15 条来自与自身模板的比对、还有一批来自
+ * 被后续运行取代的旧比对——真正要人看的项被埋在里面。
  */
 export function extractIssues(taskId: string): TaskIssue[] {
   // 没有结论就没有可交付物：失败或中断那次运行留下的差异与缺失项是残渣，不是待复核欠账
@@ -62,11 +64,32 @@ export function extractIssues(taskId: string): TaskIssue[] {
   // 2. 同一任务反复比对时，早先那次的差异已被后来那次取代（实测 aabd138a 09-29 05:57 那次有 48 处
   //    「仅系统底稿」，06:36 重跑后只剩 1 处差异；留着旧的那些，等于让人复核一个已经不存在的状态）。
   // calls 已按 started_at 升序，最后一条即最近一次
-  const derived = buildDerivedFrom(calls);
-  const peerCompares = calls.filter(
-    (c) => c.tool_name === "compare_workpapers" && !isTemplateCompare(c.args, derived),
-  );
-  const latestCompareId = peerCompares.length > 0 ? peerCompares[peerCompares.length - 1]!.id : null;
+ const derived = buildDerivedFrom(calls);
+ const peerCompares = calls.filter(
+   (c) => c.tool_name === "compare_workpapers" && !isTemplateCompare(c.args, derived),
+ );
+ const latestCompareId = peerCompares.length > 0 ? peerCompares[peerCompares.length - 1]!.id : null;
+
+  // 「被后续运行取代」这条口径不止适用于底稿比对：凡是返回**完整 issues 清单**的工具（归集核查、
+  // 合同发票关联、发票账面关联、金额一致性…），每次调用都是对同一套输入的全量重算，同一任务里
+  // 重跑一遍，早先那次描述的状态就已经不存在了。实测 09046f0a 续跑后，旧一轮「HT-001 建安工程
+  // 合同 / 关联 1 张发票」的差异仍挂在清单上，与新一轮「HT-001 总承包合同 / 关联 2 张发票」并存，
+  // 同一件事出现两条，去重键（source+type+description）拦不住——描述里带了合同名与发票张数。
+  // 按工具名动态分组取最后一次，不写死工具清单，新增同类工具自动适用。
+  // 代价：同一任务里对两个不同主体各跑一次同类工具时，只留最后一次。这与底稿比对既有的取舍一致
+  // （平台是一件业务一个任务），换来的是清单不再让人复核过期快照。
+  const latestIssuesCallByTool = new Map<string, string>();
+  for (const call of calls) {
+    let probe: unknown;
+    try {
+      probe = JSON.parse(call.result);
+    } catch {
+      continue;
+    }
+    if (!Array.isArray((probe as { issues?: unknown } | null)?.issues)) continue;
+    // calls 已按 started_at 升序，后一次覆盖前一次，留下的就是最近一次
+    latestIssuesCallByTool.set(call.tool_name, call.id);
+  }
 
   for (const call of calls) {
     let parsed: unknown;
@@ -77,7 +100,7 @@ export function extractIssues(taskId: string): TaskIssue[] {
     }
 
     const issues = (parsed as { issues?: unknown } | null)?.issues;
-    if (Array.isArray(issues)) {
+    if (Array.isArray(issues) && latestIssuesCallByTool.get(call.tool_name) === call.id) {
       issues.forEach((raw, i) => {
         const it = raw as { issueType?: string; description?: string; evidence?: unknown; requiresReview?: boolean };
         const issue: TaskIssue = {

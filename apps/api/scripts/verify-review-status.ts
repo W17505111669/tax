@@ -107,20 +107,40 @@ expect(
 let noConclusionViolations = 0;
 let staleCompareIssues = 0;
 let compareIssues = 0;
+// 全量重算型工具（返回完整 issues 清单的那批）只认最近一次成功调用：同一任务重跑后，旧一轮
+// 描述的状态已不存在（实测 09046f0a 续跑后「HT-001 建安工程合同 / 1 张发票」与新一轮
+// 「HT-001 总承包合同 / 2 张发票」并存，同一件事两条，去重键因为描述里带合同名而拦不住）
+let staleIssuesFromOldRun = 0;
+let issuesToolCalls = 0;
 for (const t of tasks) {
   const issues = extractIssues(t.id);
   const hasConclusion = String(getTask(t.id)?.result ?? "").trim() !== "";
   if (!hasConclusion && issues.length > 0) noConclusionViolations += issues.length;
   const rows = db
     .prepare(
-      `SELECT id, tool_name, args FROM tool_calls
+      `SELECT id, tool_name, args, result FROM tool_calls
         WHERE task_id = ? AND ok = 1 AND result IS NOT NULL ORDER BY started_at ASC`,
     )
-    .all(t.id) as unknown as Array<{ id: string; tool_name: string; args: string | null }>;
+    .all(t.id) as unknown as Array<{ id: string; tool_name: string; args: string | null; result: string | null }>;
   const derived = buildDerivedFrom(rows);
   const peers = rows.filter((c) => c.tool_name === "compare_workpapers" && !isTemplateCompare(c.args, derived));
   const latestId = peers.length > 0 ? peers[peers.length - 1]!.id : null;
+  const latestIssuesCall = new Map<string, string>();
+  for (const c of rows) {
+    try {
+      if (Array.isArray((JSON.parse(c.result ?? "null") as { issues?: unknown } | null)?.issues)) {
+        latestIssuesCall.set(c.tool_name, c.id);
+      }
+    } catch {
+      // 结果不是合法 JSON 的调用不参与「最近一次」判定
+    }
+  }
   for (const i of issues) {
+    const latest = latestIssuesCall.get(i.source);
+    if (latest !== undefined) {
+      issuesToolCalls += 1;
+      if (i.id.split(":")[0] !== latest) staleIssuesFromOldRun += 1;
+    }
     if (i.source !== "compare_workpapers") continue;
     compareIssues += 1;
     if (i.id.split(":")[0] !== latestId) staleCompareIssues += 1;
@@ -128,6 +148,8 @@ for (const t of tasks) {
 }
 expect("没有结论的任务不列待复核问题", noConclusionViolations, 0);
 expect("比对类问题只来自最近一次与人工底稿的比对", staleCompareIssues, 0);
+expect("全量重算型工具的问题只来自同名工具最近一次调用", staleIssuesFromOldRun, 0);
+expect("确实检查到了全量重算型工具的问题（否则上一条断言是空跑）", issuesToolCalls > 0, true);
 
 // 跨任务分组：同一件事在多个任务里各出现一次时，看板上一次处置（实测 58 条里有 7 类跨任务重复，
 // 「研发人员名单尚未取得」一类就在 6 个任务里各出现一次）
