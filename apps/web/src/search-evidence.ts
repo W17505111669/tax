@@ -104,6 +104,16 @@ export const CITATION_LIMIT = 20;
 /** 合并后的引用清单上限（工具留存 + 结论正文） */
 export const MERGED_CITATION_LIMIT = 24;
 
+/**
+ * 统计口径：不截断。
+ *
+ * 上面两个上限是**界面**需要（胶囊与整页 MD 不可能列几百条），但分级构成、修订前后对比这类
+ * 度量必须数全量：截断窗口会随结论长度挪动，构成因此凭空涨跌。实测一个任务本轮真加了 2 条
+ * 官方原文（全量 official 11 → 13），却因为结论变长、前 20 条窗口整体挪动，被算成 official
+ * 11 → 10，判为「证据质量退步，请核对本次修订」，把一条假警报送进了交付自检。
+ */
+export const UNCAPPED = Number.POSITIVE_INFINITY;
+
 /** 结论正文里被引用的地址来源标记 */
 export const CONCLUSION_VIA = "conclusion";
 

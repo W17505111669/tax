@@ -204,6 +204,28 @@ console.log(
   }）`,
 );
 
+// 超过引用清单上限时快照必须数全量：截断是界面需要，度量按截断窗口算会随结论长度凭空涨跌。
+// 实测一次写回真加了 2 条官方原文（全量 official 11 → 13），却因前 20 条窗口挪动被算成
+// official 11 → 10、判为「证据质量退步」，把假警报送进了交付自检。
+const urlBlock = (n: number, base: string, label: string) =>
+  Array.from({ length: n }, (_, i) => `- [${label}${i}](${base}${i}/content.html)`).join("\n");
+const capBefore = [
+  urlBlock(11, "https://fgk.chinatax.gov.cn/zcfgk/c10001", "官方原文"),
+  urlBlock(9, "https://baike.baidu.com/item/x", "百科词条"),
+].join("\n");
+const capAfter = `${capBefore}\n${urlBlock(2, "https://fgk.chinatax.gov.cn/zcfgk/c20002", "新增官方")}`;
+const capSnapBefore = evidenceSnapshot(capBefore);
+const capSnapAfter = evidenceSnapshot(capAfter);
+expect("前置：上一轮正好卡在引用清单上限", capSnapBefore.citations, 20);
+expect("补进 2 条官方原文后按全量计为 22 条", capSnapAfter.citations, 22);
+expect("官方原文按全量计不被截断", capSnapAfter.official, 13);
+expect("弱证据条数不受新增官方原文影响", capSnapAfter.weak, 9);
+expect(
+  "补官方原文判为改善，不因窗口挪动误判退步",
+  deltaVerdict(evidenceDelta(capSnapBefore, capSnapAfter)),
+  "证据质量改善",
+);
+
 console.log(`[verify] 修订影响检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
   for (const f of failures.slice(0, 20)) console.log(`  - ${f}`);

@@ -11,10 +11,10 @@
 
 import { gradeCitation } from "./citation-grade.ts";
 import { extractDocRefs } from "./policy-trace.ts";
-import { extractTextCitations } from "./search-evidence.ts";
+import { extractTextCitations, UNCAPPED } from "./search-evidence.ts";
 
 export type EvidenceSnapshot = {
-  /** 结论正文里引用的地址数（去重，受引用清单上限约束） */
+  /** 结论正文里引用的地址数（去重、不截断：这是度量口径，不是界面清单） */
   citations: number;
   official: number;
   professional: number;
@@ -25,7 +25,10 @@ export type EvidenceSnapshot = {
 
 /** 从一段结论文本算出证据快照 */
 export function evidenceSnapshot(text: string): EvidenceSnapshot {
-  const cites = extractTextCitations(text);
+  // 不截断。这里算的是修订前后的构成变化，截断窗口会随结论长度挪动：
+  // 实测一次写回真加了 2 条官方原文（全量 official 11 → 13），却因前 20 条窗口挪动被算成
+  // official 11 → 10，判为「证据质量退步」，把假警报送进了交付自检与整页 MD。
+  const cites = extractTextCitations(text, UNCAPPED);
   const out: EvidenceSnapshot = { citations: cites.length, official: 0, professional: 0, weak: 0, docRefs: 0 };
   for (const c of cites) out[gradeCitation(c.url, c.title).grade] += 1;
   out.docRefs = extractDocRefs(text).length;
