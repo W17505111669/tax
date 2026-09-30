@@ -8,6 +8,8 @@ import type { LinkSummary } from "../../web/src/link-check.ts";
 import type { GradeSummary } from "../../web/src/citation-grade.ts";
 import { pendingReviewIssues } from "../src/services/issues.ts";
 import { listTasks, getTask } from "../src/services/task-store.ts";
+import { db } from "../src/db.ts";
+import { INTERRUPTED_ON_RESTART, isInterruptedOnRestart, taskStatusLabel } from "../../web/src/task-status.ts";
 
 const failures: string[] = [];
 let checks = 0;
@@ -522,6 +524,58 @@ expect(
     x.text.includes("与业务主题无关"),
   )?.text ?? "").includes("丁"),
   false,
+);
+
+// failed 承担两种完全不同的事实：服务重启打断（续跑就行、结论并没有错）与 Agent 执行真的失败
+//（要查错误原因）。此前界面统一写「已中断」、交付自检写「任务执行失败，结论不可用」，
+// 同一件事两种说法，而且两种各自都只对一半。
+expect("服务重启打断算中断", isInterruptedOnRestart({ status: "failed", error: INTERRUPTED_ON_RESTART }), true);
+expect("执行报错不算中断", isInterruptedOnRestart({ status: "failed", error: "模型调用超时" }), false);
+expect("没有错误串不算中断", isInterruptedOnRestart({ status: "failed", error: null }), false);
+expect(
+  "非 failed 状态即使带这句也不算中断",
+  isInterruptedOnRestart({ status: "completed", error: INTERRUPTED_ON_RESTART }),
+  false,
+);
+expect("中断的完整说法", taskStatusLabel("failed", INTERRUPTED_ON_RESTART), "已中断（服务重启）");
+expect("执行失败的完整说法", taskStatusLabel("failed", "模型调用超时"), "执行失败");
+expect("其余状态沿用既有措辞", taskStatusLabel("waiting_review"), "待复核");
+expect("未知状态原样返回不猜", taskStatusLabel("weird_status"), "weird_status");
+expect(
+  "中断的阻断项指向续跑而不是查错",
+  deliveryCheck({ ...base, status: "failed", error: INTERRUPTED_ON_RESTART }).items.some(
+    (x) => x.level === "block" && x.text.includes("续跑"),
+  ),
+  true,
+);
+expect(
+  "执行失败的阻断项仍写结论不可用",
+  deliveryCheck({ ...base, status: "failed", error: "模型调用超时" }).items.some((x) =>
+    x.text.includes("任务执行失败，结论不可用"),
+  ),
+  true,
+);
+expect(
+  "没给错误串时按执行失败处理：宁可说得重，也不能把真失败说成续跑就行",
+  deliveryCheck({ ...base, status: "failed" }).items.some((x) => x.text.includes("任务执行失败，结论不可用")),
+  true,
+);
+expect("两种情况都是阻断项", deliveryCheck({ ...base, status: "failed", error: INTERRUPTED_ON_RESTART }).blocks, 1);
+
+// 与库里真实数据对齐：列表接口的标记必须等于按错误串直接数出来的条数，否则说明判据与落库口径漂了
+const realFailed = listTasks().filter((t) => t.status === "failed").length;
+const realInterrupted = listTasks().filter((t) => t.status === "failed" && t.interrupted).length;
+const sqlFailed = (db.prepare(`SELECT COUNT(*) n FROM tasks WHERE status = 'failed'`).get() as { n: number }).n;
+const sqlInterrupted = (
+  db.prepare(`SELECT COUNT(*) n FROM tasks WHERE status = 'failed' AND error LIKE '%' || ? || '%'`).get(INTERRUPTED_ON_RESTART) as {
+    n: number;
+  }
+).n;
+expect("列表接口的 failed 总数与库里一致", realFailed, sqlFailed);
+expect("列表接口的中断标记与按错误串直接数出来的一致", realInterrupted, sqlInterrupted);
+// 措辞里不写英文 failed：门禁输出常用不区分大小写的 FAIL 检索，写了会被自己误命中
+console.log(
+  `[verify] 任务状态口径：失败态 ${realFailed} 个 = 服务重启中断 ${realInterrupted} 个 + 执行报错 ${realFailed - realInterrupted} 个`,
 );
 
 console.log(`[verify] 交付自检检查项=${checks} 失败=${failures.length}`);

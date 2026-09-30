@@ -6,9 +6,12 @@
 
 import { STALE_HOURS } from "./link-check.ts";
 import type { GradeSummary } from "./citation-grade.ts";
+import { isInterruptedOnRestart } from "./task-status.ts";
 
 export type CheckInput = {
   status: string;
+  /** 任务的错误串：用来把「服务重启打断」与「执行真的失败」分开，缺省按执行失败处理 */
+  error?: string | null;
   resultChars: number;
   artifacts: number;
   /** 无法溯源到任何工具调用的产物数 */
@@ -92,7 +95,15 @@ export type CheckResult = {
 export function deliveryCheck(i: CheckInput): CheckResult {
   const items: CheckItem[] = [];
 
-  if (i.status === "failed") items.push({ level: "block", text: "任务执行失败，结论不可用" });
+  if (i.status === "failed") {
+    // 两者处置方式相反：服务重启打断的续跑就行、结论并没有错，执行失败的才要查错误原因。
+    // 都写「任务执行失败」会把开发期热重载打断的任务说成 Agent 出错，排查方向就错了。
+    items.push(
+      isInterruptedOnRestart({ status: i.status, error: i.error })
+        ? { level: "block", text: "任务被服务重启打断，结论未完成；在结果页续跑即可，不是执行出错" }
+        : { level: "block", text: "任务执行失败，结论不可用" },
+    );
+  }
   if (i.status === "processing" || i.status === "created") {
     items.push({ level: "block", text: `任务仍在${i.status === "processing" ? "执行中" : "待执行"}，尚未产出最终结论` });
   }

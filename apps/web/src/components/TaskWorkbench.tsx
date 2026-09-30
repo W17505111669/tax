@@ -50,6 +50,7 @@ import { buildManifest } from "../manifest.ts";
 import { traceDocRefs } from "../policy-trace.ts";
 import { gradeCitation, GRADE_HINT, GRADE_TEXT, summarizeGrades } from "../citation-grade.ts";
 import { offTopicCitationTitles } from "../ref-check.ts";
+import { isInterruptedOnRestart, taskStatusLabel } from "../task-status.ts";
 import { topDomainWords, topicHint } from "../domain-keywords.ts";
 import { deltaDetail, deltaText, deltaVerdict, evidenceDelta, evidenceSnapshot } from "../revision-impact.ts";
 import {
@@ -231,6 +232,19 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   const liveStatus = status === "created" ? task.status : status;
   const meta = STATUS_META[liveStatus] ?? STATUS_META.created!;
   const running = liveStatus === "processing";
+  // failed 有两种事实：服务重启打断（续跑就行）与执行真的失败（要查错误原因）。
+  // 徽章在一排操作按钮之间，文案加长会挤动整行，所以徽章只放短标签，完整说法与错误串进 title；
+  // 复制文本与核对表没有宽度约束，用完整说法。
+  const interrupted = isInterruptedOnRestart({ status: liveStatus, error: task.error });
+  const statusLabel =
+    liveStatus === "failed" ? (interrupted ? "已中断" : "失败") : (STATUS_META[liveStatus]?.label ?? liveStatus);
+  const statusFull = taskStatusLabel(liveStatus, task.error);
+  const statusHint =
+    liveStatus === "failed"
+      ? interrupted
+        ? "服务重启打断了执行，结论未完成；续跑即可，不是 Agent 执行出错"
+        : (task.error ?? "执行失败")
+      : "";
 
   const copyId = async () => {
     try {
@@ -259,7 +273,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       `任务 ID：${task.id}`,
       `智能体：${agent.shortName}${agent.model ? `（${agent.model}）` : ""}`,
       `案例：${task.caseId}`,
-      `状态：${meta.label}`,
+      `状态：${statusFull}`,
       `创建：${new Date(task.createdAt).toLocaleString("zh-CN", { hour12: false })}`,
       `更新：${new Date(task.updatedAt).toLocaleString("zh-CN", { hour12: false })}`,
       `工具调用：${toolCalls.length} 次`,
@@ -1098,6 +1112,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   // 交付自检输入：结论字数、产物与溯源、工具调用结果、待复核与联网引用
   const deliveryInput = (): CheckInput => ({
     status: reopened ? "waiting_review" : task.status,
+    error: task.error,
     resultChars: finalResult.trim().length,
     artifacts: artifacts.length,
     unattributedArtifacts: artifacts.filter((a) => !artSrc.has(a.name)).length,
@@ -1167,7 +1182,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     taskTitle: task.title,
     caseId: task.caseId,
     agentName: agent.shortName,
-    statusText: STATUS_META[liveStatus]?.label ?? liveStatus,
+    statusText: statusFull,
     generatedAt: new Date().toISOString(),
     delivery: { verdict: delivery.verdict, blocks: delivery.blocks, warns: delivery.warns, infos: delivery.infos },
     docRefs: {
@@ -1672,14 +1687,15 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
               className={`rounded border px-1.5 py-0.5 text-[11px] font-medium ${meta.className} ${
                 running ? "animate-pulse" : ""
               }`}
+              title={statusHint || undefined}
             >
               {running ? (
                 <span className="inline-flex items-center gap-1">
                   <IconSpinner className="h-3 w-3" />
-                  {meta.label}
+                  {statusLabel}
                 </span>
               ) : (
-                meta.label
+                statusLabel
               )}
             </span>
             <button

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AgentEvent, AgentId, BusinessFile, TaxTask, TaskStatus } from "@tax/shared-schemas";
+import { isInterruptedOnRestart } from "../../../web/src/task-status.ts";
 import { db, nowIso } from "../db.ts";
 import { pendingReviewCount } from "./issues.ts";
 
@@ -64,6 +65,11 @@ export function listTasks(agentId?: AgentId): TaxTask[] {
     runCount: runCountOf(String(row.id)),
     toolCount: toolCountOf(String(row.id)),
     reviewPending: pendingReviewCount(String(row.id)),
+    // 列表不带 error 全文，所以在这里判好：前端只需要知道「这个 failed 能不能续跑」
+    interrupted: isInterruptedOnRestart({
+      status: String(row.status),
+      error: (row.error as string | null) ?? null,
+    }),
   }));
 }
 

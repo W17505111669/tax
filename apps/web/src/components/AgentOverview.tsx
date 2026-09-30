@@ -85,7 +85,15 @@ interface Props {
   agents: AgentInfo[];
   activeAgentId: string;
   stats: { tasks: number; completed: number; platform: PlatformStats | null };
-  breakdown: { processing: number; waiting_review: number; completed: number; failed: number };
+  breakdown: {
+    processing: number;
+    waiting_review: number;
+    completed: number;
+    /** Agent 执行报错的任务数（不含服务重启打断的） */
+    failed: number;
+    /** 服务重启打断、续跑即可的任务数 */
+    interrupted: number;
+  };
   createdAts: string[];
   recent: Array<{
     id: string;
@@ -94,6 +102,7 @@ interface Props {
     at: string;
     runCount?: number;
     agentId: string;
+    interrupted?: boolean;
   }>;
   lastAt: Record<string, string>;
   perAgentCreatedAts: Record<string, string[]>;
@@ -156,7 +165,13 @@ export function AgentOverview({
     { label: "已完成", value: breakdown.completed },
     { label: "执行中", value: breakdown.processing },
     { label: "待复核", value: breakdown.waiting_review },
-    { label: "已中断", value: breakdown.failed },
+    // 分成两行：服务重启打断的续跑就行，与 Agent 执行报错混在一行会让人去查错方向
+    { label: "执行失败", value: breakdown.failed, hint: "Agent 执行报错，需要看错误原因" },
+    {
+      label: "已中断",
+      value: breakdown.interrupted,
+      hint: "服务重启打断了执行，结论未完成；在结果页续跑即可，不是 Agent 出错",
+    },
   ];
   const barMax = Math.max(1, ...bars.map((b) => b.value));
   // 近 14 天任务创建分布（按本地日桶）
@@ -506,7 +521,7 @@ export function AgentOverview({
             </div>
             <ul className="mt-3 space-y-2.5">
               {bars.map((b) => (
-                <li key={b.label} className="grid grid-cols-[56px_1fr_36px] items-center gap-3">
+                <li key={b.label} title={b.hint ?? undefined} className="grid grid-cols-[56px_1fr_36px] items-center gap-3">
                   <span className="text-[11.5px] text-mist-500">{b.label}</span>
                   <span className="bar-track">
                     <span className="bar-fill block" style={{ width: `${(b.value / barMax) * 100}%` }} />
@@ -638,7 +653,18 @@ export function AgentOverview({
                           ↻{r.runCount}
                         </span>
                       )}
-                      <span className="shrink-0 text-[10px] text-mist-600">{RECENT_TEXT[r.status] ?? r.status}</span>
+                      <span
+                        className="shrink-0 text-[10px] text-mist-600"
+                        title={
+                          r.status === "failed"
+                            ? r.interrupted
+                              ? "服务重启打断了执行，续跑即可，不是 Agent 出错"
+                              : "Agent 执行报错，需要看错误原因"
+                            : undefined
+                        }
+                      >
+                        {r.status === "failed" ? (r.interrupted ? "已中断" : "执行失败") : (RECENT_TEXT[r.status] ?? r.status)}
+                      </span>
                       <span className="shrink-0 text-[10.5px] text-mist-600">{relTime(r.at)}</span>
                     </button>
                   </li>
@@ -1199,7 +1225,7 @@ const RECENT_TEXT: Record<string, string> = {
   processing: "执行中",
   waiting_review: "待复核",
   completed: "已完成",
-  failed: "已中断",
+  failed: "执行失败",
   created: "待执行",
 };
 

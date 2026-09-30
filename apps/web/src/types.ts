@@ -37,6 +37,8 @@ export interface TaskInfo {
   progress?: number;
   /** 运行次数（列表接口附带） */
   runCount?: number;
+  /** 这个 failed 是服务重启打断的（续跑即可），不是 Agent 执行出错（列表接口附带） */
+  interrupted?: boolean;
   /** 工具调用次数（列表接口附带） */
   toolCount?: number;
   /** 待复核问题数（列表接口附带）；completed 且 >0 时需要重新打开复核 */

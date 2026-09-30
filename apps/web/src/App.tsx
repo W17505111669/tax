@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api.ts";
 import type { AgentInfo, FileInfo, PlatformStats, TaskInfo } from "./types.ts";
+import { taskStatusLabel } from "./task-status.ts";
 import { IconRail, Sidebar } from "./components/Sidebar.tsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
 import { AgentOverview } from "./components/AgentOverview.tsx";
@@ -118,14 +119,8 @@ export default function App() {
   useEffect(() => {
     const s = taskDetail?.task.status;
     if (!s) return;
-    const label: Record<string, string> = {
-      created: "待执行",
-      processing: "执行中",
-      waiting_review: "待复核",
-      completed: "已完成",
-      failed: "已中断",
-    };
-    setAnnounce(`任务状态：${label[s] ?? s}`);
+    // 读屏播报也要分清「服务重启打断」与「执行失败」：前者续跑就行，后者要查错误原因
+    setAnnounce(`任务状态：${taskStatusLabel(s, taskDetail?.task.error)}`);
   }, [taskDetail?.task.status]);
 
   // 「?」键开关快捷键帮助浮层
@@ -337,7 +332,9 @@ export default function App() {
                 processing: visibleTasks.filter((t) => t.status === "processing").length,
                 waiting_review: visibleTasks.filter((t) => t.status === "waiting_review").length,
                 completed: visibleTasks.filter((t) => t.status === "completed").length,
-                failed: visibleTasks.filter((t) => t.status === "failed").length,
+                // 服务重启打断的不算执行失败：那类续跑就行，混在一起会让看板上的「失败」虚高
+                failed: visibleTasks.filter((t) => t.status === "failed" && !t.interrupted).length,
+                interrupted: visibleTasks.filter((t) => t.status === "failed" && t.interrupted).length,
               }}
               createdAts={visibleTasks.map((t) => t.createdAt)}
               recent={[...visibleTasks]
@@ -350,6 +347,7 @@ export default function App() {
                   at: t.createdAt,
                   runCount: t.runCount,
                   agentId: t.agentId,
+                  interrupted: t.interrupted,
                 }))}
               onSelect={(id) => {
                 setActiveAgentId(id);

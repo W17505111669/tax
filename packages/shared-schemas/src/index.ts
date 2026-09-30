@@ -33,6 +33,11 @@ export interface TaxTask {
   toolCount?: number;
   /** 待复核问题数（仅列表接口附带）；completed 且 >0 表示需要重新打开复核。 */
   reviewPending?: number;
+  /**
+   * 这个 failed 是服务重启打断的（续跑即可），不是 Agent 执行出错（仅列表接口附带）。
+   * 列表接口不带 error 全文，因此由服务端判好再给一个布尔，前端不必猜错误串。
+   */
+  interrupted?: boolean;
 }
 
 export interface BusinessFile {
