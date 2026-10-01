@@ -27,6 +27,8 @@ function expect(name: string, actual: unknown, want: unknown): void {
 
 /** 表格行的单元格数（按竖线切，首尾各多一个空串） */
 const cells = (line: string): number => line.split("|").length - 2;
+/** 表格行第 5 列（依据档位）的文本。按列位置取，不依赖文案常量，常量被清空时才拦得住 */
+const viaCell = (line: string): string => (line.split("|")[5] ?? "").trim();
 /** 取某张表的数据行：表头之后跳过分隔行，一直取到不再是表格行为止 */
 function tableAfter(lines: string[], header: string): string[] {
   const at = lines.indexOf(header);
@@ -99,9 +101,22 @@ for (const row of rows) {
   }
 }
 expect("确实检查到了链接（不是空跑）", linkCount, 2);
+// 依据列必须是**非空**文本：上面几条断言的期望值取自 SOURCE_VIA_TEXT 本身，常量被清空时期望值
+// 跟着变空，断言就自证其说了。抽检时真踩到——把 body-line 档改成空串，本脚本 182 项全绿，
+// 而交付 MD 的依据列已经空了（只有 verify:policytrace 的「文案非空」拦住）。所以这里按列位置
+// 独立断一次，不引用常量。
+const vias = new Set(rows.map(viaCell));
+expect("依据列没有空值", vias.has(""), false);
+expect("确实取到了依据列（三档各占一行）", vias.size, 3);
 expect(
-  "表下给出三档依据的说明",
-  sec.some((l) => l.startsWith("- 依据档位：") && l.includes(SOURCE_VIA_TEXT["body-line"])),
+  "依据列取值都在档位文案表里",
+  [...vias].every((v) => Object.values(SOURCE_VIA_TEXT).includes(v)),
+  true,
+);
+expect(
+  "表下给出三档依据的说明（三档文案都非空且都出现在脚注里）",
+  sec.some((l) => l.startsWith("- 依据档位：")) &&
+    Object.values(SOURCE_VIA_TEXT).every((v) => v !== "" && sec.join("\n").includes(v)),
   true,
 );
 
@@ -172,6 +187,8 @@ for (const td of real) {
   for (const row of bodyRows) {
     checks += 1;
     if (cells(row) !== 5) failures.push(`${td.taskId} 表行不是 5 个单元格：${row.slice(0, 40)}`);
+    checks += 1;
+    if (viaCell(row) === "") failures.push(`${td.taskId} 依据列是空的：${row.slice(0, 40)}`);
     for (const m of row.matchAll(/\]\(([^)]*)\)/g)) {
       const u = m[1] ?? "";
       realLinks += 1;
