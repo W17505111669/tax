@@ -10,14 +10,13 @@ import {
   normalizeRef,
   RETAINED_TEXT_KEY,
   traceDocRefs,
-  BODY_REF_LIST_LIMIT,
+  DOC_REF_TABLE_LIMIT,
   SOURCE_VIA_HINT,
   SOURCE_VIA_TEXT,
   type BodyTracedRef,
 } from "../../web/src/policy-trace.ts";
 import { extractCitations, retainedSourceAt, retainedSourceLines, UNCAPPED } from "../../web/src/search-evidence.ts";
-import { db } from "../src/db.ts";
-import { getTask, listTasks } from "../src/services/task-store.ts";
+import { loadTaskDocRefs } from "./docref-lib.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -113,56 +112,36 @@ let bodyUrlViaLine = 0;
 const bodyRefs: BodyTracedRef[] = [];
 let unverifiable = 0;
 let untraced = 0;
-for (const t of listTasks()) {
-  const detail = getTask(t.id);
-  const text = detail?.result ?? "";
-  if (!text.trim()) continue;
-  const rows = db.prepare(`SELECT tool_name, result, ok FROM tool_calls WHERE task_id = ?`).all(t.id) as Array<{
-    tool_name: string;
-    result: string | null;
-    ok: number | null;
-  }>;
-  const parsed = rows
-    .filter((r) => r.ok === 1)
-    .map((r) => {
-      try {
-        return r.result ? JSON.parse(r.result) : null;
-      } catch {
-        return null;
-      }
-    });
-  // 与看板、结果页、证据表同一口径：复查判定 matched 的文号也算有出处
-  const rechecked = (
-    db
-      .prepare(`SELECT text FROM ref_checks WHERE task_id = ? AND kind = 'docref' AND verdict = 'matched'`)
-      .all(t.id) as Array<{ text: string }>
-  ).map((r) => r.text);
-  const res = traceDocRefs(text, parsed, rows.map((r) => r.tool_name), rechecked);
+// 取数走 docref-lib：与 verify:docrefmd 共用同一份 SQL 与口径，改一处两边同时生效
+for (const td of loadTaskDocRefs()) {
+  const res = td.res;
   checks += 1;
   if (res.traced + res.unverifiable + res.untraced.length !== res.total) {
-    failures.push(`${t.id} 文号三级口径之和 ${res.traced + res.unverifiable + res.untraced.length} ≠ 总数 ${res.total}`);
+    failures.push(
+      `${td.taskId} 文号三级口径之和 ${res.traced + res.unverifiable + res.untraced.length} ≠ 总数 ${res.total}`,
+    );
   }
   checks += 1;
   if (res.tracedByRecheck > res.traced) {
-    failures.push(`${t.id} 复查取得的出处 ${res.tracedByRecheck} 超过有出处总数 ${res.traced}`);
+    failures.push(`${td.taskId} 复查取得的出处 ${res.tracedByRecheck} 超过有出处总数 ${res.traced}`);
   }
   checks += 1;
   if (res.tracedByBody + res.tracedByRecheck > res.traced) {
-    failures.push(`${t.id} 两档弱依据 ${res.tracedByBody}+${res.tracedByRecheck} 超过有出处总数 ${res.traced}`);
+    failures.push(`${td.taskId} 两档弱依据 ${res.tracedByBody}+${res.tracedByRecheck} 超过有出处总数 ${res.traced}`);
   }
   checks += 1;
   if (res.bodyTracedRefs.length !== res.tracedByBody) {
-    failures.push(`${t.id} 仅正文提到的明细 ${res.bodyTracedRefs.length} 条与计数 ${res.tracedByBody} 不一致`);
+    failures.push(`${td.taskId} 仅正文提到的明细 ${res.bodyTracedRefs.length} 条与计数 ${res.tracedByBody} 不一致`);
   }
   for (const r of res.bodyTracedRefs) {
     bodyRefs.push(r);
     if (r.sourceUrl !== "") bodyWithUrl += 1;
     if (r.sourceVia === "body-line") bodyUrlViaLine += 1;
     checks += 1;
-    if (r.sourceCount < 1) failures.push(`${t.id} 文号 ${r.text} 的留存正文命中份数 ${r.sourceCount} < 1`);
+    if (r.sourceCount < 1) failures.push(`${td.taskId} 文号 ${r.text} 的留存正文命中份数 ${r.sourceCount} < 1`);
     checks += 1;
     if ((r.sourceUrl !== "") !== (r.sourceVia !== "")) {
-      failures.push(`${t.id} 文号 ${r.text} 的地址与依据档位不一致（url=${r.sourceUrl} via=${r.sourceVia}）`);
+      failures.push(`${td.taskId} 文号 ${r.text} 的地址与依据档位不一致（url=${r.sourceUrl} via=${r.sourceVia}）`);
     }
   }
   total += res.total;
@@ -480,7 +459,7 @@ expect("地址留空不影响「有出处」的判定（判据没被放宽也没
 const VIA_KEYS: Array<BodyTracedRef["sourceVia"]> = ["structured", "body-line", ""];
 expect("档位文案表覆盖且只覆盖这三档", Object.keys(SOURCE_VIA_TEXT).sort(), [...VIA_KEYS].sort());
 expect("依据说明表覆盖同样三档", Object.keys(SOURCE_VIA_HINT).sort(), [...VIA_KEYS].sort());
-expect("清单上限是正整数（不是 0 或 NaN 让两侧一起空跑）", BODY_REF_LIST_LIMIT > 0, true);
+expect("清单上限是正整数（不是 0 或 NaN 让几处一起空跑）", DOC_REF_TABLE_LIMIT > 0, true);
 // 这些字符串会直接进 JSX 文本与 title 属性，带记号就会在界面上显示成 Markdown 原文
 const MD_MARK = /(\*\*|`|^#{1,6}\s|\[[^\]]*\]\([^)]*\)|^\s*\|\s*---|^>\s)/m;
 for (const k of VIA_KEYS) {
@@ -513,12 +492,13 @@ expect(
   true,
 );
 // 清单上限此前在界面面板与交付 MD 表格里各写了一遍 slice(0, 20)：改一处不改另一处就会出现
-// 「面板列 20 条、MD 只列 10 条」的对不上账。现在两处都必须引用同一个常量。
-expect("两处消费点都引用同一个清单上限", workbench.split("slice(0, BODY_REF_LIST_LIMIT)").length - 1, 2);
-expect("上限的字面量没有再被写死第二遍", /bodyTracedRefs\.slice\(0,\s*\d+\)/.test(workbench), false);
+// 「面板列 20 条、MD 只列 10 条」的对不上账。交付 MD 那一侧搬进 delivery-docref.ts 之后，
+// 这里只盯界面这一处（另一侧由 verify:docrefmd 盯），字面量不许再出现第二遍。
+expect("界面面板引用了同一个清单上限", workbench.split("slice(0, DOC_REF_TABLE_LIMIT)").length - 1, 1);
+expect("上限的字面量没有在界面里被写死", /bodyTracedRefs\.slice\(0,\s*\d+\)/.test(workbench), false);
 expect(
   "超出上限时如实说明还有多少处没列（不静默截断）",
-  workbench.includes("refTrace.bodyTracedRefs.length - BODY_REF_LIST_LIMIT"),
+  workbench.includes("refTrace.bodyTracedRefs.length - DOC_REF_TABLE_LIMIT"),
   true,
 );
 

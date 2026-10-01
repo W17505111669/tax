@@ -57,12 +57,13 @@ export const SOURCE_VIA_HINT: Record<BodyTracedRef["sourceVia"], string> = {
 };
 
 /**
- * 「仅正文提到」清单在界面复查面板与交付 MD 表格里各列多少条。
+ * 文号相关清单每表最多列多少条：界面的「仅在留存正文中出现」一组、交付 MD 的「待人工确认」表
+ * 与「留存正文出处」表都用它。
  *
- * 两个消费点此前各写了一遍 `slice(0, 20)`：改一处不改另一处，就会出现「面板列了 20 条、
- * 交付 MD 只列 10 条」这种两边对不上的账。抽成一份，由 verify:policytrace 断言两侧都引用它。
+ * 三个消费点此前各写了一遍 `slice(0, 20)`：改一处不改另一处，就会出现「面板列了 20 条、
+ * 交付 MD 只列 10 条」这种两边对不上的账。抽成一份，由门禁断言每处都引用它。
  */
-export const BODY_REF_LIST_LIMIT = 20;
+export const DOC_REF_TABLE_LIMIT = 20;
 
 export type DocRef = {
   core: string;

@@ -34,6 +34,7 @@
     "verify:fresh": "tsx scripts/verify-bundle-freshness.ts",
     "verify:manifest": "tsx scripts/verify-manifest.ts",
     "verify:policytrace": "tsx scripts/verify-policy-trace.ts",
+    "verify:docrefmd": "tsx scripts/verify-delivery-docref.ts",
     "verify:websearch": "tsx scripts/verify-web-search.ts",
     "verify:citegrade": "tsx scripts/verify-citation-grade.ts",
     "verify:searchev": "tsx scripts/verify-search-evidence.ts",

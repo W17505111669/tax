@@ -51,7 +51,8 @@ import {
   type ParseSummary,
 } from "../file-parse.ts";
 import { buildManifest } from "../manifest.ts";
-import { BODY_REF_LIST_LIMIT, SOURCE_VIA_HINT, SOURCE_VIA_TEXT, traceDocRefs } from "../policy-trace.ts";
+import { DOC_REF_TABLE_LIMIT, SOURCE_VIA_HINT, SOURCE_VIA_TEXT, traceDocRefs } from "../policy-trace.ts";
+import { docRefSection } from "../delivery-docref.ts";
 import { gradeCitation, GRADE_HINT, GRADE_TEXT, summarizeGrades } from "../citation-grade.ts";
 import { offTopicCitationTitles } from "../ref-check.ts";
 import { isInterruptedOnRestart, taskStatusLabel } from "../task-status.ts";
@@ -1472,77 +1473,9 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     "",
     ...reviewSection(issues, reviews, reopened ? "waiting_review" : task.status),
     "",
-    "## 政策文号溯源",
-    "",
-    // 三类依据分开写：元数据（结构化字段里有）是最强的一档，剩下的两档各报一个数，
-    // 相加恒等于「有公开出处」。复核人据此知道哪几处需要再点开原文确认一次。
-    `- 结论中出现政策文号 ${refTrace.total} 处：有公开出处 ${refTrace.traced} 处（其中联网复查取得 ${
-      refTrace.tracedByRecheck
-    } 处 · 仅留存正文提到 ${
-      refTrace.tracedByBody
-    } 处，其余出自工具结果的结构化字段）· 无法从留存数据核验 ${refTrace.unverifiable} 处 · 待人工确认 ${
-      refTrace.untraced.length
-    } 处`,
-    ...(refTrace.untraced.length > 0
-      ? [
-          "",
-          "| # | 文号 | 结论中的上下文 |",
-          "| --- | --- | --- |",
-          ...refTrace.untraced.slice(0, 20).map((r, i) => `| ${i + 1} | ${mdCell(r.text)} | ${mdCell(r.context)} |`),
-          "",
-        ]
-      : [
-          "",
-          refTrace.unverifiable > 0
-            ? "（联网检索扩展只持久化查询元数据，上述「无法核验」的文号建议改用政策快照检索或附检索页面截图）"
-            : "（全部政策文号都能在工具结果中找到出处）",
-        ]),
-    // 「仅留存正文提到」单独列一张表：这几处**有**出处，但依据只在我们抓下来的网页正文里，
-    // 可能只是被顺带提到（页面侧栏的相关文件列表、正文里一句「同时废止 2020年第24号」）。
-    // 混在「有出处」的总数里就看不见了，交付时也就没人会去点开原文再确认一次。
-    ...(refTrace.bodyTracedRefs.length > 0
-      ? [
-          "",
-          `- 其中 ${refTrace.bodyTracedRefs.length} 处仅在留存网页正文中出现（工具结果的结构化字段里没有），依据弱于元数据，建议再点开原文确认：`,
-          "",
-          "| # | 文号 | 结论中的上下文 | 留存正文出处 |",
-          "| --- | --- | --- | --- |",
-          // 出处那一列给可点开的地址：这一档要能行动，复核人点开就能判断文号是该页主题还是被顺带提到
-          ...refTrace.bodyTracedRefs.slice(0, BODY_REF_LIST_LIMIT).map((r, i) => {
-            const link =
-              r.sourceUrl === ""
-                ? "（这份留存正文里认不出可归属的来源行，宁可不给地址也不猜）"
-                : `[${mdCell(r.sourceTitle === "" ? r.sourceUrl : r.sourceTitle)}](${r.sourceUrl})`;
-            // 命中份数一起给：多份互不相关的来源同时提到，比孤零零一份更站得住
-            const src = r.sourceCount > 1 ? `${link} · 共 ${r.sourceCount} 份留存正文提到` : link;
-            return `| ${i + 1} | ${mdCell(r.text)} | ${mdCell(r.context)} | ${src} |`;
-          }),
-        ]
-      : []),
-    ...(refSummary.total > 0
-      ? [
-          "",
-          `- 联网复查：已复查 ${refSummary.total} 处 · 找到公开出处 ${refSummary.matched} 处 · 候选待确认 ${
-            refSummary.candidate
-          } 处 · 未检索到 ${refSummary.empty} 处 · 检索失败 ${refSummary.error} 处${
-            refSummary.checkedAt
-              ? `（${new Date(refSummary.checkedAt).toLocaleString("zh-CN", { hour12: false })}）`
-              : ""
-          }`,
-          "",
-          "| # | 文号 | 复查判定 | 检索词 | 证据 |",
-          "| --- | --- | --- | --- | --- |",
-          ...Object.values(refChecks).map(
-            (c, i) =>
-              `| ${i + 1} | ${mdCell(c.text)} | ${REF_VERDICT_TEXT[c.verdict]} | ${mdCell(c.query)} | ${
-                c.evidence ? `[${mdCell(c.evidence.title)}](${c.evidence.url})` : "—"
-              } |`,
-          ),
-          "",
-          ...Object.values(refChecks).flatMap((c) => (c.note ? [`- ${mdCell(c.text)}：${c.note}`] : [])),
-        ]
-      : []),
-    "",
+    // 「政策文号溯源」整节搬到 delivery-docref.ts：留在组件闭包里就没法单测，新加的那张
+    // 「留存正文出处」表因此一条断言都没有（列数、链接、依据档位全靠肉眼）。
+    ...docRefSection({ refTrace, refSummary, refChecks: Object.values(refChecks) }),
     "## 结论金额溯源",
     "",
     `- 结论中识别出金额 ${amountTrace.total} 处：工具结果可溯源 ${amountTrace.traced} 处 · 来自客户指令 ${amountTrace.fromInput} 处 · 待人工确认 ${amountPending.length} 处${
@@ -2541,7 +2474,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                           </span>
                         </div>
                         <ul className="mt-1.5 space-y-1.5">
-                          {refTrace.bodyTracedRefs.slice(0, BODY_REF_LIST_LIMIT).map((r) => (
+                          {refTrace.bodyTracedRefs.slice(0, DOC_REF_TABLE_LIMIT).map((r) => (
                             <li key={r.core} className="rounded bg-night-800 px-2 py-1.5">
                               <div className="flex flex-wrap items-center gap-2">
                                 <span className="font-mono text-[11.5px] text-mist-100">{r.text}</span>
@@ -2570,9 +2503,9 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                             </li>
                           ))}
                         </ul>
-                        {refTrace.bodyTracedRefs.length > BODY_REF_LIST_LIMIT && (
+                        {refTrace.bodyTracedRefs.length > DOC_REF_TABLE_LIMIT && (
                           <p className="mt-1.5 text-[10.5px] text-mist-600">
-                            另有 {refTrace.bodyTracedRefs.length - BODY_REF_LIST_LIMIT} 处未列出，完整清单见整页交付
+                            另有 {refTrace.bodyTracedRefs.length - DOC_REF_TABLE_LIMIT} 处未列出，完整清单见整页交付
                             MD 的「政策文号溯源」节。
                           </p>
                         )}
