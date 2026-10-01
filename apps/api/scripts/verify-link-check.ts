@@ -2,11 +2,15 @@
  * 验证脚本：引用链接核验结果的分级（反爬拒绝 ≠ 链接失效）。
  * 运行：pnpm verify:links
  */
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   ageHours,
   ageText,
   freshness,
   linkVerdict,
+  liveLinkChecks,
   STALE_HOURS,
   summarizeLinkChecks,
   VERDICT_HINT,
@@ -120,6 +124,48 @@ try {
 expect(
   "确实走到了真实任务（空库不算通过）",
   (db.prepare(`SELECT COUNT(*) AS n FROM tasks`).get() as { n: number }).n >= 1,
+  true,
+);
+
+// 陈旧行过滤：link_checks 按 (task_id, url) upsert 且从不删行，结论续跑或回滚之后旧地址的行
+// 仍挂在库里。汇总、交付 MD 的明细行、核对表待办三处消费点必须共用同一道过滤，否则同一份材料
+// 会自相矛盾（实测 3 个任务：MD 汇总写「非可访问 4 条」底下却列了 5 行明细）。
+const STALE = [
+  { url: "https://a.gov.cn/live", ok: false, status: 404, ms: 10 },
+  { url: "https://a.gov.cn/gone", ok: false, status: 404, ms: 11 },
+  { url: "https://b.gov.cn/live", ok: true, status: 200, ms: 9 },
+];
+expect(
+  "只保留地址仍在引用清单里的行",
+  liveLinkChecks(STALE, ["https://a.gov.cn/live", "https://b.gov.cn/live"]).map((r) => r.url),
+  ["https://a.gov.cn/live", "https://b.gov.cn/live"],
+);
+expect("确实丢掉了陈旧行（不是原样返回）", liveLinkChecks(STALE, ["https://a.gov.cn/live", "https://b.gov.cn/live"]).length, 2);
+expect("引用清单为空时一条都不留", liveLinkChecks(STALE, []).length, 0);
+expect("清单里的重复地址不会让行翻倍", liveLinkChecks(STALE, ["https://b.gov.cn/live", "https://b.gov.cn/live"]).length, 1);
+expect(
+  "过滤后再汇总：陈旧失效行不再算进「失效」",
+  summarizeLinkChecks(liveLinkChecks(STALE, ["https://b.gov.cn/live"])),
+  { total: 1, ok: 1, blocked: 0, dead: 0, unreachable: 0 },
+);
+expect(
+  "不过滤就会把陈旧行算成失效（这条断言钉住「过滤是必要的」）",
+  summarizeLinkChecks(STALE).dead,
+  2,
+);
+
+// 同源：判据只写一遍，组件里三处消费点都走它，不再各自 Object.values(linkChecks) 直接过滤
+const here = path.dirname(fileURLToPath(import.meta.url));
+const benchSrc = fs.readFileSync(path.resolve(here, "..", "..", "web", "src", "components", "TaskWorkbench.tsx"), "utf8");
+expect("组件里只调用一次 liveLinkChecks（判据没有第二份实现）", benchSrc.split("liveLinkChecks(").length - 1, 1);
+expect(
+  "组件里不再直接按 linkVerdict 过滤全量核验行",
+  /Object\.values\(linkChecks\)\s*\n?\s*\.filter\(\(r\) => linkVerdict/.test(benchSrc),
+  false,
+);
+expect(
+  "汇总与明细同源：linkSummary 由 liveChecks 算出",
+  benchSrc.includes("summarizeLinkChecks(liveChecks)"),
   true,
 );
 console.log(`[verify] 链接核验分级检查项=${checks} 失败=${failures.length}`);

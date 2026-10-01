@@ -10,6 +10,7 @@ import { dirs } from "../src/config.ts";
 import { getTask, listConclusions, listFiles, listTasks } from "../src/services/task-store.ts";
 import { listAmountChecks } from "../src/services/amount-checks.ts";
 import { listRefChecks } from "../src/services/ref-checks.ts";
+import { listLinkChecks } from "../src/services/link-checks.ts";
 import { pendingReviewIssues } from "../src/services/issues.ts";
 import {
   extractCitations,
@@ -33,6 +34,7 @@ import {
 } from "../../web/src/ref-check.ts";
 import { amountKey, classifyUntraced, TEXT_AMOUNT_TOOLS, traceAmounts } from "../../web/src/amount-trace.ts";
 import { deliveryCheck } from "../../web/src/delivery-check.ts";
+import { ageHours, linkVerdict, liveLinkChecks, summarizeLinkChecks } from "../../web/src/link-check.ts";
 import { deltaDetail, deltaVerdict, evidenceDelta, evidenceSnapshot } from "../../web/src/revision-impact.ts";
 import {
   evidenceSheetMarkdown,
@@ -255,6 +257,16 @@ expect(
 );
 
 // 4) 真实任务走查：核对表必须由真实数据算出，且不丢项
+/**
+ * 走查中真实遇到的链接核验规模。三者任一为 0 都说明「引用链接可达性」这一项与「已失效链接」
+ * 这一组待办仍是空跑——此前 sheetOf 里写死 linkCheck: null / deadLinks: []，40 个真实任务
+ * 走下来那两处从来没被真实数据碰过，门禁却一直是绿的。
+ */
+let lcTasks = 0;
+let lcRowsTotal = 0;
+let lcStaleTotal = 0;
+/** 过滤前后待办条数不同的任务数：为 0 就说明这道过滤在真实数据上没起任何作用，等于没验 */
+let lcDiverged = 0;
 function sheetOf(taskId: string): SheetInput | null {
   const task = getTask(taskId);
   if (!task) return null;
@@ -287,6 +299,33 @@ function sheetOf(taskId: string): SheetInput | null {
     UNCAPPED,
   );
   const grades = summarizeGrades(cites);
+  // 链接核验：与结果页同一判据（link-check.ts 的 liveLinkChecks）——只算地址仍在当前引用清单里的行。
+  // link_checks 按 (task_id, url) upsert 且从不删行，结论续跑或回滚之后旧地址的行仍挂在库里。
+  const lcRows = listLinkChecks(taskId);
+  const citeUrls = new Set(cites.map((c) => c.url));
+  const lcLive = liveLinkChecks(lcRows, citeUrls);
+  const lcSum = summarizeLinkChecks(lcLive);
+  // 核验时间取全量行的最大值（与服务端 GET /link-checks 同一口径），计数只算 live 行（与结果页同口径）
+  const lcAt = lcRows.reduce((m, r) => (r.checkedAt && r.checkedAt > m ? r.checkedAt : m), "") || null;
+  if (lcRows.length > 0) {
+    lcTasks += 1;
+    lcRowsTotal += lcRows.length;
+    lcStaleTotal += lcRows.length - lcLive.length;
+  }
+  // 待办里的失效链接：两种口径各算一遍。旧口径（不过滤）会把陈旧行也算成待办，复核人于是被叫去
+  // 替换一条交付材料里根本没有的地址（实测修复前全平台 4 条失效待办里 3 条是这种）。
+  // 这里不是自证其说：断言的是「新口径的每条都在引用清单里」且「两种口径在真实数据上确实不同」。
+  const deadAll = lcRows.filter((r) => linkVerdict(r) === "dead").map((r) => r.url);
+  const deadLive = lcLive.filter((r) => linkVerdict(r) === "dead").map((r) => r.url);
+  if (deadAll.length !== deadLive.length) lcDiverged += 1;
+  for (const u of deadLive) {
+    checks += 1;
+    if (!citeUrls.has(u)) failures.push(`${taskId.slice(0, 8)} 待办里的失效链接不在当前引用清单中：${u}`);
+  }
+  for (const u of deadAll.filter((x) => !citeUrls.has(x))) {
+    checks += 1;
+    if (deadLive.includes(u)) failures.push(`${taskId.slice(0, 8)} 陈旧失效行漏进了待办：${u}`);
+  }
   const se = searchEvidence(calls);
   const sf = searchFiltering(calls);
   const okResults = calls.filter((c) => c.ok !== false).map((c) => c.result);
@@ -351,8 +390,8 @@ function sheetOf(taskId: string): SheetInput | null {
     citationGrades: grades.total > 0 ? grades : null,
     offTopicCitations: offTopicCitationTitles(cites, text),
     searches: se.calls > 0 ? se : null,
-    linkCheck: null,
-    linkCheckAgeHours: null,
+    linkCheck: lcAt ? lcSum : null,
+    linkCheckAgeHours: ageHours(lcAt),
     amountTotal: amounts.total,
     amountUntraced: amountPending,
     amountPendingWeb: amountSplit.web.length,
@@ -396,7 +435,7 @@ function sheetOf(taskId: string): SheetInput | null {
       uncited: Math.max(0, settled.size - disclaimed.size),
     },
     citationChecks: citeSum,
-    linkCheck: null,
+    linkCheck: lcAt ? { ...lcSum, checkedAt: lcAt } : null,
     searches: se.calls > 0 ? { calls: se.calls, withUrls: se.withUrls, metadataOnly: se.metadataOnly, dropped: sf.dropped } : null,
     amounts: {
       total: amounts.total,
@@ -413,7 +452,8 @@ function sheetOf(taskId: string): SheetInput | null {
       weakCitations: weak
         .filter((c) => !replaced.has(refKey("citation", c.url)) && !settled.has(c.url))
         .map((c) => `${c.title} ${c.url}`),
-      deadLinks: [],
+      // 与结果页同一份 liveChecks：只列地址仍在当前引用清单里的失效链接
+      deadLinks: lcLive.filter((r) => linkVerdict(r) === "dead").map((r) => r.url),
     },
   };
 }
@@ -476,8 +516,24 @@ for (const t of listTasks()) {
   }
 }
 ok("真实任务全部能生成核对表", walked > 0, `实际 ${walked} 个`);
+// 防空跑：链接核验这一项与失效链接这一组待办，必须真的被真实数据走过
+ok("确实走到了带链接核验记录的任务", lcTasks >= 1, `实际 ${lcTasks} 个`);
+ok("确实读到了核验行", lcRowsTotal >= 1, `实际 ${lcRowsTotal} 行`);
+ok(
+  "确实遇到了陈旧行（地址已不在引用清单里）——否则「过滤」这一步等于没验",
+  lcStaleTotal >= 1,
+  `实际 ${lcStaleTotal} 行`,
+);
+ok(
+  "确实有任务的待办条数因这道过滤而改变——否则断言的是空差异",
+  lcDiverged >= 1,
+  `实际 ${lcDiverged} 个任务`,
+);
 console.log(
   `[verify] 真实任务走查：${walked} 个任务生成核对表，其中 ${withTodos} 个仍有交付前待办，${disclaimedTotal} 条弱证据已在结论中声明为背景参考、${uncitedTotal} 条未进入结论正文`,
+);
+console.log(
+  `[verify] 链接核验走查：${lcTasks} 个任务共 ${lcRowsTotal} 行核验记录，其中 ${lcStaleTotal} 行地址已不在当前引用清单里（按判据不计入汇总、不进待办、不进交付 MD 明细）`,
 );
 
 console.log(`[verify] 证据核对表检查项=${checks} 失败=${failures.length}`);

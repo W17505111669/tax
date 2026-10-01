@@ -43,6 +43,7 @@ import {
   ageText,
   freshness,
   linkVerdict,
+  liveLinkChecks,
   summarizeLinkChecks,
   LINK_CHECK_BATCH,
   VERDICT_HINT,
@@ -1022,14 +1023,22 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     return { pend: [...pend.values()], acked: [...acked.values()] };
   }, [amountTrace, amountChecks, amountOrigin]);
 
-  // 链接核验汇总：可访问 / 失效 / 拒绝自动访问（反爬）/ 无法核验，四类分开计数
-  // 只汇总当前引用清单里的地址。link_checks 按 (task_id, url) upsert、从不删行，结论改过之后
-  // 旧地址的记录还留在库里；全量汇总会把早已不在清单里的地址算成「失效」，交付自检因此报假警
-  //（实测引用提取修好之前，带中文尾巴的假地址核验必然 404，修好后那些行仍挂在库里）。
-  const linkSummary = useMemo(() => {
-    const live = new Set(allCitations.map((c) => c.url));
-    return summarizeLinkChecks(Object.values(linkChecks).filter((c) => live.has(c.url)));
-  }, [linkChecks, allCitations]);
+  // 链接核验只看当前引用清单里的地址（判据见 link-check.ts 的 liveLinkChecks）。link_checks 按
+  // (task_id, url) upsert、从不删行，结论续跑或回滚之后旧地址的记录仍留在库里；全量使用会把早已
+  // 不在清单里的地址算成「失效」，交付自检因此报假警（实测引用提取修好之前，带中文尾巴的假地址
+  // 核验必然 404，修好后那些行仍挂在库里）。
+  //
+  // 这一份过滤结果被三个消费点共用：汇总计数、核对表的失效链接待办、交付 MD 的核验明细行。
+  // 此前只有汇总过滤了，另两处直接吃 Object.values(linkChecks)，于是同一张核对表里「引用链接
+  // 可达性」一行写着失效 0 条、待办却列出 1 条失效链接；同一份交付 MD 里汇总写「非可访问 4 条」
+  // 底下却列了 5 行明细（实测 3 个任务各差 1 行）。
+  // 交付包新鲜度那处不过滤是有意的：它问的是「打包之后有没有新动作」，不是「当前交付材料里有什么」。
+  const liveChecks = useMemo(
+    () => liveLinkChecks(Object.values(linkChecks), allCitations.map((c) => c.url)),
+    [linkChecks, allCitations],
+  );
+  // 汇总：可访问 / 失效 / 拒绝自动访问（反爬）/ 无法核验，四类分开计数
+  const linkSummary = useMemo(() => summarizeLinkChecks(liveChecks), [liveChecks]);
 
   // 上传资料的解析摘要：来自 parse_uploaded_files 的真实返回，按文件名对应
   const fileParsed = useMemo(
@@ -1202,11 +1211,11 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
         .filter((c) => !replacedKeys.has(refKey("citation", c.url)))
         .filter((c) => !weakSettledUrls.has(c.url))
         .map((c) => `${c.title} ${c.url}`),
-      deadLinks: Object.values(linkChecks)
+      deadLinks: liveChecks
         .filter((r) => linkVerdict(r) === "dead")
         .map((r) => r.url),
     };
-  }, [refTargets, docRefChecks, refChecks, weakCitations, replacedKeys, weakSettledUrls, linkChecks]);
+  }, [refTargets, docRefChecks, refChecks, weakCitations, replacedKeys, weakSettledUrls, liveChecks]);
 
   // 修订素材：只取与当前结论对得上、且还没写回过的复查记录，避免上一版结论留下的记录
   // 与已经交代过的项目反复进指令（实测同一节「仅作背景参考」表格被逐轮重写）
@@ -1502,7 +1511,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
           }/${linkSummary.total} · 失效 ${linkSummary.dead} · 拒绝自动访问 ${linkSummary.blocked} · 无法核验 ${
             linkSummary.unreachable
           }`,
-          ...Object.values(linkChecks)
+          ...liveChecks
             .filter((r) => linkVerdict(r) !== "ok")
             .map(
               (r) =>

@@ -47,6 +47,23 @@ export function summarizeLinkChecks(list: LinkCheckLike[]): LinkSummary {
   return out;
 }
 
+/**
+ * 只保留地址仍在当前引用清单里的核验行。
+ *
+ * `link_checks` 按 (task_id, url) upsert、从不删行：结论续跑或回滚之后，早已不在清单里的地址
+ * 记录仍留在库里。不过滤就会把这些陈旧行算进当前交付材料——交付自检报假警、核对表列出无从
+ * 下手的待办、交付 MD 的汇总数字与它下面的明细行自相矛盾（实测 3 个任务：汇总写「非可访问 4 条」
+ * 底下却列了 5 行）。
+ *
+ * 判据只在这里写一遍，所有消费点（汇总 / 交付 MD 明细 / 核对表待办 / 交付包新鲜度）共用它。
+ * 修订指令那条路更窄一层（只认结论正文里的地址，见 ref-check.ts 的 deadLinkTargets）：
+ * 修订能改的只有结论正文，工具留存是历史调用结果、改不动。
+ */
+export function liveLinkChecks<T extends { url: string }>(checks: T[], citationUrls: Iterable<string>): T[] {
+  const live = new Set(citationUrls);
+  return checks.filter((c) => live.has(c.url));
+}
+
 /** 核验时效阈值：超过 72 小时视为过期，交付前建议重新核验 */
 export const STALE_HOURS = 72;
 
