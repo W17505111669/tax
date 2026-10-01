@@ -21,7 +21,7 @@ import {
   evidenceSnapshotText,
   FLOWS,
   GOALS,
-  INNOVATIONS,
+  innovations,
   latestCompareFor,
   rateText,
   statsFor,
@@ -163,7 +163,7 @@ function build(agent: TaxAgentConfig, extra: Array<{ name: string; label: string
   lines.push("");
   lines.push(`## 六、创新点`);
   lines.push("");
-  for (const item of INNOVATIONS[agent.id] ?? []) lines.push(`- ${item}`);
+  for (const item of innovations()[agent.id] ?? []) lines.push(`- ${item}`);
   lines.push("");
   lines.push(`## 七、应用效果（真实运行统计）`);
   lines.push("");

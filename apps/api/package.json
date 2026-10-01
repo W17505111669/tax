@@ -39,6 +39,7 @@
     "verify:runcmd": "tsx scripts/verify-run-cmd.ts",
     "scan:deliverables": "tsx scripts/scan-deliverables.ts",
     "verify:promptreg": "tsx scripts/verify-prompt-regression.ts",
+    "verify:materials": "tsx scripts/verify-materials.ts",
     "verify:websearch": "tsx scripts/verify-web-search.ts",
     "verify:citegrade": "tsx scripts/verify-citation-grade.ts",
     "verify:searchev": "tsx scripts/verify-search-evidence.ts",

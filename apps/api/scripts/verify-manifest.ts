@@ -404,6 +404,8 @@ const cross = {
   searchMetadataOnly: 0,
   amountTotal: 0,
   amountPending: 0,
+  amountPendingWeb: 0,
+  amountPendingUnexplained: 0,
   mdChecked: 0,
   mdAmountChecked: 0,
 };
@@ -721,6 +723,8 @@ for (const t of listTasks()) {
     cross.searchMetadataOnly += searches.metadataOnly;
     cross.amountTotal += amounts.total;
     cross.amountPending += amountPending;
+    cross.amountPendingWeb += amountSplitLocal.web.length;
+    cross.amountPendingUnexplained += amountSplitLocal.unexplained.length;
   }
 
   // ---- 交付 MD 的金额节：人读那一行里的数字与表里每行的类别都要对得上 ----
@@ -816,6 +820,12 @@ const platPairs: Array<[string, number, number]> = [
   ["证据力弱", platform.weakCitations, cross.weak],
   ["检索调用", platform.searchCalls, cross.searchCalls],
   ["仅元数据检索", platform.searchMetadataOnly, cross.searchMetadataOnly],
+  // 金额这一族此前只有任务级对比，平台级没法比——因为 evidence 里根本没有金额聚合。
+  // 补上之后这里逐项对，作品说明里那句「全平台 N 处结论金额」也才有取数来源。
+  ["金额总数", platform.amountTotal, cross.amountTotal],
+  ["金额待确认", platform.amountPending, cross.amountPending],
+  ["其中引自联网正文", platform.amountPendingWeb, cross.amountPendingWeb],
+  ["其中三处均无出处", platform.amountPendingUnexplained, cross.amountPendingUnexplained],
 ];
 for (const [label, boardSide, deliverySide] of platPairs) {
   checks += 1;

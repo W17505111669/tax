@@ -95,6 +95,16 @@ export interface EvidenceStats {
   /** docRefPending 中已在结论里标注「未取得公开原文，仅作背景参考」的处数：标注过就不算欠账 */
   docRefLabeled: number;
   docRefMatched: number;
+  /**
+   * 结论金额的平台级聚合。此前 evidence 里有引用、检索、文号三族，唯独没有金额——于是作品说明里
+   * 那句「全平台 N 处结论金额」只能手写死数字，写着写着就成了「612 处结论金额零待确认」，而实际
+   * 早已是 995 处、其中 92 处待人工确认。台账每行本来就有这四项，平台级只是把它们加起来，
+   * 口径与 ledgerTotals 完全一致（verify:manifest 的平台级交叉核对会逐项对）。
+   */
+  amountTotal: number;
+  amountPending: number;
+  amountPendingWeb: number;
+  amountPendingUnexplained: number;
   /** 仍有证据缺口的任务（存在待处置的弱证据引用或待复查文号；已声明为背景参考的、未进结论正文的不算） */
   gaps: Array<{
     id: string;
@@ -301,6 +311,10 @@ export function computePlatformStats(): PlatformStats {
     docRefPending: 0,
     docRefLabeled: 0,
     docRefMatched: 0,
+    amountTotal: 0,
+    amountPending: 0,
+    amountPendingWeb: 0,
+    amountPendingUnexplained: 0,
     gaps: [],
   };
   const ledger: LedgerRow[] = [];
@@ -544,6 +558,11 @@ export function computePlatformStats(): PlatformStats {
       amountPendingList,
       parsedCalls.filter((c) => SEARCH_TOOL_NAMES.has(c.toolName)).map((c) => c.result),
     );
+    // 金额不受「有没有结论」影响（与引用、弱证据两类不同）：没有结论的任务金额总数本来就是 0
+    evidence.amountTotal += amounts.total;
+    evidence.amountPending += amountPending;
+    evidence.amountPendingWeb += amountSplit.web.length;
+    evidence.amountPendingUnexplained += amountSplit.unexplained.length;
     const conclusions = listConclusions(task.id);
     const revision =
       conclusions.length >= 2

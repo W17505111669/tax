@@ -11,7 +11,7 @@ import { outcomeLine, type ToolOutcomeCounts } from "../../web/src/tool-outcome.
 import rdAuditAgent from "@tax/agent-rd-audit";
 import landVatAgent from "@tax/agent-land-vat";
 import type { TaxAgentConfig } from "@tax/agent-core";
-import { BACKGROUND, FLOWS, GOALS, INNOVATIONS, rateText, recentTaskLinks, statsFor } from "./materials-lib.ts";
+import { BACKGROUND, FLOWS, GOALS, innovations, rateText, recentTaskLinks, statsFor } from "./materials-lib.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..", "..", "..");
@@ -34,7 +34,9 @@ function build(agent: TaxAgentConfig): string {
     unfinished: stats.toolUnfinished,
   };
   const demos = recentTaskLinks(agent.id, 3);
-  const innov = INNOVATIONS[agent.id] ?? [];
+  // 走 innovations() 而不是常量：文案里描述当前平台状态的数字是生成时取数填进去的，
+  // PPT 大纲与作品说明必须同源，否则两份对外材料会各说一套数字
+  const innov = innovations()[agent.id] ?? [];
   const L: string[] = [];
   const slide = (n: number, title: string, bullets: string[], notes: string, visual: string) => {
     L.push(`## 第 ${n} 页 · ${title}`);
