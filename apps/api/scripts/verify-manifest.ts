@@ -16,6 +16,7 @@ import { gradeCitation, summarizeGrades } from "../../web/src/citation-grade.ts"
 import {
   extractCitations,
   extractTextCitations,
+  UNCAPPED,
   mergeCitations,
   searchEvidence,
 } from "../../web/src/search-evidence.ts";
@@ -27,6 +28,8 @@ import { listAmountChecks } from "../src/services/amount-checks.ts";
 import { listRefChecks } from "../src/services/ref-checks.ts";
 import { extractIssues, listReviews, pendingReviewIssues } from "../src/services/issues.ts";
 import { getTask, listConclusions, listFiles, listTasks } from "../src/services/task-store.ts";
+import { computePlatformStats } from "../src/services/stats.ts";
+import { docRefSection } from "../../web/src/delivery-docref.ts";
 
 const failures: string[] = [];
 let checks = 0;
@@ -40,9 +43,20 @@ function expect(name: string, actual: unknown, want: unknown): void {
 
 type ManifestCitation = ManifestInput["citations"][number];
 
-/** 与前端同一口径：引用提取走 search-evidence.ts（工具留存 + 结论正文），验证脚本不另写一套 */
+/**
+ * 与前端同一口径：引用提取走 search-evidence.ts（工具留存 + 结论正文），验证脚本不另写一套。
+ *
+ * 上限必须显式传 UNCAPPED：前端交付包用的是 allCitations（不截断），而 extractCitations /
+ * mergeCitations 的默认值是给界面胶囊用的 20 / 24 条。此前漏传，交付包这一侧被截到 24 条，
+ * 于是交叉核对报出「台账 41 ≠ 交付包 24」「看板 204 ≠ 交付包累加 174」——错的是本脚本，
+ * 不是产品：注释写着「与前端同一口径」，实现却没跟上前端的不截断口径。
+ */
 function citationsOf(calls: Array<{ toolName: string; result: unknown }>, result: string): ManifestCitation[] {
-  return mergeCitations(extractCitations(calls), extractTextCitations(result)).map((c) => {
+  return mergeCitations(
+    extractCitations(calls, UNCAPPED),
+    extractTextCitations(result, UNCAPPED),
+    UNCAPPED,
+  ).map((c) => {
     const g = gradeCitation(c.url, c.title);
     return {
       title: c.title,
@@ -334,6 +348,35 @@ expect(
 let built = 0;
 const gradeTotals = { total: 0, official: 0, professional: 0, weak: 0 };
 let tasksWithCitations = 0;
+/**
+ * 交叉核对：manifest 走的是「前端交付路径」（web 侧纯函数 + 自己从库取数），看板与台账走的是
+ * 「服务端聚合路径」（stats.ts）。两条路径各算一遍同一批指标，此前从来没有逐项对过——
+ * verify:ledger 对的是台账合计 vs 看板聚合，而那两边同源于 stats.ts，等于自己跟自己比。
+ * 这里把两条**独立**路径拉到一起：任务级比台账行，平台级比 evidence 聚合，交付 MD 比它写在
+ * 人读那一行里的数字。三处对不上任何一处都算失败。
+ */
+const platform = computePlatformStats().evidence;
+const rowByTask = new Map(platform.ledger.map((r) => [r.taskId, r]));
+const cross = {
+  docRefTotal: 0,
+  docRefTraced: 0,
+  docRefTracedByBody: 0,
+  docRefTracedByRecheck: 0,
+  docRefPending: 0,
+  docRefMatched: 0,
+  citations: 0,
+  official: 0,
+  weak: 0,
+  searchCalls: 0,
+  searchMetadataOnly: 0,
+  amountTotal: 0,
+  amountPending: 0,
+  mdChecked: 0,
+};
+let rowsCompared = 0;
+let conclusionRows = 0;
+let skippedTasks = 0;
+let skippedCites = 0;
 for (const t of listTasks()) {
   checks += 1;
   const detail = getTask(t.id);
@@ -547,6 +590,141 @@ for (const t of listTasks()) {
   const issues = manifestIssues(buildManifest(input));
   built += 1;
   if (issues.length > 0) failures.push(`${t.id.slice(0, 8)} 清单不自洽：${issues.join("；")}`);
+
+  // ---- 交叉核对之一：任务级，台账行（服务端聚合）vs 本次组装（前端交付路径）----
+  const row = rowByTask.get(t.id);
+  checks += 1;
+  if (!row) failures.push(`${t.id.slice(0, 8)} 台账里没有这个任务的行，看板与交付包对不上`);
+  if (row) {
+    rowsCompared += 1;
+    const pairs: Array<[string, number, number]> = [
+      ["文号总数", row.docRefTotal, refs.total],
+      ["文号有出处", row.docRefTraced, refs.traced],
+      ["其中仅正文提到", row.docRefTracedByBody, refs.tracedByBody],
+      ["其中复查取得", row.docRefTracedByRecheck, refs.tracedByRecheck],
+      ["待复查文号", row.docRefPending, refPending],
+      ["复查判定 matched", row.docRefMatched, refSum.matched],
+      ["检索调用", row.searchCalls, searches.calls],
+      ["仅元数据检索", row.searchMetadataOnly, searches.metadataOnly],
+      ["金额总数", row.amountTotal, amounts.total],
+      ["金额待确认", row.amountPending, amountPending],
+    ];
+    for (const [label, ledgerSide, deliverySide] of pairs) {
+      checks += 1;
+      if (ledgerSide !== deliverySide) {
+        failures.push(`${t.id.slice(0, 8)} ${label}：台账 ${ledgerSide} ≠ 交付包 ${deliverySide}`);
+      }
+    }
+    // 引用这一族要单独走：台账与看板侧的口径是「没有结论的任务不计引用」（stats.ts 里明写，
+    // 理由是无结论任务的引用进不了缺口清单，计进来会让台账欠账与缺口清单互相矛盾）。
+    // 交叉核对必须把这条口径显式复现并断言：既不能当成不一致报失败（那是口径差异不是缺陷），
+    // 也不能一声不响地跳过（跳过就等于这条口径从此没人守，哪天被改回去也没人发现）。
+    const hasConclusion = (detail?.result ?? "").trim() !== "";
+    if (hasConclusion) {
+      conclusionRows += 1;
+      const citePairs: Array<[string, number, number]> = [
+        ["引用总数", row.citations, cites.length],
+        ["官方来源", row.official, grades.official],
+        ["证据力弱", row.weak, grades.weak],
+      ];
+      for (const [label, ledgerSide, deliverySide] of citePairs) {
+        checks += 1;
+        if (ledgerSide !== deliverySide) {
+          failures.push(`${t.id.slice(0, 8)} ${label}：台账 ${ledgerSide} ≠ 交付包 ${deliverySide}`);
+        }
+      }
+      cross.citations += cites.length;
+      cross.official += grades.official;
+      cross.weak += grades.weak;
+    } else {
+      skippedTasks += 1;
+      skippedCites += cites.length;
+      for (const [label, ledgerSide] of [
+        ["引用总数", row.citations],
+        ["官方来源", row.official],
+        ["证据力弱", row.weak],
+      ] as Array<[string, number]>) {
+        checks += 1;
+        if (ledgerSide !== 0) {
+          failures.push(
+            `${t.id.slice(0, 8)} 无结论任务的台账${label}应为 0（口径：没有结论不计引用），实际 ${ledgerSide}`,
+          );
+        }
+      }
+    }
+    cross.docRefTotal += refs.total;
+    cross.docRefTraced += refs.traced;
+    cross.docRefTracedByBody += refs.tracedByBody;
+    cross.docRefTracedByRecheck += refs.tracedByRecheck;
+    cross.docRefPending += refPending;
+    cross.docRefMatched += refSum.matched;
+    cross.searchCalls += searches.calls;
+    cross.searchMetadataOnly += searches.metadataOnly;
+    cross.amountTotal += amounts.total;
+    cross.amountPending += amountPending;
+  }
+
+  // ---- 交叉核对之二：交付 MD 的文号节，人读那一行里的数字必须与结构化数据一致 ----
+  cross.mdChecked += 1;
+  const mdHead =
+    docRefSection({ refTrace: refs, refSummary: refSum, refChecks: refRecs }).find((l) =>
+      l.startsWith("- 结论中出现政策文号"),
+    ) ?? "";
+  for (const frag of [
+    `政策文号 ${refs.total} 处`,
+    `有公开出处 ${refs.traced} 处`,
+    `联网复查取得 ${refs.tracedByRecheck} 处`,
+    `仅留存正文提到 ${refs.tracedByBody} 处`,
+    `无法从留存数据核验 ${refs.unverifiable} 处`,
+    `待人工确认 ${refs.untraced.length} 处`,
+  ]) {
+    checks += 1;
+    if (!mdHead.includes(frag)) {
+      failures.push(`${t.id.slice(0, 8)} 交付 MD 的文号节没写出「${frag}」，实际是：${mdHead.slice(0, 90)}`);
+    }
+  }
+}
+
+// ---- 交叉核对之三：平台级，看板聚合 vs 交付路径逐任务累加 ----
+const platPairs: Array<[string, number, number]> = [
+  ["文号总数", platform.docRefs, cross.docRefTotal],
+  ["文号有出处", platform.docRefTraced, cross.docRefTraced],
+  ["其中仅正文提到", platform.docRefTracedByBody, cross.docRefTracedByBody],
+  ["其中复查取得", platform.docRefTracedByRecheck, cross.docRefTracedByRecheck],
+  ["待复查文号", platform.docRefPending, cross.docRefPending],
+  ["复查判定 matched", platform.docRefMatched, cross.docRefMatched],
+  ["引用总数", platform.citations, cross.citations],
+  ["官方来源", platform.officialCitations, cross.official],
+  ["证据力弱", platform.weakCitations, cross.weak],
+  ["检索调用", platform.searchCalls, cross.searchCalls],
+  ["仅元数据检索", platform.searchMetadataOnly, cross.searchMetadataOnly],
+];
+for (const [label, boardSide, deliverySide] of platPairs) {
+  checks += 1;
+  if (boardSide !== deliverySide) {
+    failures.push(`平台级 ${label}：看板 ${boardSide} ≠ 交付包逐任务累加 ${deliverySide}`);
+  }
+}
+// 走查型断言必须同时断「确实检查到了东西」：一个任务都没比到、或一行 MD 都没核到，都是空跑
+checks += 1;
+if (rowsCompared < 1) failures.push("一个任务的台账行都没比对到，任务级交叉核对等于空跑");
+checks += 1;
+if (conclusionRows < 1) failures.push("一个有结论的任务都没比对到，引用族的交叉核对等于空跑");
+checks += 1;
+if (cross.mdChecked < 1) failures.push("交付 MD 的文号节一处都没核对到");
+checks += 1;
+if (cross.docRefTotal < 1 && cross.citations < 1) {
+  failures.push("交叉核对的指标全是 0，比了等于没比（库里没有真实数据？）");
+}
+console.log(
+  `[verify] 交叉核对：任务级 ${rowsCompared} 个任务（有结论 ${conclusionRows} 个 × 13 项）· 交付 MD 文号节 ${
+    cross.mdChecked
+  } 个 × 6 项 · 平台级 ${platPairs.length} 项（金额待确认合计 ${cross.amountPending} / 总额 ${cross.amountTotal}）`,
+);
+if (skippedTasks > 0) {
+  console.log(
+    `[verify] 口径差异（有意为之，已断言）：${skippedTasks} 个无结论任务的台账引用记 0，其交付包侧另有 ${skippedCites} 条检索留存引用不计入看板`,
+  );
 }
 
 console.log(
