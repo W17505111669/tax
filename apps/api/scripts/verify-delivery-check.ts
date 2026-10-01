@@ -687,6 +687,8 @@ console.log(
   `[verify] 任务状态口径：失败态 ${realFailed} 个 = 服务重启中断 ${realInterrupted} 个 + 执行报错 ${realFailed - realInterrupted} 个`,
 );
 
+// 防空跑：空库时真实任务走查一段一条都不检查，只剩纯函数断言在跑，退出码照样是 0
+expect("确实走到了真实任务（空库不算通过）", listTasks().length >= 1, true);
 console.log(`[verify] 交付自检检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  - ${f}`);

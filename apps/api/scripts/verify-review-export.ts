@@ -64,6 +64,8 @@ for (const t of listTasks()) {
   }
 }
 console.log(`[verify] 任务数=${tasks} 含问题任务=${withIssues}`);
+// 防空跑：空库时 tasks 为 0，复核导出的真实走查一条都不检查
+expect("确实走到了真实任务（空库不算通过）", tasks >= 1, true);
 console.log(`[verify] 复核导出检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  - ${f}`);

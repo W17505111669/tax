@@ -8,7 +8,16 @@ export const rootDir = path.resolve(here, "..", "..", "..");
 
 loadEnvFile(rootDir);
 
-export const dataDir = path.join(rootDir, "data");
+/**
+ * 数据目录。默认是仓库里的 `data/`，可以用 `TAXAI_DATA_DIR` 重定向。
+ *
+ * 重定向不是为了部署灵活，是为了**测试隔离**：`verify:gates` 要用一个空数据目录把每个声称
+ * 走真实数据的门禁跑一遍，确认它们在没数据时会红（否则空库就是空跑，一样绿）。此前 dataDir
+ * 写死，那种检查只能对着真库做，等于没法做。
+ */
+export const dataDir = process.env.TAXAI_DATA_DIR
+  ? path.resolve(process.env.TAXAI_DATA_DIR)
+  : path.join(rootDir, "data");
 export const dirs = {
   uploads: path.join(dataDir, "uploads"),
   outputs: path.join(dataDir, "outputs"),

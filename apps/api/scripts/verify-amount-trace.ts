@@ -261,6 +261,8 @@ expect(
 expect("raw 保持原文写法（含单位）", ctxAmounts.some((a) => a.raw === "1,755,555.55元"), true);
 expect("match 保持原文精确片段", ctxAmounts.every((a) => CTX_MD.includes(a.match)), true);
 
+// 防空跑：空库时 tasks 为 0，真实走查一段一条都不检查，剩下的纯函数断言照样全绿
+expect("确实走到了真实任务（空库不算通过）", tasks >= 1, true);
 console.log(`[verify] 金额溯源检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  - ${f}`);

@@ -25,6 +25,8 @@ for (const t of tasks.filter((x) => x.status === "completed").slice(0, 5)) {
   if (row.n === 0) failures.push(`${t.id} completed 但缺 run_completed 事件`);
 }
 
+// 防空跑：空库时一个任务都不检查，0-5 步的规则写得再错也是绿的
+if (tasks.length === 0) failures.push("一个任务都没走到，进度规则等于没验（空库不算通过）");
 console.log(`[verify] 任务数=${tasks.length} 已完成=${tasks.filter((x) => x.status === "completed").length}`);
 console.log("[verify] 进度推导:", failures.length === 0 ? "全部符合 0-5 步规则" : failures.join("; "));
 if (failures.length > 0) {

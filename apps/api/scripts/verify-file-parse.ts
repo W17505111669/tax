@@ -150,6 +150,13 @@ for (const t of listTasks()) {
   }
 }
 console.log(`[verify] 上传资料=${files} 有解析摘要=${withSummary}`);
+// 防空跑：走查必须真的走到了数据。空库时这一条会红——verify:gates 就是用空数据目录把全部
+// 门禁复跑一遍来查这件事的，此前 25 个走真实数据的脚本里有 12 个在空库下仍然绿。
+expect(
+  "确实走到了真实任务（空库不算通过）",
+  (db.prepare(`SELECT COUNT(*) AS n FROM tasks`).get() as { n: number }).n >= 1,
+  true,
+);
 console.log(`[verify] 资料解析检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  - ${f}`);

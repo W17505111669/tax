@@ -211,6 +211,12 @@ console.log(
 const weakSamples = real.filter((c) => gradeCitation(c.url).grade === "weak").slice(0, 5).map((c) => c.url.slice(0, 70));
 if (weakSamples.length > 0) console.log(`[verify] 弱证据样例：${weakSamples.join(" | ")}`);
 
+// 防空跑：分级规则的真实样例走查在空库下一条都不跑，剩下的纯函数断言照样全绿
+expect(
+  "确实走到了真实任务（空库不算通过）",
+  (db.prepare(`SELECT COUNT(*) AS n FROM tasks`).get() as { n: number }).n >= 1,
+  true,
+);
 console.log(`[verify] 引用分级检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
   for (const f of failures.slice(0, 20)) console.log(`  - ${f}`);

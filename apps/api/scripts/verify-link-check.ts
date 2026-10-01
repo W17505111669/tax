@@ -116,6 +116,12 @@ try {
   db.prepare(`DELETE FROM link_checks WHERE task_id = ?`).run(TMP);
 }
 
+// 防空跑：链接核验分级的真实走查在空库下一条都不跑
+expect(
+  "确实走到了真实任务（空库不算通过）",
+  (db.prepare(`SELECT COUNT(*) AS n FROM tasks`).get() as { n: number }).n >= 1,
+  true,
+);
 console.log(`[verify] 链接核验分级检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  - ${f}`);

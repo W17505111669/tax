@@ -2454,6 +2454,8 @@ if (process.env.TAXAI_VERIFY_LIVE === "1") {
   console.log("[verify] 实网检索跳过（默认门禁不联网；设 TAXAI_VERIFY_LIVE=1 可跑）");
 }
 
+// 防空跑：文号复查的真实任务走查在空库下一条都不跑，纯函数断言照样全绿
+expect("确实走到了真实任务（空库不算通过）", listTasks().length >= 1, true);
 console.log(`[verify] 文号复查检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
   for (const f of failures.slice(0, 20)) console.log(`  - ${f}`);

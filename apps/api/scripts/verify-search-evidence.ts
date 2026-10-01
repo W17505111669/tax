@@ -390,6 +390,8 @@ const toolTitles = urlsOfCall("search_public_cases", {
 expect("工具留存标题也去记号", toolTitles[0]?.title, "《公告》全文");
 expect("标题为空时仍退回地址本身", urlsOfCall("fetch_public_document", { url: "https://gov.cn/f.html" })[0]?.title, "https://gov.cn/f.html");
 
+// 防空跑：检索留痕的真实走查在空库下一条都不跑，纯函数断言照样全绿
+expect("确实走到了真实任务（空库不算通过）", listTasks().length >= 1, true);
 console.log(`[verify] 检索留痕检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
   for (const f of failures.slice(0, 20)) console.log(`  - ${f}`);

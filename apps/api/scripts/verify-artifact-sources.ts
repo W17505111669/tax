@@ -151,6 +151,12 @@ console.log(
   }`,
 );
 
+// 防空跑：产物溯源的真实走查在空库下一条都不跑，纯函数断言照样全绿
+expect(
+  "确实走到了真实任务（空库不算通过）",
+  (db.prepare(`SELECT COUNT(*) AS n FROM tasks`).get() as { n: number }).n >= 1,
+  true,
+);
 console.log(`[verify] 产物溯源检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  - ${f}`);

@@ -178,6 +178,12 @@ console.log(
     successRate({ calls: s.toolCalls, ok: s.toolOk, failed: s.toolFailed, unfinished: s.toolUnfinished })
   }%（按调用总数算的旧口径 ${Math.round((s.toolOk / s.toolCalls) * 1000) / 10}%）`,
 );
+// 防空跑：三态口径的真实分布在空库里全是 0，「三态互斥且穷尽」这种断言对 0 也成立
+expect(
+  "确实走到了真实工具调用（空库不算通过）",
+  (db.prepare(`SELECT COUNT(*) AS n FROM tool_calls`).get() as { n: number }).n >= 1,
+  true,
+);
 console.log(`[verify] 三态口径检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
   for (const f of failures.slice(0, 20)) console.log(`  - ${f}`);

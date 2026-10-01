@@ -434,6 +434,8 @@ console.log(
   `[verify] 真实台账金额待确认 ${realTotals.amountPending} 处：引自联网正文 ${realTotals.amountPendingWeb} · 三处均无出处 ${realTotals.amountPendingUnexplained}`,
 );
 
+// 防空跑：台账一行都没有时，上面那些「合计与看板一致」的断言全是在比 0 == 0，空库一样绿。
+expect("确实走到了真实任务的台账行（空库不算通过）", ev.ledger.length >= 1, true);
 console.log(`[verify] 证据台账检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
   for (const f of failures.slice(0, 20)) console.log(`  - ${f}`);
