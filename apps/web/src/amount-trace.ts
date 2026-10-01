@@ -197,6 +197,24 @@ export function traceAmounts(
 /** 未溯源金额的可能来源 */
 export type UntracedOrigin = "web" | "unexplained";
 
+/**
+ * 待确认金额两类的界面文案与依据说明。
+ *
+ * 放在这里而不是各组件里，是因为台账列名、看板 tooltip、复核页徽章、就地标注的 label 说的是
+ * 同一件事，各写一遍迟早漂（措辞改了、口径改了，总有一处忘）。文案里不用 Markdown 记号：
+ * 这些字符串会直接进 JSX 文本与 title 属性，写反引号或方括号就会被 scan:uimd 判成界面出现原文。
+ */
+export const UNTRACED_ORIGIN_TEXT: Record<UntracedOrigin, string> = {
+  web: "引自联网正文",
+  unexplained: "三处均无出处",
+};
+
+export const UNTRACED_ORIGIN_HINT: Record<UntracedOrigin, string> = {
+  web: "多半是摘引政策原文或案例里的数字。溯源池按既定口径不收联网正文（否则任何金额都能声称有出处），所以要核对的是引用抄得准不准，不是模型有没有口算。",
+  unexplained:
+    "工具结果、客户指令与联网正文都找不到。这一类混了两种情况：模型确实口算了，以及该任务运行时还没留存网页正文因而无从核对，所以不断言是口算——但这正是需要人逐条看的那一类。",
+};
+
 export type UntracedSplit = {
   /** 能在联网检索/读取类工具的正文里找到：多半是摘引政策原文或案例里的数字 */
   web: Amount[];

@@ -8,7 +8,7 @@ import { buildManifest, MANIFEST_SCHEMA, MANIFEST_VERSION, manifestIssues, type 
 import { deliveryCheck } from "../../web/src/delivery-check.ts";
 import { artifactSources } from "../../web/src/artifact-sources.ts";
 import { artifactsOfRun, runWindows } from "../../web/src/run-artifacts.ts";
-import { traceAmounts, amountKey, TEXT_AMOUNT_TOOLS } from "../../web/src/amount-trace.ts";
+import { traceAmounts, amountKey, classifyUntraced, TEXT_AMOUNT_TOOLS } from "../../web/src/amount-trace.ts";
 import { parseDetail, parsedByFileName } from "../../web/src/file-parse.ts";
 import { reviewCounts } from "../../web/src/review-export.ts";
 import { normalizeRef, traceDocRefs } from "../../web/src/policy-trace.ts";
@@ -18,6 +18,7 @@ import {
   extractTextCitations,
   UNCAPPED,
   mergeCitations,
+  SEARCH_TOOL_NAMES,
   searchEvidence,
 } from "../../web/src/search-evidence.ts";
 import { offTopicCitationTitles, summarizeRefChecks } from "../../web/src/ref-check.ts";
@@ -374,6 +375,7 @@ const cross = {
   mdChecked: 0,
 };
 let rowsCompared = 0;
+let pairChecks = 0;
 let conclusionRows = 0;
 let skippedTasks = 0;
 let skippedCites = 0;
@@ -425,6 +427,11 @@ for (const t of listTasks()) {
     calls.filter((c) => TEXT_AMOUNT_TOOLS.has(c.toolName)).map((c) => c.result),
   );
   const amountPending = amounts.untraced.filter((u) => !acked.has(amountKey(u))).length;
+  // 与任务页、台账同一口径：待确认金额按「为什么找不到出处」分两类，检索结果池不按 ok 过滤
+  const amountSplitLocal = classifyUntraced(
+    amounts.untraced.filter((u) => !acked.has(amountKey(u))),
+    calls.filter((c) => SEARCH_TOOL_NAMES.has(c.toolName)).map((c) => c.result),
+  );
   const rc = reviewCounts(extractIssues(t.id), listReviews(t.id));
   const refRecs = listRefChecks(t.id);
   const refs = traceDocRefs(
@@ -608,9 +615,12 @@ for (const t of listTasks()) {
       ["仅元数据检索", row.searchMetadataOnly, searches.metadataOnly],
       ["金额总数", row.amountTotal, amounts.total],
       ["金额待确认", row.amountPending, amountPending],
+      ["其中引自联网正文", row.amountPendingWeb, amountSplitLocal.web.length],
+      ["其中三处均无出处", row.amountPendingUnexplained, amountSplitLocal.unexplained.length],
     ];
     for (const [label, ledgerSide, deliverySide] of pairs) {
       checks += 1;
+      pairChecks += 1;
       if (ledgerSide !== deliverySide) {
         failures.push(`${t.id.slice(0, 8)} ${label}：台账 ${ledgerSide} ≠ 交付包 ${deliverySide}`);
       }
@@ -629,6 +639,7 @@ for (const t of listTasks()) {
       ];
       for (const [label, ledgerSide, deliverySide] of citePairs) {
         checks += 1;
+        pairChecks += 1;
         if (ledgerSide !== deliverySide) {
           failures.push(`${t.id.slice(0, 8)} ${label}：台账 ${ledgerSide} ≠ 交付包 ${deliverySide}`);
         }
@@ -645,6 +656,7 @@ for (const t of listTasks()) {
         ["证据力弱", row.weak],
       ] as Array<[string, number]>) {
         checks += 1;
+        pairChecks += 1;
         if (ledgerSide !== 0) {
           failures.push(
             `${t.id.slice(0, 8)} 无结论任务的台账${label}应为 0（口径：没有结论不计引用），实际 ${ledgerSide}`,
@@ -717,7 +729,7 @@ if (cross.docRefTotal < 1 && cross.citations < 1) {
   failures.push("交叉核对的指标全是 0，比了等于没比（库里没有真实数据？）");
 }
 console.log(
-  `[verify] 交叉核对：任务级 ${rowsCompared} 个任务（有结论 ${conclusionRows} 个 × 13 项）· 交付 MD 文号节 ${
+  `[verify] 交叉核对：任务级 ${rowsCompared} 个任务 · 逐项对比 ${pairChecks} 次（其中有结论 ${conclusionRows} 个）· 交付 MD 文号节 ${
     cross.mdChecked
   } 个 × 6 项 · 平台级 ${platPairs.length} 项（金额待确认合计 ${cross.amountPending} / 总额 ${cross.amountTotal}）`,
 );

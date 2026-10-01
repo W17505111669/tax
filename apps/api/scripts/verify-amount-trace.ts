@@ -5,6 +5,9 @@
 import {
   amountKey,
   classifyUntraced,
+  UNTRACED_ORIGIN_HINT,
+  UNTRACED_ORIGIN_TEXT,
+  type UntracedOrigin,
   collectToolCents,
   extractAmounts,
   TEXT_AMOUNT_TOOLS,
@@ -204,6 +207,20 @@ expect(
   UNTRACED.length,
 );
 expect("空清单安全兜底", [classifyUntraced([], WEB_RESULTS).web.length, classifyUntraced([], WEB_RESULTS).unexplained.length], [0, 0]);
+
+// 两类的界面文案与依据说明只出一份：台账列名、看板 tooltip、复核页徽章、就地标注的 label 共用它。
+// 必须非空、必须覆盖两档、且不能带 Markdown 记号（这些字符串会直接进 JSX 文本与 title 属性）。
+expect("两类文案都给了", Object.keys(UNTRACED_ORIGIN_TEXT).sort(), ["unexplained", "web"]);
+expect("两类说明都给了", Object.keys(UNTRACED_ORIGIN_HINT).sort(), ["unexplained", "web"]);
+const MD_MARK = /(\*\*|`|^#{1,6}\s|\[[^\]]*\]\([^)]*\)|^\s*\|\s*---|^>\s)/m;
+for (const k of ["web", "unexplained"] as UntracedOrigin[]) {
+  expect(`${k} 的界面文案非空`, UNTRACED_ORIGIN_TEXT[k].trim() !== "", true);
+  expect(`${k} 的界面文案不含 Markdown 记号`, MD_MARK.test(UNTRACED_ORIGIN_TEXT[k]), false);
+  expect(`${k} 的依据说明非空`, UNTRACED_ORIGIN_HINT[k].trim() !== "", true);
+  expect(`${k} 的依据说明不含 Markdown 记号`, MD_MARK.test(UNTRACED_ORIGIN_HINT[k]), false);
+}
+// 分类必须真的分到了东西：两档都为空的话，界面上的徽章全归一类也没人发现
+expect("样例里两类都确实出现了", [SPLIT.web.length > 0, SPLIT.unexplained.length > 0], [true, true]);
 // 关键：分类**不改变**溯源判定。联网正文依然不进可溯源池，否则任何金额都能声称有出处
 const webTraced = traceAmounts("限额 175,555.55 元", WEB_RESULTS, "", []);
 expect("联网正文不进可溯源池（分类不改判定）", [webTraced.traced, webTraced.untraced.length], [0, 1]);

@@ -27,7 +27,15 @@ import { matchToolCalls } from "../timeline-calls.ts";
 import { artifactsOfRun, artifactTable, fmtBytes, runWindows, unattributedArtifacts } from "../run-artifacts.ts";
 import { artifactSources } from "../artifact-sources.ts";
 import { callStats, callsByRun, durationMs, fmtDuration, mdCell, summarizeArgs } from "../run-tools.ts";
-import { amountKey, TEXT_AMOUNT_TOOLS, traceAmounts } from "../amount-trace.ts";
+import {
+  amountKey,
+  classifyUntraced,
+  TEXT_AMOUNT_TOOLS,
+  traceAmounts,
+  UNTRACED_ORIGIN_HINT,
+  UNTRACED_ORIGIN_TEXT,
+  type UntracedOrigin,
+} from "../amount-trace.ts";
 import { reviewSection } from "../review-export.ts";
 import { deliveryCheck, deliverySection, type CheckInput, type CheckResult } from "../delivery-check.ts";
 import {
@@ -913,6 +921,27 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   );
   const amountAcked = amountTrace.untraced.length - amountPending.length;
 
+  // 待确认金额按「为什么找不到出处」分两类，口径与服务端 stats.ts 完全一致（同一个 classifyUntraced、
+  // 同一批检索类调用的结果）。此前只有台账与看板分得开，复核人在任务页上看到的是一整列混在一起，
+  // 分不出哪几处是真要拦的、哪几处只需核对引用抄得准不准——而逐条处置恰恰是在这一页做的。
+  const amountSplit = useMemo(
+    () =>
+      classifyUntraced(
+        amountPending,
+        // 检索结果池不按 ok 过滤：与服务端 stats.ts 同一口径（那边是 parsedCalls.filter(SEARCH_TOOL_NAMES)）。
+        // 两边不一致的话，任务页上的分类就会与台账「其中引自联网正文 / 其中三处均无出处」两列对不上。
+        toolCalls.filter((c) => SEARCH_TOOLS.has(c.toolName)).map((c) => c.result),
+      ),
+    [amountPending, toolCalls],
+  );
+  /** 每个待确认金额属于哪一类（按 amountKey 查）。查不到时按更严的那一类兜底，不默认成轻的 */
+  const amountOrigin = useMemo(() => {
+    const m = new Map<string, UntracedOrigin>();
+    for (const a of amountSplit.web) m.set(amountKey(a), "web");
+    for (const a of amountSplit.unexplained) m.set(amountKey(a), "unexplained");
+    return m;
+  }, [amountSplit]);
+
   // 就地标注：待确认（琥珀，点击标记为已核对）与已核对（青绿，点击撤销）
   const amountAnnotations = useMemo<Annotation[]>(
     () =>
@@ -932,16 +961,23 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
               text: u.match,
               key,
               className: "md-annot-warn",
-              label: `待人工确认：该金额未在本次工具调用结果与客户指令中找到出处 · 点击标记为已核对\n上下文：…${u.context}…`,
+              label: `待人工确认：该金额未在本次工具调用结果与客户指令中找到出处 · ${
+                UNTRACED_ORIGIN_TEXT[amountOrigin.get(key) ?? "unexplained"]
+              }——${UNTRACED_ORIGIN_HINT[amountOrigin.get(key) ?? "unexplained"]} 点击标记为已核对\n上下文：…${
+                u.context
+              }…`,
             };
       }),
-    [amountTrace, amountChecks],
+    [amountTrace, amountChecks, amountOrigin],
   );
 
   // 复核页的金额核对清单：与正文就地标注同源，待确认与已核对分列
   const amountReviewItems = useMemo(() => {
     // 同一金额的多种写法合并成一条（键只由值决定），并统计出现处数
-    const pend = new Map<string, { key: string; raw: string; context: string; occurrences: number }>();
+    const pend = new Map<
+      string,
+      { key: string; raw: string; context: string; occurrences: number; origin: UntracedOrigin }
+    >();
     const acked = new Map<string, { key: string; raw: string; at: string; note: string; occurrences: number }>();
     for (const u of amountTrace.untraced) {
       const key = amountKey(u);
@@ -953,10 +989,17 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
         continue;
       }
       if (ack) acked.set(key, { key, raw: u.raw, at: ack.at, note: ack.note, occurrences: 1 });
-      else pend.set(key, { key, raw: u.raw, context: u.context, occurrences: 1 });
+      else
+        pend.set(key, {
+          key,
+          raw: u.raw,
+          context: u.context,
+          occurrences: 1,
+          origin: amountOrigin.get(key) ?? "unexplained",
+        });
     }
     return { pend: [...pend.values()], acked: [...acked.values()] };
-  }, [amountTrace, amountChecks]);
+  }, [amountTrace, amountChecks, amountOrigin]);
 
   // 链接核验汇总：可访问 / 失效 / 拒绝自动访问（反爬）/ 无法核验，四类分开计数
   // 只汇总当前引用清单里的地址。link_checks 按 (task_id, url) upsert、从不删行，结论改过之后

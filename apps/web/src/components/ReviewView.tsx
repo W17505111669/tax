@@ -4,6 +4,7 @@ import { IconAlert, IconCheck, IconPlus, IconX } from "./Icons.tsx";
 import { downloadText } from "../download.ts";
 import { readRaw, removeRaw, writeRaw } from "../local-store.ts";
 import { dayStamp } from "../time-format.ts";
+import { UNTRACED_ORIGIN_HINT, UNTRACED_ORIGIN_TEXT } from "../amount-trace.ts";
 import {
   LABEL_MAX,
   MAX_CUSTOM_TEMPLATES,
@@ -37,7 +38,14 @@ interface Props {
     total: number;
     traced: number;
     fromInput: number;
-    pending: Array<{ key: string; raw: string; context: string; occurrences: number }>;
+    pending: Array<{
+      key: string;
+      raw: string;
+      context: string;
+      occurrences: number;
+      /** 这一处为什么找不到出处：引自联网正文（核对引用抄得准不准）/ 三处均无出处（要逐条看的那类） */
+      origin: import("../amount-trace.ts").UntracedOrigin;
+    }>;
     acked: Array<{ key: string; raw: string; at: string; note: string; occurrences: number }>;
     /** 待确认 / 已核对金额在结论中出现的总处数（同一金额多种写法合并前） */
     pendingOccurrences: number;
@@ -214,6 +222,16 @@ export function ReviewView({
                 className="flex items-center gap-2 rounded border border-amber-400/30 bg-amber-400/5 px-2 py-1.5"
               >
                 <span className="shrink-0 font-mono text-[11.5px] text-amber-300">{a.raw}</span>
+                <span
+                  className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${
+                    a.origin === "unexplained"
+                      ? "bg-rose-400/15 text-rose-300"
+                      : "bg-night-700 text-mist-500"
+                  }`}
+                  title={UNTRACED_ORIGIN_HINT[a.origin]}
+                >
+                  {UNTRACED_ORIGIN_TEXT[a.origin]}
+                </span>
                 {a.occurrences > 1 && (
                   <span className="shrink-0 text-[10.5px] text-mist-600">出现 {a.occurrences} 处</span>
                 )}
