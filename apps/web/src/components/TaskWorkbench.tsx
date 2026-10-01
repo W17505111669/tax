@@ -83,6 +83,8 @@ import {
   labeledDocRefTexts,
   pendingRevisionItems,
   settledWeakUrls,
+  uncitedWeakItems,
+  UNCITED_WEAK_LIST_LIMIT,
   refCheckTargets,
   refKey,
   REF_VERDICT_HINT,
@@ -695,8 +697,16 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   // 不作为政策依据」的，以及只在检索留存里、从未进入结论正文的（不是这份交付材料的依据，也没处补标注）
   const weakDisclaimedUrls = useMemo(() => disclaimedWeakUrls(allCitations, finalResult), [allCitations, finalResult]);
   const weakSettledUrls = useMemo(() => settledWeakUrls(allCitations, finalResult), [allCitations, finalResult]);
-  // settled 是两类的并集，扣掉已声明的那部分就是「未进结论正文」的条数，三个数刚好加回弱证据总数
-  const weakUncited = Math.max(0, weakSettledUrls.size - weakDisclaimedUrls.size);
+  // 「未进结论正文」这一类要有逐条明细：复核人核对判据对不对，得能点开原文看一眼，光有一个
+  // 「8 条」的计数等于让人相信一个数。计数由明细派生，不再用 settled.size - disclaimed.size 手算，
+  // 否则台账报的数与界面清单里列出的条数是两处各算一遍。
+  // 还要扣掉「已在结论里声明为背景参考」的那部分：服务端 stats.ts 算 weakUncited 时就是这么扣的，
+  // 两边不扣一致的话，界面清单里列出的条数会与台账那一列对不上。
+  const weakUncitedItems = useMemo(
+    () => uncitedWeakItems(allCitations, finalResult).filter((i) => !weakDisclaimedUrls.has(i.url)),
+    [allCitations, finalResult, weakDisclaimedUrls],
+  );
+  const weakUncited = weakUncitedItems.length;
   const weakOpen = Math.max(0, citationGrades.weak - weakSettledUrls.size);
 
   // 步骤时间线：提问 → 工具核验 → 联网检索 → 结论生成 → 交付
@@ -2575,6 +2585,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                   composable: revisionTotal,
                   onCompose: fillRevisionInstruction,
                   notice: revisionMsg,
+                  uncited: weakUncitedItems,
                 }}
                 sheet={sheet}
                 onOpenUrl={openReader}
@@ -3778,6 +3789,8 @@ function ResultView({
     /** 生成修订指令并填入「续跑任务」输入框 */
     onCompose: () => void;
     notice: string;
+    /** 只在检索留存里、从未进入结论正文的弱证据引用（逐条，可点开原文核对判据） */
+    uncited: Array<{ url: string; title: string }>;
   };
   /** 证据核对表输入（与整页交付 MD 用的是同一份数据） */
   sheet: SheetInput;
@@ -4105,6 +4118,42 @@ function ResultView({
               );
             })}
           </div>
+          {citationRecheck.uncited.length > 0 && (
+            <div className="mt-2 rounded border border-line bg-night-850 px-2.5 py-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="kicker">未进结论正文的弱证据</span>
+                <span className="text-[10.5px] leading-5 text-mist-600">
+                  {citationRecheck.uncited.length} 条只在检索留存里、从未被写进结论，不是这份交付材料的依据，无需替换；点开原文可核对这个判据对不对
+                </span>
+              </div>
+              <ul className="mt-1.5 space-y-1">
+                {citationRecheck.uncited.slice(0, UNCITED_WEAK_LIST_LIMIT).map((c) => (
+                  <li key={c.url} className="flex items-center gap-2 rounded bg-night-800 px-2 py-1">
+                    <span
+                      className="min-w-0 flex-1 truncate text-[11px] text-mist-400"
+                      title={c.title === "" ? c.url : c.title}
+                    >
+                      {c.title === "" ? c.url : c.title}
+                    </span>
+                    <button
+                      type="button"
+                      className="action-btn shrink-0"
+                      title={`${c.title === "" ? c.url : c.title}\n${c.url}\n点按在侧边阅读器打开`}
+                      onClick={() => onOpenUrl({ kind: "url", url: c.url })}
+                    >
+                      <IconExternal className="h-3 w-3" />
+                      原文
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {citationRecheck.uncited.length > UNCITED_WEAK_LIST_LIMIT && (
+                <p className="mt-1 text-[10.5px] text-mist-600">
+                  另有 {citationRecheck.uncited.length - UNCITED_WEAK_LIST_LIMIT} 条未列出
+                </p>
+              )}
+            </div>
+          )}
           {citationRecheck.targets.length > 0 && (
             <div className="mt-2 rounded border border-amber-400/30 bg-amber-400/5 px-2.5 py-2">
               <div className="flex flex-wrap items-center gap-2">

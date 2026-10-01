@@ -28,6 +28,8 @@ import {
   disclaimedWeakUrls,
   settledWeakUrls,
   uncitedWeakUrls,
+  uncitedWeakItems,
+  UNCITED_WEAK_LIST_LIMIT,
   gradeRefCheck,
   isDisclaimedInConclusion,
   labeledDocRefTexts,
@@ -750,6 +752,32 @@ expect(
   ).size,
   1,
 );
+// 明细与集合必须同源：界面现在逐条列这一类弱证据并可点开原文，报出来的条数就得与台账那一列一致
+const UNCITED_CITES = [
+  { url: "https://baike.baidu.com/item/x", title: "研发_百度百科" },
+  { url: "https://baike.baidu.com/item/x", title: "研发_百度百科（同一地址的第二条）" },
+  { url: "https://www.12366.cn/index", title: "12366 纳税服务平台" },
+  { url: "https://fgk.chinatax.gov.cn/zcfgk/c1/content.html", title: "政策原文页" },
+];
+const UNCITED_CONCLUSION = "依据见 https://fgk.chinatax.gov.cn/zcfgk/c1/content.html（检索时间 2026-09-30）";
+const uncitedItems = uncitedWeakItems(UNCITED_CITES, UNCITED_CONCLUSION);
+expect("明细按地址去重（同一页被引两次只列一条）", uncitedItems.map((i) => i.url), [
+  "https://baike.baidu.com/item/x",
+  "https://www.12366.cn/index",
+]);
+expect("明细带出标题（界面与交付材料都要显示它）", uncitedItems[0]?.title, "研发_百度百科");
+expect("官方来源不进这份明细", uncitedItems.some((i) => i.url.includes("chinatax.gov.cn")), false);
+expect(
+  "计数用的集合与明细同源：条数一致",
+  uncitedWeakUrls(UNCITED_CITES, UNCITED_CONCLUSION).size,
+  uncitedItems.length,
+);
+expect(
+  "计数用的集合与明细同源：地址逐条一致",
+  [...uncitedWeakUrls(UNCITED_CITES, UNCITED_CONCLUSION)].sort(),
+  uncitedItems.map((i) => i.url).sort(),
+);
+expect("界面清单上限是正整数（不是 0 让整组空跑）", UNCITED_WEAK_LIST_LIMIT > 0, true);
 expect(
   "已处置集合是两类的并集",
   settledWeakUrls(

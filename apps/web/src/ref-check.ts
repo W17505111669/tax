@@ -885,18 +885,38 @@ export function disclaimedWeakUrls(
  * 「进没进结论」按 extractTextCitations 的结果判，不用 includes 直接搜原文：提取走过同一份清理与截断规则，
  * 也天然排除「原引用 X 已失效」这类作废交代——只被作废交代提到的地址同样不算在用。
  */
+/**
+ * 未进结论正文的弱证据引用，**逐条带标题**。
+ *
+ * 为什么要明细而不只是集合：台账、看板与交付自检报的是一个数（「8 条只在检索留存里」），而复核人
+ * 要核对这个判据对不对，得能逐条点开原文看一眼。计数由这份明细派生（`uncitedWeakUrls` 与
+ * `weakUncited` 都从它来），两处各算一遍的话，报出来的数与清单里列出的条数迟早对不上。
+ */
+/** 界面上「未进结论正文的弱证据」一组最多列多少条；超出要如实说明还有几条没列，不静默截断 */
+export const UNCITED_WEAK_LIST_LIMIT = 20;
+
+export function uncitedWeakItems(
+  citations: Array<{ url: string; title?: string }>,
+  conclusion: string,
+): Array<{ url: string; title: string }> {
+  const cited = new Set(extractTextCitations(conclusion ?? "", UNCAPPED).map((c) => c.url));
+  const out: Array<{ url: string; title: string }> = [];
+  const seen = new Set<string>();
+  for (const c of citations) {
+    if (gradeCitation(c.url, c.title ?? "").grade !== "weak") continue;
+    if (cited.has(c.url)) continue;
+    if (seen.has(c.url)) continue;
+    seen.add(c.url);
+    out.push({ url: c.url, title: c.title ?? "" });
+  }
+  return out;
+}
+
 export function uncitedWeakUrls(
   citations: Array<{ url: string; title?: string }>,
   conclusion: string,
 ): Set<string> {
-  const cited = new Set(extractTextCitations(conclusion ?? "", UNCAPPED).map((c) => c.url));
-  const out = new Set<string>();
-  for (const c of citations) {
-    if (gradeCitation(c.url, c.title ?? "").grade !== "weak") continue;
-    if (cited.has(c.url)) continue;
-    out.add(c.url);
-  }
-  return out;
+  return new Set(uncitedWeakItems(citations, conclusion).map((i) => i.url));
 }
 
 /**

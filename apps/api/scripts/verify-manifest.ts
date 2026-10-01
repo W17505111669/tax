@@ -28,7 +28,12 @@ import {
   SEARCH_TOOL_NAMES,
   searchEvidence,
 } from "../../web/src/search-evidence.ts";
-import { offTopicCitationTitles, summarizeRefChecks } from "../../web/src/ref-check.ts";
+import {
+  disclaimedWeakUrls,
+  offTopicCitationTitles,
+  summarizeRefChecks,
+  uncitedWeakItems,
+} from "../../web/src/ref-check.ts";
 import { deltaVerdict, evidenceDelta, evidenceSnapshot } from "../../web/src/revision-impact.ts";
 import { db } from "../src/db.ts";
 import { dirs } from "../src/config.ts";
@@ -473,6 +478,9 @@ for (const t of listTasks()) {
   const toolOk = calls.filter((c) => c.ok === true).length;
   const toolFailed = calls.filter((c) => c.ok === false).length;
   const cites = citationsOf(calls, detail?.result ?? "");
+  // 与 stats.ts 同一口径：weakUncited 是「未进结论正文」再扣掉「已声明为背景参考」的那部分
+  const disclaimedLocal = disclaimedWeakUrls(cites, detail?.result ?? "");
+  const uncitedLocal = uncitedWeakItems(cites, detail?.result ?? "").filter((i) => !disclaimedLocal.has(i.url));
   const grades = summarizeGrades(cites);
   const searches = searchEvidence(calls);
   const refSum = summarizeRefChecks(refRecs.filter((r) => r.kind === "docref"));
@@ -660,17 +668,21 @@ for (const t of listTasks()) {
     }
     // 引用这一族要单独走：台账与看板侧的口径是「没有结论的任务不计引用」（stats.ts 里明写，
     // 理由是无结论任务的引用进不了缺口清单，计进来会让台账欠账与缺口清单互相矛盾）。
+    // 弱证据的两类「不必再催办」同理——它们都要回读结论正文才判得出来（分级只看地址与标题），
+    // 没有结论就没有正文可回读，stats.ts 对这两项也一律记 0。
     // 交叉核对必须把这条口径显式复现并断言：既不能当成不一致报失败（那是口径差异不是缺陷），
     // 也不能一声不响地跳过（跳过就等于这条口径从此没人守，哪天被改回去也没人发现）。
     const hasConclusion = (detail?.result ?? "").trim() !== "";
     if (hasConclusion) {
       conclusionRows += 1;
-      const citePairs: Array<[string, number, number]> = [
+      const conclusionPairs: Array<[string, number, number]> = [
         ["引用总数", row.citations, cites.length],
         ["官方来源", row.official, grades.official],
         ["证据力弱", row.weak, grades.weak],
+        ["已声明背景参考的弱证据", row.weakDisclaimed, disclaimedLocal.size],
+        ["未进结论正文的弱证据", row.weakUncited, uncitedLocal.length],
       ];
-      for (const [label, ledgerSide, deliverySide] of citePairs) {
+      for (const [label, ledgerSide, deliverySide] of conclusionPairs) {
         checks += 1;
         pairChecks += 1;
         if (ledgerSide !== deliverySide) {
@@ -687,12 +699,14 @@ for (const t of listTasks()) {
         ["引用总数", row.citations],
         ["官方来源", row.official],
         ["证据力弱", row.weak],
+        ["已声明背景参考的弱证据", row.weakDisclaimed],
+        ["未进结论正文的弱证据", row.weakUncited],
       ] as Array<[string, number]>) {
         checks += 1;
         pairChecks += 1;
         if (ledgerSide !== 0) {
           failures.push(
-            `${t.id.slice(0, 8)} 无结论任务的台账${label}应为 0（口径：没有结论不计引用），实际 ${ledgerSide}`,
+            `${t.id.slice(0, 8)} 无结论任务的台账${label}应为 0（口径：没有结论就不计引用、也判不出弱证据是否进过正文），实际 ${ledgerSide}`,
           );
         }
       }
