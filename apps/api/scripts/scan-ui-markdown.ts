@@ -19,6 +19,8 @@
  *   pnpm scan:uimd --tasks=4e3aa131,e17ec362 --tabs=result,timeline
  *   pnpm scan:uimd --all --json         # 全库任务，输出机器可读结果
  *   pnpm scan:uimd --strict             # 有残留即退出码 1（供门禁使用）
+ *   pnpm scan:uimd --nointeract         # 不点折叠面板，只扫默认挂载的内容（快，但覆盖有缺口）
+ *   pnpm scan:uimd --interact-limit=4   # 每个页面最多点开几个折叠入口（默认 6）
  */
 import { chromium } from "playwright-core";
 import fs from "node:fs";
@@ -53,6 +55,8 @@ interface Args {
   strict: boolean;
   overview: boolean;
   reader: boolean;
+  interact: boolean;
+  interactLimit: number;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -63,6 +67,8 @@ function parseArgs(argv: string[]): Args {
     strict: false,
     overview: true,
     reader: false,
+    interact: true,
+    interactLimit: 6,
   };
   for (const a of argv) {
     if (a.startsWith("--tasks=")) out.tasks = a.slice(8).split(",").map((s) => s.trim()).filter(Boolean);
@@ -72,6 +78,8 @@ function parseArgs(argv: string[]): Args {
     else if (a === "--strict") out.strict = true;
     else if (a === "--no-overview") out.overview = false;
     else if (a === "--reader") out.reader = true;
+    else if (a === "--nointeract") out.interact = false;
+    else if (a.startsWith("--interact-limit=")) out.interactLimit = Math.max(0, Number(a.slice(17)) || 0);
   }
   return out;
 }
@@ -148,6 +156,38 @@ const scanSource = `(patterns) => {
   return { hits, nodes, chars };
 }`;
 
+/**
+ * 「点击才挂载」的状态：折叠面板、展开更多、侧边浮层。光扫默认挂载的 DOM 永远扫不到它们，
+ * 而它们恰恰是文案最密、最容易漏 Markdown 记号的地方（复查面板一整组条目都是现拼的字符串）。
+ *
+ * 入口靠白/黑名单从页面上自己找，不逐个硬编码：新增一个折叠区就自动被覆盖，不用回来改这里。
+ * 白名单只认「展开/收起/折叠/更多/显示全部/查看全部/帮助/详情」这类纯展示动作；黑名单按**可见文本**
+ * 排除会写库或发请求的按钮（复查、下载、删除、生成修订指令、上传、续跑、重新解析、核验、标注……）。
+ * 黑名单故意不看 title：说明性 title 里出现「点击展开复查面板」这种名词短语，不该把入口挡掉。
+ * 点到会跳转的按钮时整页交互立刻中止（DOM 已经换了，继续点只会扫到别的页面），并如实计数。
+ */
+const TOGGLE_OPEN = /(展开|收起|折叠|更多|显示全部|查看全部|帮助|详情)/;
+const TOGGLE_BLOCK =
+  /(复查|复核|下载|删除|清空|生成|上传|运行|重跑|续跑|复制|写入|写回|导出|重新解析|校验|核验|标注|保存|提交|新建|发送|启动|停止|归档|打开|跳转|前往)/;
+/** 这些入口必须真的点到，否则「交互覆盖」就是空跑绿：面板没展开，里面的残留永远扫不到 */
+const REQUIRED_TOGGLES: Array<{ label: string; tabs: string[] }> = [{ label: "文号溯源", tabs: ["result", "review"] }];
+
+const listTogglesSource = `(spec) => {
+  const open = new RegExp(spec[0]);
+  const block = new RegExp(spec[1]);
+  const out = [];
+  for (const el of Array.from(document.querySelectorAll('button, [role="button"], summary'))) {
+    const title = (el.getAttribute('title') || '').replace(/\\s+/g, ' ').trim();
+    const text = (el.textContent || '').replace(/\\s+/g, ' ').trim();
+    if (!open.test(title + ' ' + text)) continue;
+    if (block.test(text)) continue;
+    if (el.offsetParent === null) continue;
+    el.setAttribute('data-scan-toggle', String(out.length));
+    out.push({ idx: out.length, label: (text.slice(0, 24) || title.slice(0, 24)).trim() });
+  }
+  return out;
+}`;
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const rows = db
@@ -191,6 +231,11 @@ async function main(): Promise<void> {
 
   const allHits: Hit[] = [];
   let scanned = 0;
+  let pageScans = 0;
+  let interacted = 0;
+  let toggleFailed = 0;
+  let navigatedAway = 0;
+  const toggleLabels = new Set<string>();
   let nodesTotal = 0;
   let charsTotal = 0;
   const thin: string[] = [];
@@ -241,6 +286,38 @@ async function main(): Promise<void> {
     // mermaid 与流式渲染都是异步的，多等一会儿再扫，避免把半成品当成残留
     await page.waitForTimeout(1800);
     await scanOnce(p.label);
+    pageScans += 1;
+    if (args.interact && args.interactLimit > 0) {
+      // 每轮重新枚举，不复用上一轮的标记：点开一个面板会让 React 重建那一片 DOM，
+      // 挂在旧节点上的 data-scan-toggle 跟着没了——第一版一次枚举到底，实测 92 次成功里
+      // 有 52 次点击失败，全是这个原因，等于三分之一的折叠态没扫到。
+      // 去重按 label：同一个入口展开后文本会变（「展开全部」→「折叠全部」），不会被重复点。
+      const clicked = new Set<string>();
+      for (let round = 0; round < args.interactLimit; round++) {
+        const toggles = (await page.evaluate(
+          `(${listTogglesSource})(${JSON.stringify([TOGGLE_OPEN.source, TOGGLE_BLOCK.source])})`,
+        )) as Array<{ idx: number; label: string }>;
+        const t = toggles.find((x) => !clicked.has(x.label));
+        if (!t) break;
+        clicked.add(t.label);
+        const before = page.url();
+        try {
+          await page.locator(`[data-scan-toggle="${t.idx}"]`).first().click({ timeout: 2500 });
+        } catch {
+          // 标记随重渲染丢了、或被别层挡住：如实记一次失败，不当成「扫过了」
+          toggleFailed += 1;
+          continue;
+        }
+        await page.waitForTimeout(450);
+        if (page.url() !== before) {
+          navigatedAway += 1;
+          break;
+        }
+        interacted += 1;
+        toggleLabels.add(t.label);
+        await scanOnce(`${p.label} · 展开「${t.label}」`);
+      }
+    }
     if (args.reader && p.tab === "result") {
       const via = await openReader();
       if (via) await scanOnce(`${p.label} · 侧边阅读器（${via}）`);
@@ -248,13 +325,49 @@ async function main(): Promise<void> {
   }
   await browser.close();
 
+  // 必需入口一次都没点到 = 这一轮交互覆盖是空的。--strict 下按失败处理，不让它绿着过去。
+  const requiredMissing = args.interact
+    ? REQUIRED_TOGGLES.filter(
+        (r) => r.tabs.some((t) => args.tabs.includes(t)) && ![...toggleLabels].some((l) => l.includes(r.label)),
+      ).map((r) => r.label)
+    : [];
+
   if (args.json) {
-    console.log(JSON.stringify({ scanned, nodesTotal, charsTotal, thin, hits: allHits }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          scanned,
+          pageScans,
+          interacted,
+          toggleFailed,
+          navigatedAway,
+          toggleLabels: [...toggleLabels],
+          requiredMissing,
+          nodesTotal,
+          charsTotal,
+          thin,
+          hits: allHits,
+        },
+        null,
+        2,
+      ),
+    );
     return;
   }
   console.log(
-    `[scan] 扫描页面 ${scanned} 个 · 文本节点 ${nodesTotal} 个 · 合计 ${charsTotal} 字 · 残留 ${allHits.length} 处`,
+    `[scan] 扫描页面 ${pageScans} 个（含交互态共扫 ${scanned} 次）· 文本节点 ${nodesTotal} 个 · 合计 ${charsTotal} 字 · 残留 ${allHits.length} 处`,
   );
+  if (args.interact) {
+    console.log(
+      `[scan] 交互态：点开 ${interacted} 个折叠入口（去重 ${toggleLabels.size} 类）· 点击失败 ${toggleFailed} · 点到导航而中止 ${navigatedAway}`,
+    );
+    console.log(
+      `[scan] 点开的入口：${[...toggleLabels].slice(0, 14).join("；")}${toggleLabels.size > 14 ? "；…" : ""}`,
+    );
+    if (requiredMissing.length > 0) {
+      console.log(`[scan] 必需入口一次都没点到：${requiredMissing.join("；")}（这些面板里的内容等于没扫）`);
+    }
+  }
   if (thin.length > 0) console.log(`[scan] 内容过少（可能没渲染出来）：${thin.slice(0, 10).join("；")}`);
   const byPattern = new Map<string, number>();
   for (const h of allHits) byPattern.set(h.pattern, (byPattern.get(h.pattern) ?? 0) + 1);
@@ -266,8 +379,14 @@ async function main(): Promise<void> {
     console.log(`  - [${h.page}] ${h.pattern} :: ${h.text.replace(/\s+/g, " ").slice(0, 90)} :: ${h.chain}`);
   }
   if (allHits.length > 25) console.log(`  …另有 ${allHits.length - 25} 处，用 --json 看全量`);
-  if (args.strict && (allHits.length > 0 || thin.length > 0)) {
-    console.log(allHits.length > 0 ? "[FAIL] 界面上仍有 Markdown 原文" : "[FAIL] 有页面没渲染出内容，扫描不算数");
+  if (args.strict && (allHits.length > 0 || thin.length > 0 || requiredMissing.length > 0)) {
+    console.log(
+      allHits.length > 0
+        ? "[FAIL] 界面上仍有 Markdown 原文"
+        : thin.length > 0
+          ? "[FAIL] 有页面没渲染出内容，扫描不算数"
+          : "[FAIL] 必需的折叠入口没点到，交互覆盖是空的",
+    );
     process.exit(1);
   }
   console.log("[PASS] 界面 Markdown 原文扫描完成");
