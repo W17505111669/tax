@@ -1961,3 +1961,32 @@ H 那唯一 1 处很说明问题：`| 28号公告（统一计算） | A+B 合计
 门禁项数：`verify:links` 30 → 39、`verify:sheet` 433 → 441。`qa:all` 56 个 verify 全绿；`scan:uimd --strict` 34 页 / 含交互态共扫 235 次 / 130789 个文本节点 / 残留 0 处。
 
 环境插曲，记下来省下一个人的半小时：这轮开工时 C 盘一度 0 字节可用，SQLite 直接报 `disk I/O error`、`apply_patch` 写不进文件。不是代码问题，腾出空间后同一条命令原样通过。遇到 `disk I/O error` 先看盘，别去改判据。
+
+### 交付包清单的门禁从来没读过 link_checks：那一节和每条引用的 verdict 都是写死的空值
+
+上一轮把「只算地址仍在引用清单里的核验行」这道判据收进了 `liveLinkChecks`，顺手去接其余消费点时发现：`verify:manifest` **从头到尾没读过 `link_checks` 表**。它给每个真实任务组装一份 manifest 再跑 `manifestIssues` 自校验，但链接核验那一节写死 `{ summary: null, checkedAt: null }`，每条引用的 `verdict` 写死 `"unchecked"`、`status` 写死 `null`，喂给 `deliveryCheck` 的也是 `linkCheck: null`。
+
+这个门禁是「五处口径交叉核对」的主力，1670 项、走全部 40 个真实任务，看起来最不可能空跑。实测它漏了什么：
+
+| 真实数据 | 门禁看到的 |
+| --- | --- |
+| 11 个任务共 131 行核验记录 | 0 行 |
+| 125 条引用有判定（ok 98 / blocked 20 / unreachable 6 / dead 1） | 225 条全是 `unchecked` |
+| `manifestIssues` 两条链接规则 | `summary` 恒为 null，整段跳过 |
+| 交付自检 warns/infos | **6 个任务与产品真实产出不一致** |
+
+最后一行是最要紧的：c2dda328 的 warns 实际是 2（那条真失效链接），门禁算出来是 1；另外 5 个任务各少一条「N 条引用拒绝自动访问、M 条无法核验」的说明项。**门禁在验一份产品不会产出的清单**——它自己内部自洽（`manifestIssues` 检查的是 blocks/warns/infos 与 items 明细对不对得上，两边都少所以照样绿），但与用户下载到的 `manifest.json` 不是同一份。
+
+两条链接规则（「四类之和不等于总数」「条数多于引用条数」）此前只在文件顶部那个合成 fixture 上跑过。这类「合成数据验过了、真实数据整段跳过」的形状，比完全没写断言更难发现：脚本输出里检查项数一直在涨，涨的全是别的节。
+
+修法是接上真实取数，判据复用上一轮那一份：`listLinkChecks(t.id)` → `liveLinkChecks(rows, cites.map(c => c.url))` → `summarizeLinkChecks`，`checkedAt` 取全量行的最大值（与服务端 `GET /link-checks` 同口径，不是只取 live 行）；`citationsOf()` 多收一个 `Map<url, LinkCheckLike>`，按 URL 填 `verdict` 与 `status`，查不到就如实写 `unchecked`。
+
+断言分三层：
+
+- **同源但独立组装的两个数字必须对上**：带核验结论的引用条数 == 链接核验汇总总数（实测 125 == 125）。一个是逐条引用填出来的、一个是按核验行汇总出来的，同一份数据两条路径，最容易只改一边。
+- **防空跑**：`linkTasks >= 1`、`citesWithVerdict >= 1`。
+- **防「读到了却没组装」**：`manifestLinkSummaries >= 1` 且 `== linkTasks`。这条是必要的——只断「读到了核验行」的话，把 manifest 那一节改回 `null` 仍然是绿的，因为 `manifestIssues` 对 null 是整段跳过，不会报错。**「取数接上了」与「取数真的进了被校验的那份产物」是两件事，要各断一次。**
+
+抽检：把 `verdict` 改回写死 `"unchecked"`，12 项失败（11 个任务的条数不符 + 1 条防空跑），改回后复绿。
+
+门禁项数：`verify:manifest` 1670 → 1713。`qa:all` 56 个 verify 全绿。

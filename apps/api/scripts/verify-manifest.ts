@@ -35,10 +35,18 @@ import {
   uncitedWeakItems,
 } from "../../web/src/ref-check.ts";
 import { deltaVerdict, evidenceDelta, evidenceSnapshot } from "../../web/src/revision-impact.ts";
+import {
+  ageHours,
+  linkVerdict,
+  liveLinkChecks,
+  summarizeLinkChecks,
+  type LinkCheckLike,
+} from "../../web/src/link-check.ts";
 import { db } from "../src/db.ts";
 import { dirs } from "../src/config.ts";
 import { listAmountChecks } from "../src/services/amount-checks.ts";
 import { listRefChecks } from "../src/services/ref-checks.ts";
+import { listLinkChecks } from "../src/services/link-checks.ts";
 import { extractIssues, listReviews, pendingReviewIssues } from "../src/services/issues.ts";
 import { getTask, listConclusions, listFiles, listTasks } from "../src/services/task-store.ts";
 import { computePlatformStats } from "../src/services/stats.ts";
@@ -64,18 +72,24 @@ type ManifestCitation = ManifestInput["citations"][number];
  * 于是交叉核对报出「台账 41 ≠ 交付包 24」「看板 204 ≠ 交付包累加 174」——错的是本脚本，
  * 不是产品：注释写着「与前端同一口径」，实现却没跟上前端的不截断口径。
  */
-function citationsOf(calls: Array<{ toolName: string; result: unknown }>, result: string): ManifestCitation[] {
+function citationsOf(
+  calls: Array<{ toolName: string; result: unknown }>,
+  result: string,
+  checks: Map<string, LinkCheckLike> = new Map(),
+): ManifestCitation[] {
   return mergeCitations(
     extractCitations(calls, UNCAPPED),
     extractTextCitations(result, UNCAPPED),
     UNCAPPED,
   ).map((c) => {
     const g = gradeCitation(c.url, c.title);
+    const chk = checks.get(c.url);
     return {
       title: c.title,
       url: c.url,
-      verdict: "unchecked",
-      status: null,
+      // 与结果页同一口径：核验过的写判定结果，没核验过的如实写 unchecked，不猜
+      verdict: chk ? linkVerdict(chk) : "unchecked",
+      status: chk?.status ?? null,
       grade: g.grade,
       gradeReason: g.reason,
       via: c.via,
@@ -381,6 +395,13 @@ expect(
 let built = 0;
 const gradeTotals = { total: 0, official: 0, professional: 0, weak: 0 };
 let tasksWithCitations = 0;
+/** 链接核验的真实规模：任一为 0 都说明 manifest 的这一节与引用的 verdict 列仍是空跑 */
+let linkTasks = 0;
+let linkRowsTotal = 0;
+let linkStaleTotal = 0;
+let citesWithVerdict = 0;
+/** 真的被组装进 manifest 的链接核验汇总条数：为 0 说明这一节又被写回 null 了，自校验会静默跳过 */
+let manifestLinkSummaries = 0;
 /**
  * 交叉核对：manifest 走的是「前端交付路径」（web 侧纯函数 + 自己从库取数），看板与台账走的是
  * 「服务端聚合路径」（stats.ts）。两条路径各算一遍同一批指标，此前从来没有逐项对过——
@@ -479,7 +500,32 @@ for (const t of listTasks()) {
   );
   const toolOk = calls.filter((c) => c.ok === true).length;
   const toolFailed = calls.filter((c) => c.ok === false).length;
-  const cites = citationsOf(calls, detail?.result ?? "");
+  // 链接核验：与结果页同一份数据、同一道过滤（link-check.ts 的 liveLinkChecks）。
+  // 此前本脚本从头到尾没读过 link_checks：manifest 的 linkCheck 一节写死 null、每条引用的 verdict
+  // 写死 "unchecked"，于是 manifestIssues 里那两条链接规则只在合成数据上跑过，而交付自检的
+  // warns/infos 与产品真实产出差了 6 个任务（实测）。
+  const lcRows = listLinkChecks(t.id);
+  const cites = citationsOf(
+    calls,
+    detail?.result ?? "",
+    new Map(lcRows.map((r) => [r.url, r] as [string, LinkCheckLike])),
+  );
+  const lcLive = liveLinkChecks(lcRows, cites.map((c) => c.url));
+  const lcSum = summarizeLinkChecks(lcLive);
+  // 核验时间取全量行的最大值，与服务端 GET /link-checks 同一口径
+  const lcAt = lcRows.reduce((m, r) => (r.checkedAt && r.checkedAt > m ? r.checkedAt : m), "") || null;
+  if (lcRows.length > 0) {
+    linkTasks += 1;
+    linkRowsTotal += lcRows.length;
+    linkStaleTotal += lcRows.length - lcLive.length;
+  }
+  // 清单内部两处独立组装的数字必须对上：带核验结论的引用条数 == 链接核验汇总的总数
+  const withVerdict = cites.filter((c) => c.verdict !== "unchecked").length;
+  citesWithVerdict += withVerdict;
+  checks += 1;
+  if (withVerdict !== lcSum.total) {
+    failures.push(`${t.id.slice(0, 8)} 清单里带核验结论的引用 ${withVerdict} 条 ≠ 链接核验汇总总数 ${lcSum.total}`);
+  }
   // 与 stats.ts 同一口径：weakUncited 是「未进结论正文」再扣掉「已声明为背景参考」的那部分
   const disclaimedLocal = disclaimedWeakUrls(cites, detail?.result ?? "");
   const uncitedLocal = uncitedWeakItems(cites, detail?.result ?? "").filter((i) => !disclaimedLocal.has(i.url));
@@ -564,8 +610,8 @@ for (const t of listTasks()) {
       citationGrades: cites.length > 0 ? grades : null,
       offTopicCitations: offTopicCitationTitles(cites, detail?.result ?? ""),
       searches: searches.calls > 0 ? searches : null,
-      linkCheck: null,
-      linkCheckAgeHours: null,
+      linkCheck: lcAt ? lcSum : null,
+      linkCheckAgeHours: ageHours(lcAt),
       amountTotal: amounts.total,
       amountUntraced: amountPending,
       amountPendingWeb: amountSplitLocal.web.length,
@@ -624,7 +670,7 @@ for (const t of listTasks()) {
     refChecks: refSum.total > 0 ? refSum : null,
     citationChecks: citeCheckSum.total > 0 ? citeCheckSum : null,
     revision: rev ? { before: rev.before, after: rev.after, verdict: rev.verdict } : null,
-    linkCheck: { summary: null, checkedAt: null },
+    linkCheck: { summary: lcAt ? lcSum : null, checkedAt: lcAt },
     amounts: {
       total: amounts.total,
       traced: amounts.traced,
@@ -637,7 +683,9 @@ for (const t of listTasks()) {
     review: { issues: rc.total, done: rc.done, pending: rc.pending, notRequired: rc.notRequired },
     generatedAt: "2026-09-28T12:00:00.000Z",
   };
-  const issues = manifestIssues(buildManifest(input));
+  const builtManifest = buildManifest(input);
+  if (builtManifest.linkCheck.summary) manifestLinkSummaries += 1;
+  const issues = manifestIssues(builtManifest);
   built += 1;
   if (issues.length > 0) failures.push(`${t.id.slice(0, 8)} 清单不自洽：${issues.join("；")}`);
 
@@ -843,6 +891,17 @@ if (cross.mdChecked < 1) failures.push("交付 MD 的文号节一处都没核对
 checks += 1;
 if (cross.mdAmountChecked < 1) failures.push("交付 MD 的金额节一处都没核对到");
 checks += 1;
+if (linkTasks < 1) failures.push("一个带链接核验记录的真实任务都没走到，manifest 的链接核验一节等于没验");
+checks += 1;
+if (citesWithVerdict < 1) failures.push("真实数据里一条带核验结论的引用都没有，verdict 这一列等于没验");
+checks += 1;
+// 光「读到了核验行」还不够：得真的组装进 manifest，否则 manifestIssues 里那两条链接规则
+// （四类之和、条数不多于引用数）会因为 summary 是 null 而整段跳过，绿得毫无意义。
+if (manifestLinkSummaries < 1) failures.push("没有一个真实任务的 manifest 带上了链接核验汇总，这一节的自校验等于没跑");
+checks += 1;
+if (manifestLinkSummaries !== linkTasks) {
+  failures.push(`manifest 带链接核验汇总的任务 ${manifestLinkSummaries} 个 ≠ 库里有核验记录的任务 ${linkTasks} 个`);
+}
 if (cross.docRefTotal < 1 && cross.citations < 1) {
   failures.push("交叉核对的指标全是 0，比了等于没比（库里没有真实数据？）");
 }
@@ -852,6 +911,9 @@ console.log(
   } 个 × 6 项 · 金额节 ${cross.mdAmountChecked} 个 · 平台级 ${platPairs.length} 项（金额待确认合计 ${
     cross.amountPending
   } / 总额 ${cross.amountTotal}）`,
+);
+console.log(
+  `[verify] 链接核验走查：${linkTasks} 个任务共 ${linkRowsTotal} 行（陈旧 ${linkStaleTotal} 行不计入）· 带核验结论的引用 ${citesWithVerdict} 条`,
 );
 if (skippedTasks > 0) {
   console.log(
