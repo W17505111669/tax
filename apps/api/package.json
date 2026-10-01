@@ -35,6 +35,7 @@
     "verify:manifest": "tsx scripts/verify-manifest.ts",
     "verify:policytrace": "tsx scripts/verify-policy-trace.ts",
     "verify:docrefmd": "tsx scripts/verify-delivery-docref.ts",
+    "verify:runcmd": "tsx scripts/verify-run-cmd.ts",
     "verify:websearch": "tsx scripts/verify-web-search.ts",
     "verify:citegrade": "tsx scripts/verify-citation-grade.ts",
     "verify:searchev": "tsx scripts/verify-search-evidence.ts",
