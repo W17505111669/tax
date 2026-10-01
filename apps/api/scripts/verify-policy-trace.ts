@@ -10,6 +10,10 @@ import {
   normalizeRef,
   RETAINED_TEXT_KEY,
   traceDocRefs,
+  BODY_REF_LIST_LIMIT,
+  SOURCE_VIA_HINT,
+  SOURCE_VIA_TEXT,
+  type BodyTracedRef,
 } from "../../web/src/policy-trace.ts";
 import { extractCitations, retainedSourceAt, retainedSourceLines, UNCAPPED } from "../../web/src/search-evidence.ts";
 import { db } from "../src/db.ts";
@@ -106,6 +110,7 @@ let byRecheck = 0;
 let byBody = 0;
 let bodyWithUrl = 0;
 let bodyUrlViaLine = 0;
+const bodyRefs: BodyTracedRef[] = [];
 let unverifiable = 0;
 let untraced = 0;
 for (const t of listTasks()) {
@@ -150,6 +155,7 @@ for (const t of listTasks()) {
     failures.push(`${t.id} 仅正文提到的明细 ${res.bodyTracedRefs.length} 条与计数 ${res.tracedByBody} 不一致`);
   }
   for (const r of res.bodyTracedRefs) {
+    bodyRefs.push(r);
     if (r.sourceUrl !== "") bodyWithUrl += 1;
     if (r.sourceVia === "body-line") bodyUrlViaLine += 1;
     checks += 1;
@@ -468,6 +474,53 @@ const noLine = traceDocRefs(
 expect("正文里没有来源行 → 地址如实留空", noLine.bodyTracedRefs[0]?.sourceUrl, "");
 expect("留空时依据档位也是空", noLine.bodyTracedRefs[0]?.sourceVia, "");
 expect("地址留空不影响「有出处」的判定（判据没被放宽也没被收紧）", noLine.tracedByBody, 1);
+
+// 界面这一档现在能点开了：复查面板新增一组条目，点击走侧边阅读器。档位文案与清单上限都由
+// policy-trace 出一份、界面与交付 MD 共用，下面把这些同源关系钉住。
+const VIA_KEYS: Array<BodyTracedRef["sourceVia"]> = ["structured", "body-line", ""];
+expect("档位文案表覆盖且只覆盖这三档", Object.keys(SOURCE_VIA_TEXT).sort(), [...VIA_KEYS].sort());
+expect("依据说明表覆盖同样三档", Object.keys(SOURCE_VIA_HINT).sort(), [...VIA_KEYS].sort());
+expect("清单上限是正整数（不是 0 或 NaN 让两侧一起空跑）", BODY_REF_LIST_LIMIT > 0, true);
+// 这些字符串会直接进 JSX 文本与 title 属性，带记号就会在界面上显示成 Markdown 原文
+const MD_MARK = /(\*\*|`|^#{1,6}\s|\[[^\]]*\]\([^)]*\)|^\s*\|\s*---|^>\s)/m;
+for (const k of VIA_KEYS) {
+  const label = k === "" ? "（无地址）" : k;
+  expect(`档位 ${label} 的界面文案非空`, SOURCE_VIA_TEXT[k].trim() !== "", true);
+  expect(`档位 ${label} 的界面文案不含 Markdown 记号`, MD_MARK.test(SOURCE_VIA_TEXT[k]), false);
+  expect(`档位 ${label} 的依据说明非空`, SOURCE_VIA_HINT[k].trim() !== "", true);
+  expect(`档位 ${label} 的依据说明不含 Markdown 记号`, MD_MARK.test(SOURCE_VIA_HINT[k]), false);
+}
+// 真实数据走查：每一处的档位都要能取到非空文案，否则界面上就是 undefined
+expect("真实数据里确实有「仅正文提到」的明细可查", bodyRefs.length >= 1, true);
+for (const r of bodyRefs) {
+  const label = r.sourceVia === "" ? "（无地址）" : r.sourceVia;
+  expect(`文号 ${r.text} 的档位 ${label} 有界面文案`, SOURCE_VIA_TEXT[r.sourceVia].trim() !== "", true);
+  expect(`文号 ${r.text} 的档位 ${label} 有依据说明`, SOURCE_VIA_HINT[r.sourceVia].trim() !== "", true);
+}
+const workbench = fs.readFileSync(
+  path.resolve(here, "..", "..", "web", "src", "components", "TaskWorkbench.tsx"),
+  "utf8",
+);
+expect("复查面板确实渲染了这一组条目", workbench.includes("仅在留存正文中出现"), true);
+expect(
+  "每条都接了侧边阅读器（点击能打开原文，不只是 tooltip 计数）",
+  workbench.includes('openReader({ kind: "url", url: r.sourceUrl })'),
+  true,
+);
+expect(
+  "档位徽章与依据说明取自同一份文案表",
+  workbench.includes("SOURCE_VIA_TEXT[r.sourceVia]") && workbench.includes("SOURCE_VIA_HINT[r.sourceVia]"),
+  true,
+);
+// 清单上限此前在界面面板与交付 MD 表格里各写了一遍 slice(0, 20)：改一处不改另一处就会出现
+// 「面板列 20 条、MD 只列 10 条」的对不上账。现在两处都必须引用同一个常量。
+expect("两处消费点都引用同一个清单上限", workbench.split("slice(0, BODY_REF_LIST_LIMIT)").length - 1, 2);
+expect("上限的字面量没有再被写死第二遍", /bodyTracedRefs\.slice\(0,\s*\d+\)/.test(workbench), false);
+expect(
+  "超出上限时如实说明还有多少处没列（不静默截断）",
+  workbench.includes("refTrace.bodyTracedRefs.length - BODY_REF_LIST_LIMIT"),
+  true,
+);
 
 console.log(`[verify] 文号溯源检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {

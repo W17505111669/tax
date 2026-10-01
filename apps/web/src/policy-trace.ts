@@ -36,6 +36,34 @@ export type BodyTracedRef = DocRef & {
   sourceCount: number;
 };
 
+/**
+ * `sourceVia` 的界面文案与依据说明。放在这里而不是组件里，是因为界面徽章、交付 MD 与门禁三处
+ * 都要说同一件事，各写一遍迟早漂（档位名改了、说明改了，总有一处忘）。
+ *
+ * 文案里刻意不用 Markdown 记号：这些字符串会直接进 JSX 文本与 title 属性，写反引号或方括号
+ * 就会被 scan:uimd 判成「界面出现 Markdown 原文」。
+ */
+export const SOURCE_VIA_TEXT: Record<BodyTracedRef["sourceVia"], string> = {
+  structured: "结构化字段",
+  "body-line": "正文来源行",
+  "": "无地址",
+};
+
+export const SOURCE_VIA_HINT: Record<BodyTracedRef["sourceVia"], string> = {
+  structured: "地址来自工具结果的结构化字段（url / urls 数组 / results 数组），依据与那条结果本身同级。",
+  "body-line":
+    "地址来自留存正文里这条结果末尾的来源行（形如 Source: 标题 (地址)），按文号命中的位置往后归属到最近的一条。依据弱一档：点开后要确认这个文号是该页主题，还是只被顺带提到（侧栏的相关文件列表、正文里一句「同时废止某号」）。",
+  "": "这份留存正文里认不出可归属的来源行：可能只留了查询词，也可能命中落在检索词行或跨了小节。宁可不给地址也不猜——猜出来的链接会把复核人引到不相干的页面上。",
+};
+
+/**
+ * 「仅正文提到」清单在界面复查面板与交付 MD 表格里各列多少条。
+ *
+ * 两个消费点此前各写了一遍 `slice(0, 20)`：改一处不改另一处，就会出现「面板列了 20 条、
+ * 交付 MD 只列 10 条」这种两边对不上的账。抽成一份，由 verify:policytrace 断言两侧都引用它。
+ */
+export const BODY_REF_LIST_LIMIT = 20;
+
 export type DocRef = {
   core: string;
   text: string;

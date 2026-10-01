@@ -51,7 +51,7 @@ import {
   type ParseSummary,
 } from "../file-parse.ts";
 import { buildManifest } from "../manifest.ts";
-import { traceDocRefs } from "../policy-trace.ts";
+import { BODY_REF_LIST_LIMIT, SOURCE_VIA_HINT, SOURCE_VIA_TEXT, traceDocRefs } from "../policy-trace.ts";
 import { gradeCitation, GRADE_HINT, GRADE_TEXT, summarizeGrades } from "../citation-grade.ts";
 import { offTopicCitationTitles } from "../ref-check.ts";
 import { isInterruptedOnRestart, taskStatusLabel } from "../task-status.ts";
@@ -1508,7 +1508,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
           "| # | 文号 | 结论中的上下文 | 留存正文出处 |",
           "| --- | --- | --- | --- |",
           // 出处那一列给可点开的地址：这一档要能行动，复核人点开就能判断文号是该页主题还是被顺带提到
-          ...refTrace.bodyTracedRefs.slice(0, 20).map((r, i) => {
+          ...refTrace.bodyTracedRefs.slice(0, BODY_REF_LIST_LIMIT).map((r, i) => {
             const link =
               r.sourceUrl === ""
                 ? "（这份留存正文里认不出可归属的来源行，宁可不给地址也不猜）"
@@ -2528,6 +2528,55 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                       <p className="mt-1.5 text-[10.5px] text-mist-600">
                         另有 {refTargets.length - 10} 处文号未列出（单次复查上限 10 处），可在整页交付 MD 的「政策文号溯源」节查看完整清单。
                       </p>
+                    )}
+                    {refTrace.bodyTracedRefs.length > 0 && (
+                      <div className="mt-2.5 border-t border-glow-500/25 pt-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="kicker">仅在留存正文中出现</span>
+                          <span className="rounded bg-night-700 px-1.5 py-0.5 font-mono text-[10px] text-mist-500">
+                            {refTrace.bodyTracedRefs.length} 处
+                          </span>
+                          <span className="text-[10.5px] leading-5 text-mist-600">
+                            这几处有出处，所以不在上面的待复查清单里；依据只在我们抓下来的网页正文里，点「原文」确认它是该页主题还是被顺带提到（档位说明见每条的徽章）
+                          </span>
+                        </div>
+                        <ul className="mt-1.5 space-y-1.5">
+                          {refTrace.bodyTracedRefs.slice(0, BODY_REF_LIST_LIMIT).map((r) => (
+                            <li key={r.core} className="rounded bg-night-800 px-2 py-1.5">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-mono text-[11.5px] text-mist-100">{r.text}</span>
+                                <span
+                                  className="rounded bg-night-700 px-1.5 py-0.5 text-[10px] text-mist-500"
+                                  title={SOURCE_VIA_HINT[r.sourceVia]}
+                                >
+                                  {SOURCE_VIA_TEXT[r.sourceVia]}
+                                </span>
+                                {r.sourceUrl !== "" && (
+                                  <button
+                                    type="button"
+                                    className="action-btn"
+                                    title={`${r.sourceTitle === "" ? r.sourceUrl : r.sourceTitle}\n${r.sourceUrl}\n点按在侧边阅读器打开原文`}
+                                    onClick={() => openReader({ kind: "url", url: r.sourceUrl })}
+                                  >
+                                    <IconExternal className="h-3 w-3" />
+                                    原文
+                                  </button>
+                                )}
+                                {r.sourceCount > 1 && (
+                                  <span className="text-[10px] text-mist-600">共 {r.sourceCount} 份留存正文提到</span>
+                                )}
+                              </div>
+                              <p className="mt-1 text-[11px] leading-5 text-mist-600">…{r.context}…</p>
+                            </li>
+                          ))}
+                        </ul>
+                        {refTrace.bodyTracedRefs.length > BODY_REF_LIST_LIMIT && (
+                          <p className="mt-1.5 text-[10.5px] text-mist-600">
+                            另有 {refTrace.bodyTracedRefs.length - BODY_REF_LIST_LIMIT} 处未列出，完整清单见整页交付
+                            MD 的「政策文号溯源」节。
+                          </p>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}
