@@ -99,6 +99,60 @@ export function urlsOfCall(toolName: string, result: unknown): Array<{ url: stri
   return out;
 }
 
+/**
+ * 留存正文里的来源行：`Source: <标题> (<http(s) 地址>)`，独占一行。
+ *
+ * web_search 这类扩展工具把每条结果的地址写在结果正文末尾的这一行里，而它的结构化字段
+ *（queries / queryProviders / searchId）只有检索词，没有地址。此前整条链路只认结构化字段
+ *（urlsOfCall 上面那三种形状），于是这些明明已经抓在手上的页面地址一个都没被用出来——
+ * 实测「仅正文提到」2 处里有 1 处因此点不开原文，功能等于白做。
+ *
+ * 判据从严：只认整行严格匹配、地址必须是 http(s)、再过一遍 cleanBareUrl；认不出一条也不给。
+ * 这里不做任何「大概是这个页面」的推断，猜出来的地址比空地址更坏（核验必然 404，还会把
+ * 复核人引到无关页面上去）。
+ */
+export function retainedSourceLines(
+  body: string,
+): Array<{ url: string; title: string; lineStart: number; lineEnd: number }> {
+  const out: Array<{ url: string; title: string; lineStart: number; lineEnd: number }> = [];
+  for (const m of body.matchAll(/^[ \t]*Source:[ \t]*(.+?)[ \t]*\((https?:\/\/[^()\s]+)\)[ \t]*$/gm)) {
+    const url = cleanBareUrl(m[2] ?? "");
+    if (!/^https?:\/\//i.test(url)) continue;
+    const start = m.index ?? 0;
+    out.push({
+      url,
+      title: plainTitle(m[1] ?? "", url),
+      lineStart: start,
+      lineEnd: start + (m[0]?.length ?? 0),
+    });
+  }
+  return out;
+}
+
+/**
+ * 正文里某个位置属于哪一条结果：web_search 的留存正文是「结果标题 + 摘要 … 换行 … Source: 标题 (地址)」
+ * 一条接一条，所以一条结果的来源行在它**后面**，不在前面。
+ *
+ * 方向不能反：实测那处「2023年第8号」往前找会拿到广东税务的解读页，而命中上下文写的是
+ * 「……公告 - 中瑞财税信息网站 …… 注：根据 2023.05.26 国家税务总局公告2023年第8号……本文第一条失效」，
+ * 归属的其实是中瑞财税那一页。往前找就是给错链接。
+ *
+ * 归属不确定时返回 null，两种情况：命中落在小节标题行里（`## Query: "……"` 是检索词，不属于任何页面），
+ * 或命中与来源行之间隔了新的小节标题（说明跨段了，往后那条来源行不是这一段的收尾）。
+ */
+export function retainedSourceAt(body: string, offset: number): { url: string; title: string } | null {
+  const lines = retainedSourceLines(body);
+  if (lines.length === 0 || offset < 0 || offset > body.length) return null;
+  const lineStart = body.lastIndexOf("\n", offset) + 1;
+  const nl = body.indexOf("\n", offset);
+  const own = body.slice(lineStart, nl < 0 ? body.length : nl);
+  if (/^[ \t]*##/.test(own)) return null;
+  const owner = lines.find((l) => l.lineEnd >= offset);
+  if (!owner) return null;
+  if (/^[ \t]*##/m.test(body.slice(offset, owner.lineStart))) return null;
+  return { url: owner.url, title: owner.title };
+}
+
 /** 检索词与 provider：来自自建工具的 query 与扩展 web_search 的 queries / queryProviders */
 export function queriesOfCall(result: unknown): { queries: string[]; providers: string[] } {
   const r = asRecord(result);

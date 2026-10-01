@@ -9,7 +9,7 @@
  */
 
 import { plainContext } from "./md-text.ts";
-import { urlsOfCall } from "./search-evidence.ts";
+import { retainedSourceAt, urlsOfCall } from "./search-evidence.ts";
 
 /**
  * 只在留存网页正文里找到出处的文号，附上它来自哪一页。
@@ -23,6 +23,15 @@ export type BodyTracedRef = DocRef & {
   sourceUrl: string;
   /** 同一份结果里的标题（取不到时 urlsOfCall 会退回用地址本身） */
   sourceTitle: string;
+  /**
+   * 这个地址是哪一级依据给出的：`structured` = 工具结果的结构化字段（url / urls[] / results[]），
+   * `body-line` = 留存正文末尾的 `Source: 标题 (地址)` 行，`""` = 两级都给不出、地址留空。
+   *
+   * 单列出来是因为「点得开」不等于「依据同级」：来源行归属是按命中位置往后找最近的一条，判据比
+   * 结构化字段弱一档，界面与交付 MD 上要说清是哪一种；门禁也要能断言这条路径真的被走到了，
+   * 否则哪天每处都碰巧有结构化地址，这段代码从未执行也不会被发现。
+   */
+  sourceVia: "structured" | "body-line" | "";
   /** 有几份留存正文里出现了这个文号。多份互不相同的来源同时提到，比一份更站得住 */
   sourceCount: number;
 };
@@ -175,6 +184,34 @@ export function collectRefStrings(results: unknown[], kind: RefPoolKind = "all")
   return out;
 }
 
+/** 一次工具调用留存的网页正文（没有留存就是空串） */
+function retainedBodyOf(result: unknown): string {
+  const o =
+    result !== null && typeof result === "object" && !Array.isArray(result)
+      ? (result as Record<string, unknown>)
+      : null;
+  const v = o?.[RETAINED_TEXT_KEY];
+  return typeof v === "string" ? v : "";
+}
+
+/**
+ * 从留存正文的来源行给这个文号找一个可点开的地址，找不到就返回 null。
+ *
+ * 命中位置用 extractDocRefs 在正文里重新取一次，而不是复用上面那袋归一化字符串：归一化把括号与
+ * 空格都抹平了，位置也跟着没了，而归属恰恰要靠位置（web_search 的来源行写在结果**后面**）。
+ * 两个口径不完全重合是可能的（归一化包含匹配命中了、提取却提不出来的写法），那种情况这里返回
+ * null，表现为「有出处但地址留空」，落在安全侧。
+ */
+function bodyLineSource(body: string, core: string): { url: string; title: string } | null {
+  if (body === "") return null;
+  for (const hit of extractDocRefs(body)) {
+    if (hit.core !== core) continue;
+    const s = retainedSourceAt(body, hit.index);
+    if (s) return s;
+  }
+  return null;
+}
+
 /**
  * 文号溯源：核心部分出现在任一工具结果字符串里，或联网复查已判定「找到公开出处」，即视为有出处；
  * 否则按是否用过元数据检索工具分级。
@@ -204,11 +241,13 @@ export function traceDocRefs(
   // 正文池按「一次工具调用一份」保留，命中时能回指是哪个页面。地址走 urlsOfCall 的形状识别
   //（它的 toolName 参数是显式弃用的，函数体里 `void toolName`），因此不依赖上面那袋名字的下标。
   const bodyEntries = results
-    .map((r) => ({ pool: collectRefStrings([r], "body"), urls: urlsOfCall("", r) }))
+    .map((r) => ({ pool: collectRefStrings([r], "body"), urls: urlsOfCall("", r), body: retainedBodyOf(r) }))
     .filter((e) => e.pool.length > 0);
   const rechecked = recheckedSources.map((s) => normalizeRef(s)).filter((s) => s !== "");
   const inMeta = (core: string): boolean => metaPool.some((s) => s.includes(core));
-  const bodyHits = (core: string): Array<{ pool: string[]; urls: Array<{ url: string; title: string }> }> =>
+  const bodyHits = (
+    core: string,
+  ): Array<{ pool: string[]; urls: Array<{ url: string; title: string }>; body: string }> =>
     bodyEntries.filter((e) => e.pool.some((s) => s.includes(core)));
   const inBody = (core: string): boolean => bodyHits(core).length > 0;
   const inRecheck = (core: string): boolean => rechecked.some((s) => s === core || s.includes(core));
@@ -221,11 +260,19 @@ export function traceDocRefs(
     tracedByBody: bodyOnly.length,
     bodyTracedRefs: bodyOnly.map((r) => {
       const hits = bodyHits(r.core);
-      // 命中的往往不止一份，而 web_search 那类只留查询词、结果里没有地址。归属时优先挑带地址的
-      // 那一份，否则复核人根本点不开原文——实测两处「仅正文提到」都因为先撞上 web_search 而拿到空
-      // 地址，功能等于白做。都不带地址时如实给空串，不硬凑一个。
+      // 命中的往往不止一份。归属地址分两级：先看结构化字段（urlsOfCall 认得的那三种形状），
+      // 再看留存正文末尾的来源行（web_search 的结构化字段只有查询词，地址写在正文里）。
+      // 实测此前「仅正文提到」2 处只有 1 处带地址，缺的那处正是只撞上 web_search。
+      // 两级都给不出地址时如实留空串，不硬凑一个。
       const u = hits.find((e) => e.urls.length > 0)?.urls[0];
-      return { ...r, sourceUrl: u?.url ?? "", sourceTitle: u?.title ?? "", sourceCount: hits.length };
+      const line = u ? null : hits.map((e) => bodyLineSource(e.body, r.core)).find((s) => s !== null);
+      return {
+        ...r,
+        sourceUrl: u?.url ?? line?.url ?? "",
+        sourceTitle: u?.title ?? line?.title ?? "",
+        sourceVia: u ? "structured" : line ? "body-line" : "",
+        sourceCount: hits.length,
+      };
     }),
     tracedByRecheck: refs.filter((r) => !inMeta(r.core) && !inBody(r.core) && inRecheck(r.core)).length,
     unverifiable: metadataOnly ? missing.length : 0,

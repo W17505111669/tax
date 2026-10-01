@@ -11,7 +11,7 @@ import {
   RETAINED_TEXT_KEY,
   traceDocRefs,
 } from "../../web/src/policy-trace.ts";
-import { extractCitations, UNCAPPED } from "../../web/src/search-evidence.ts";
+import { extractCitations, retainedSourceAt, retainedSourceLines, UNCAPPED } from "../../web/src/search-evidence.ts";
 import { db } from "../src/db.ts";
 import { getTask, listTasks } from "../src/services/task-store.ts";
 import fs from "node:fs";
@@ -105,6 +105,7 @@ let traced = 0;
 let byRecheck = 0;
 let byBody = 0;
 let bodyWithUrl = 0;
+let bodyUrlViaLine = 0;
 let unverifiable = 0;
 let untraced = 0;
 for (const t of listTasks()) {
@@ -150,8 +151,13 @@ for (const t of listTasks()) {
   }
   for (const r of res.bodyTracedRefs) {
     if (r.sourceUrl !== "") bodyWithUrl += 1;
+    if (r.sourceVia === "body-line") bodyUrlViaLine += 1;
     checks += 1;
     if (r.sourceCount < 1) failures.push(`${t.id} 文号 ${r.text} 的留存正文命中份数 ${r.sourceCount} < 1`);
+    checks += 1;
+    if ((r.sourceUrl !== "") !== (r.sourceVia !== "")) {
+      failures.push(`${t.id} 文号 ${r.text} 的地址与依据档位不一致（url=${r.sourceUrl} via=${r.sourceVia}）`);
+    }
   }
   total += res.total;
   traced += res.traced;
@@ -162,6 +168,14 @@ for (const t of listTasks()) {
 }
 console.log(
   `[verify] 真实文号=${total} 有出处=${traced}（元数据=${traced - byBody - byRecheck} · 仅留存正文=${byBody}（其中 ${bodyWithUrl} 处带可点开的原文地址） · 复查取得=${byRecheck}）无法核验=${unverifiable} 待确认=${untraced}`,
+);
+// 地址归属这条路径必须真的被走到，而不是「碰巧每处都有结构化地址、这段代码从未执行」。
+// 第一条断言同时兼作「确实检查到了东西」：空库或结论里没有文号时 byBody 为 0，它就红，不会空跑绿。
+expect("确实走到了「仅正文提到」这一档", byBody >= 1, true);
+expect("每一处「仅正文提到」都能点开原文", bodyWithUrl, byBody);
+expect("其中至少一处的地址只能来自留存正文的来源行", bodyUrlViaLine >= 1, true);
+console.log(
+  `[verify] 仅正文提到 ${byBody} 处的地址依据：结构化字段 ${bodyWithUrl - bodyUrlViaLine} · 正文来源行 ${bodyUrlViaLine}`,
 );
 // 留存正文参与文号溯源：这是一次**有意的语义放宽**，必须用断言钉住。
 // agent-factory 给联网类工具留存了网页正文（retainedText），而 collectRefStrings 是通用字符串遍历，
@@ -354,6 +368,106 @@ for (const r of ctxRefs) {
 // 提取出的是文号核心（不含机关代号「财税」），断言按核心写。
 expect("文号本身保持原文", ctxRefs.some((r) => r.text.includes("〔2015〕119号")), true);
 expect("文号本身不含 Markdown 记号", ctxRefs.every((r) => !/(\*\*|`)/.test(r.text)), true);
+
+// 「仅正文提到」的地址是怎么归属出来的：web_search 的结构化字段只有查询词，地址写在留存正文里
+// 每条结果末尾的 `Source: 标题 (地址)` 一行。四条判据钉在这里：往后找（不是往前）、检索词行不归属、
+// 跨小节不归属、认不出就留空。样例照实测那份正文的形状写（含 Providers 行、## Query 段、结果段）。
+const WS_BODY = [
+  "**Providers used:** Query 1: exa; Query 2: exa",
+  "",
+  '## Query: "国家税务总局公告2021年第28号 解读"',
+  "",
+  "解读页_国家税务总局 为进一步落实研发费用加计扣除政策…… 现解读如下： …… 答：主要包括三项内容",
+  "Source: 关于《国家税务总局公告2021年第28号》的解读_国家税务总局 (https://www.chinatax.gov.cn/a.html)",
+  "",
+  "公告全文 - 中瑞财税信息网站 注：根据2023.05.26国家税务总局公告2023年第8号，本文第一条失效。",
+  "Source: 国家税务总局公告2021年第28号 - 中瑞财税信息网站 (http://www.cntax.cn/list_detail/36801.html)",
+  "",
+  "这段提到财税〔2020〕99号，但它后面紧跟一个新的小节标题，来源行不属于这一段",
+  "",
+  '## Query: "国税发〔2016〕29号 其他相关费用限额"',
+  "",
+  "这一条结果的正文，末尾照常带来源行",
+  "Source: 无关页面 (https://example.com/none.html)",
+  "",
+  "最后这段提到财税〔2021〕33号，它后面再没有来源行了",
+].join("\n");
+const WS_LINES = retainedSourceLines(WS_BODY);
+expect("确实从样例正文里认出了来源行", WS_LINES.length, 3);
+expect("来源行地址是清洗后的 http(s) 地址", WS_LINES[0]?.url, "https://www.chinatax.gov.cn/a.html");
+expect(
+  "来源行标题取行内标题、不带记号",
+  WS_LINES[1]?.title,
+  "国家税务总局公告2021年第28号 - 中瑞财税信息网站",
+);
+expect("相对地址不算来源行", retainedSourceLines("Source: 标题 (/local/path.html)").length, 0);
+expect("没有来源行时一条也不给", retainedSourceLines("只有正文，没有来源行").length, 0);
+const atSecond = WS_BODY.indexOf("2023年第8号");
+expect("样例里确实取到了命中位置", atSecond > 0, true);
+expect(
+  "命中在结果正文里 → 归属它后面那条来源行",
+  retainedSourceAt(WS_BODY, atSecond)?.url,
+  "http://www.cntax.cn/list_detail/36801.html",
+);
+// 方向反了会归到上一条页面（广东税务/税务总局的解读页），这条断言就是防「往前找」的回归
+expect(
+  "往前找会归错页，所以判据必须是往后",
+  retainedSourceAt(WS_BODY, atSecond)?.url !== "https://www.chinatax.gov.cn/a.html",
+  true,
+);
+expect(
+  "命中在第一条结果正文里 → 归属第一条来源行",
+  retainedSourceAt(WS_BODY, WS_BODY.indexOf("现解读如下"))?.url,
+  "https://www.chinatax.gov.cn/a.html",
+);
+expect(
+  "命中在检索词行里 → 不归属（检索词不属于任何页面）",
+  retainedSourceAt(WS_BODY, WS_BODY.indexOf("国税发〔2016〕29号")),
+  null,
+);
+expect(
+  "命中与来源行之间隔了新小节 → 不归属（跨段就是猜）",
+  retainedSourceAt(WS_BODY, WS_BODY.indexOf("财税〔2020〕99号")),
+  null,
+);
+expect("往后没有来源行 → 不归属", retainedSourceAt(WS_BODY, WS_BODY.indexOf("财税〔2021〕33号")), null);
+expect("没有来源行时归属为 null", retainedSourceAt("只有正文，没有来源行", 0), null);
+
+// 接上消费点：上面是纯函数，这里走 traceDocRefs 全链路，确认「仅正文提到」的地址真的能落到界面上
+const WS_CALL = {
+  queries: ["国家税务总局公告2021年第28号 解读"],
+  queryCount: 1,
+  searchId: "srch-demo",
+  retainedText: WS_BODY,
+  retainedChars: WS_BODY.length,
+  omittedChars: 0,
+};
+const wsTrace = traceDocRefs("据国家税务总局公告2023年第8号，本文第一条失效。", [WS_CALL], ["web_search"]);
+expect("web_search 留存正文里的文号算「仅正文提到」", wsTrace.tracedByBody, 1);
+expect(
+  "地址来自正文来源行（结构化字段里一个地址都没有）",
+  wsTrace.bodyTracedRefs[0]?.sourceUrl,
+  "http://www.cntax.cn/list_detail/36801.html",
+);
+expect("依据档位如实标成 body-line", wsTrace.bodyTracedRefs[0]?.sourceVia, "body-line");
+expect(
+  "标题同样来自来源行",
+  wsTrace.bodyTracedRefs[0]?.sourceTitle,
+  "国家税务总局公告2021年第28号 - 中瑞财税信息网站",
+);
+expect("结构化字段有地址时优先用它、不被来源行覆盖", traceDocRefs(
+  "据国家税务总局公告2023年第8号，本文第一条失效。",
+  [{ ...WS_CALL, url: META_ONLY.url, title: "结构化标题" }],
+  ["web_search"],
+).bodyTracedRefs[0]?.sourceVia, "structured");
+const noLine = traceDocRefs(
+  "据国家税务总局公告2023年第8号，本文第一条失效。",
+  [{ retainedText: "只有正文提到2023年第8号，没有来源行" }],
+  ["web_search"],
+);
+expect("正文里没有来源行 → 地址如实留空", noLine.bodyTracedRefs[0]?.sourceUrl, "");
+expect("留空时依据档位也是空", noLine.bodyTracedRefs[0]?.sourceVia, "");
+expect("地址留空不影响「有出处」的判定（判据没被放宽也没被收紧）", noLine.tracedByBody, 1);
 
 console.log(`[verify] 文号溯源检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {

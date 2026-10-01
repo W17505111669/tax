@@ -1511,7 +1511,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
           ...refTrace.bodyTracedRefs.slice(0, 20).map((r, i) => {
             const link =
               r.sourceUrl === ""
-                ? "（命中的留存正文来自只留查询词的检索结果，没有地址可点）"
+                ? "（这份留存正文里认不出可归属的来源行，宁可不给地址也不猜）"
                 : `[${mdCell(r.sourceTitle === "" ? r.sourceUrl : r.sourceTitle)}](${r.sourceUrl})`;
             // 命中份数一起给：多份互不相关的来源同时提到，比孤零零一份更站得住
             const src = r.sourceCount > 1 ? `${link} · 共 ${r.sourceCount} 份留存正文提到` : link;
