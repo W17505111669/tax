@@ -860,18 +860,36 @@ export function isDisclaimedInConclusion(conclusion: string, identity: string): 
  * 结论已声明为背景参考的弱证据引用地址。
  * 优先按地址认；地址没被正文原样列出时退回按标题认（工具留存的引用常常只在清单里出现一次）。
  */
+/**
+ * 结论已声明为背景参考的弱证据引用，**逐条带标题**。
+ *
+ * 与 `uncitedWeakItems` 同一理由：台账、看板与交付自检报的是一个数，复核人却无从核对。而这一类的
+ * 判据里有一步是「地址认不出就按标题认」（`isDisclaimedInConclusion`），那是最容易误判的一步——
+ * 标题或正文里恰好出现「仅作背景参考」这类字样就会被算成已声明，欠账随之静默消失，而且数字是
+ * 变好看的。所以判据必须能被人逐条抽查。计数由这份明细派生，两处不可能各说一套。
+ */
+export function disclaimedWeakItems(
+  citations: Array<{ url: string; title?: string }>,
+  conclusion: string,
+): Array<{ url: string; title: string }> {
+  const out: Array<{ url: string; title: string }> = [];
+  const seen = new Set<string>();
+  for (const c of citations) {
+    if (gradeCitation(c.url, c.title ?? "").grade !== "weak") continue;
+    const hit =
+      isDisclaimedInConclusion(conclusion, c.url) || isDisclaimedInConclusion(conclusion, c.title ?? "");
+    if (!hit || seen.has(c.url)) continue;
+    seen.add(c.url);
+    out.push({ url: c.url, title: c.title ?? "" });
+  }
+  return out;
+}
+
 export function disclaimedWeakUrls(
   citations: Array<{ url: string; title?: string }>,
   conclusion: string,
 ): Set<string> {
-  const out = new Set<string>();
-  for (const c of citations) {
-    if (gradeCitation(c.url, c.title ?? "").grade !== "weak") continue;
-    if (isDisclaimedInConclusion(conclusion, c.url) || isDisclaimedInConclusion(conclusion, c.title ?? "")) {
-      out.add(c.url);
-    }
-  }
-  return out;
+  return new Set(disclaimedWeakItems(citations, conclusion).map((i) => i.url));
 }
 
 /**
@@ -892,8 +910,11 @@ export function disclaimedWeakUrls(
  * 要核对这个判据对不对，得能逐条点开原文看一眼。计数由这份明细派生（`uncitedWeakUrls` 与
  * `weakUncited` 都从它来），两处各算一遍的话，报出来的数与清单里列出的条数迟早对不上。
  */
-/** 界面上「未进结论正文的弱证据」一组最多列多少条；超出要如实说明还有几条没列，不静默截断 */
-export const UNCITED_WEAK_LIST_LIMIT = 20;
+/**
+ * 界面上两类「不必再催办」的弱证据清单（已声明为背景参考 / 未进结论正文）每组最多列多少条。
+ * 超出要如实说明还有几条没列，不静默截断。两组共用一个上限：它们是同一类东西的两种情形。
+ */
+export const WEAK_SETTLED_LIST_LIMIT = 20;
 
 export function uncitedWeakItems(
   citations: Array<{ url: string; title?: string }>,

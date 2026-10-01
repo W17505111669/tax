@@ -80,11 +80,12 @@ import {
   deadLinkTargets,
   citationTargets,
   disclaimedWeakUrls,
+  disclaimedWeakItems,
   labeledDocRefTexts,
   pendingRevisionItems,
   settledWeakUrls,
   uncitedWeakItems,
-  UNCITED_WEAK_LIST_LIMIT,
+  WEAK_SETTLED_LIST_LIMIT,
   refCheckTargets,
   refKey,
   REF_VERDICT_HINT,
@@ -695,7 +696,16 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   const citationGrades = useMemo(() => summarizeGrades(allCitations), [allCitations]);
   // 两类弱证据引用不必再催办，判据都得回读正文（分级只看地址与标题）：结论里已写明「仅作背景参考，
   // 不作为政策依据」的，以及只在检索留存里、从未进入结论正文的（不是这份交付材料的依据，也没处补标注）
-  const weakDisclaimedUrls = useMemo(() => disclaimedWeakUrls(allCitations, finalResult), [allCitations, finalResult]);
+  // 「已声明为背景参考」这一类同样要有逐条明细：它的判据里有一步是「地址认不出就按标题认」，
+  // 那是最容易误判的一步，误判会让欠账静默消失（而且数字是变好看的）。计数由明细派生。
+  const weakDisclaimedItems = useMemo(
+    () => disclaimedWeakItems(allCitations, finalResult),
+    [allCitations, finalResult],
+  );
+  const weakDisclaimedUrls = useMemo(
+    () => new Set(weakDisclaimedItems.map((i) => i.url)),
+    [weakDisclaimedItems],
+  );
   const weakSettledUrls = useMemo(() => settledWeakUrls(allCitations, finalResult), [allCitations, finalResult]);
   // 「未进结论正文」这一类要有逐条明细：复核人核对判据对不对，得能点开原文看一眼，光有一个
   // 「8 条」的计数等于让人相信一个数。计数由明细派生，不再用 settled.size - disclaimed.size 手算，
@@ -2586,6 +2596,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                   onCompose: fillRevisionInstruction,
                   notice: revisionMsg,
                   uncited: weakUncitedItems,
+                  disclaimed: weakDisclaimedItems,
                 }}
                 sheet={sheet}
                 onOpenUrl={openReader}
@@ -3791,6 +3802,8 @@ function ResultView({
     notice: string;
     /** 只在检索留存里、从未进入结论正文的弱证据引用（逐条，可点开原文核对判据） */
     uncited: Array<{ url: string; title: string }>;
+    /** 结论里已声明「仅作背景参考，不作为政策依据」的弱证据引用（逐条，可点开原文核对判据） */
+    disclaimed: Array<{ url: string; title: string }>;
   };
   /** 证据核对表输入（与整页交付 MD 用的是同一份数据） */
   sheet: SheetInput;
@@ -4118,16 +4131,16 @@ function ResultView({
               );
             })}
           </div>
-          {citationRecheck.uncited.length > 0 && (
-            <div className="mt-2 rounded border border-line bg-night-850 px-2.5 py-2">
+          {citationRecheck.disclaimed.length > 0 && (
+            <div className="mt-2 rounded border border-jade-400/25 bg-jade-400/5 px-2.5 py-2">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="kicker">未进结论正文的弱证据</span>
+                <span className="kicker">已声明为背景参考的弱证据</span>
                 <span className="text-[10.5px] leading-5 text-mist-600">
-                  {citationRecheck.uncited.length} 条只在检索留存里、从未被写进结论，不是这份交付材料的依据，无需替换；点开原文可核对这个判据对不对
+                  {citationRecheck.disclaimed.length} 条已在结论里写明「仅作背景参考，不作为政策依据」，不再催办；点开原文、或在结论里搜这个标题，可核对声明是不是真的写了
                 </span>
               </div>
               <ul className="mt-1.5 space-y-1">
-                {citationRecheck.uncited.slice(0, UNCITED_WEAK_LIST_LIMIT).map((c) => (
+                {citationRecheck.disclaimed.slice(0, WEAK_SETTLED_LIST_LIMIT).map((c) => (
                   <li key={c.url} className="flex items-center gap-2 rounded bg-night-800 px-2 py-1">
                     <span
                       className="min-w-0 flex-1 truncate text-[11px] text-mist-400"
@@ -4147,9 +4160,45 @@ function ResultView({
                   </li>
                 ))}
               </ul>
-              {citationRecheck.uncited.length > UNCITED_WEAK_LIST_LIMIT && (
+              {citationRecheck.disclaimed.length > WEAK_SETTLED_LIST_LIMIT && (
                 <p className="mt-1 text-[10.5px] text-mist-600">
-                  另有 {citationRecheck.uncited.length - UNCITED_WEAK_LIST_LIMIT} 条未列出
+                  另有 {citationRecheck.disclaimed.length - WEAK_SETTLED_LIST_LIMIT} 条未列出
+                </p>
+              )}
+            </div>
+          )}
+          {citationRecheck.uncited.length > 0 && (
+            <div className="mt-2 rounded border border-line bg-night-850 px-2.5 py-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="kicker">未进结论正文的弱证据</span>
+                <span className="text-[10.5px] leading-5 text-mist-600">
+                  {citationRecheck.uncited.length} 条只在检索留存里、从未被写进结论，不是这份交付材料的依据，无需替换；点开原文可核对这个判据对不对
+                </span>
+              </div>
+              <ul className="mt-1.5 space-y-1">
+                {citationRecheck.uncited.slice(0, WEAK_SETTLED_LIST_LIMIT).map((c) => (
+                  <li key={c.url} className="flex items-center gap-2 rounded bg-night-800 px-2 py-1">
+                    <span
+                      className="min-w-0 flex-1 truncate text-[11px] text-mist-400"
+                      title={c.title === "" ? c.url : c.title}
+                    >
+                      {c.title === "" ? c.url : c.title}
+                    </span>
+                    <button
+                      type="button"
+                      className="action-btn shrink-0"
+                      title={`${c.title === "" ? c.url : c.title}\n${c.url}\n点按在侧边阅读器打开`}
+                      onClick={() => onOpenUrl({ kind: "url", url: c.url })}
+                    >
+                      <IconExternal className="h-3 w-3" />
+                      原文
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {citationRecheck.uncited.length > WEAK_SETTLED_LIST_LIMIT && (
+                <p className="mt-1 text-[10.5px] text-mist-600">
+                  另有 {citationRecheck.uncited.length - WEAK_SETTLED_LIST_LIMIT} 条未列出
                 </p>
               )}
             </div>

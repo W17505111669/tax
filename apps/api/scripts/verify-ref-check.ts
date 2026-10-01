@@ -29,7 +29,8 @@ import {
   settledWeakUrls,
   uncitedWeakUrls,
   uncitedWeakItems,
-  UNCITED_WEAK_LIST_LIMIT,
+  disclaimedWeakItems,
+  WEAK_SETTLED_LIST_LIMIT,
   gradeRefCheck,
   isDisclaimedInConclusion,
   labeledDocRefTexts,
@@ -777,7 +778,59 @@ expect(
   [...uncitedWeakUrls(UNCITED_CITES, UNCITED_CONCLUSION)].sort(),
   uncitedItems.map((i) => i.url).sort(),
 );
-expect("界面清单上限是正整数（不是 0 让整组空跑）", UNCITED_WEAK_LIST_LIMIT > 0, true);
+expect("界面清单上限是正整数（不是 0 让整组空跑）", WEAK_SETTLED_LIST_LIMIT > 0, true);
+
+// 「已声明为背景参考」这一类同样要出明细：它的判据里有一步是「地址认不出就按标题认」，那是最
+// 容易误判的一步——误判会让欠账静默消失，而且数字是变好看的，所以必须能逐条抽查。
+const DISCLAIM_CITES = [
+  { url: "https://baike.baidu.com/item/y", title: "土地增值税_百度百科" },
+  { url: "https://www.12366.cn/portal", title: "12366 纳税服务平台" },
+];
+const DISCLAIM_TEXT = [
+  "## 依据与限定",
+  "",
+  "- 土地增值税_百度百科（https://baike.baidu.com/item/y）：仅作背景参考，不作为政策依据。",
+].join("\n");
+const disclaimedItems = disclaimedWeakItems(DISCLAIM_CITES, DISCLAIM_TEXT);
+expect("按地址认出已声明的那一条", disclaimedItems.map((i) => i.url), ["https://baike.baidu.com/item/y"]);
+expect("已声明的明细带出标题（界面要显示它）", disclaimedItems[0]?.title, "土地增值税_百度百科");
+expect("没写声明的那条不进明细", disclaimedItems.some((i) => i.url.includes("12366")), false);
+expect(
+  "已声明的计数集合与明细同源：条数一致",
+  disclaimedWeakUrls(DISCLAIM_CITES, DISCLAIM_TEXT).size,
+  disclaimedItems.length,
+);
+expect(
+  "已声明的计数集合与明细同源：地址逐条一致",
+  [...disclaimedWeakUrls(DISCLAIM_CITES, DISCLAIM_TEXT)],
+  disclaimedItems.map((i) => i.url),
+);
+// 地址没写进正文时退回按标题认：工具留存的引用常常只在清单里出现一次，这是判据里最松的一步
+expect(
+  "地址没写进正文时退回按标题认",
+  disclaimedWeakItems(
+    [{ url: "https://wiki.mbalib.com/view/z", title: "土地增值税_百度百科" }],
+    "- 土地增值税_百度百科：仅作背景参考，不作为政策依据。",
+  ).map((i) => i.url),
+  ["https://wiki.mbalib.com/view/z"],
+);
+// 两类可能重叠：声明句里只写标题、不写地址时，那条引用既算「已声明」也算「未进结论正文」。
+// 所以已处置集合是**并集**而不是相加，这也是服务端算 weakUncited 时要先扣掉 disclaimed 的原因。
+const MIX_CITES = [...UNCITED_CITES, ...DISCLAIM_CITES];
+const MIX_TEXT = `${UNCITED_CONCLUSION}\n${DISCLAIM_TEXT}`;
+expect(
+  "已处置集合等于两类明细的并集（重叠只算一次）",
+  settledWeakUrls(MIX_CITES, MIX_TEXT).size,
+  new Set([
+    ...disclaimedWeakItems(MIX_CITES, MIX_TEXT).map((i) => i.url),
+    ...uncitedWeakItems(MIX_CITES, MIX_TEXT).map((i) => i.url),
+  ]).size,
+);
+const OVERLAP_CITES = [{ url: "https://baike.baidu.com/item/z", title: "研发费用_百度百科" }];
+const OVERLAP_TEXT = "- 研发费用_百度百科：仅作背景参考，不作为政策依据。";
+expect("只写标题的声明也算已声明", disclaimedWeakItems(OVERLAP_CITES, OVERLAP_TEXT).length, 1);
+expect("地址没进正文时它同时算未进结论（两类重叠）", uncitedWeakItems(OVERLAP_CITES, OVERLAP_TEXT).length, 1);
+expect("重叠时已处置集合只算一条", settledWeakUrls(OVERLAP_CITES, OVERLAP_TEXT).size, 1);
 expect(
   "已处置集合是两类的并集",
   settledWeakUrls(
