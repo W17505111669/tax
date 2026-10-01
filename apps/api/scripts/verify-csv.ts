@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { CSV_BOM, CSV_EOL, csvBody, csvField, csvRow } from "../../web/src/csv.ts";
+import { CSV_BOM, CSV_EOL, csvBody, csvField, csvRow, parseCsv } from "../../web/src/csv.ts";
 
 const failures: string[] = [];
 let checks = 0;
@@ -71,38 +71,6 @@ expect("每行列数一致（按 RFC 解析）", new Set(parseCsv(mixed).map((r)
 expect("按 RFC 解析回来的列数是 2", parseCsv(mixed)[1]!.length, 2);
 
 // 4) 往返：按 RFC 4180 解析回来应与原数据一致（公式格多一个前置单引号）
-function parseCsv(text: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let cell = "";
-  let quoted = false;
-  for (let i = 0; i < text.length; i += 1) {
-    const c = text[i]!;
-    if (quoted) {
-      if (c === '"') {
-        if (text[i + 1] === '"') {
-          cell += '"';
-          i += 1;
-        } else quoted = false;
-      } else cell += c;
-      continue;
-    }
-    if (c === '"') quoted = true;
-    else if (c === ",") {
-      row.push(cell);
-      cell = "";
-    } else if (c === "\r" && text[i + 1] === "\n") {
-      row.push(cell);
-      rows.push(row);
-      row = [];
-      cell = "";
-      i += 1;
-    } else cell += c;
-  }
-  row.push(cell);
-  rows.push(row);
-  return rows;
-}
 const source: string[][] = [
   ["标题", "备注", "金额"],
   ["含,逗号的任务", "两\n行备注", "-1200"],

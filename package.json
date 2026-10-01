@@ -42,6 +42,7 @@
     "verify:policytrace": "pnpm --filter @tax/api verify:policytrace",
     "verify:docrefmd": "pnpm --filter @tax/api verify:docrefmd",
     "verify:runcmd": "pnpm --filter @tax/api verify:runcmd",
+    "scan:deliverables": "pnpm --filter @tax/api scan:deliverables",
     "verify:websearch": "pnpm --filter @tax/api verify:websearch",
     "verify:citegrade": "pnpm --filter @tax/api verify:citegrade",
     "verify:searchev": "pnpm --filter @tax/api verify:searchev",

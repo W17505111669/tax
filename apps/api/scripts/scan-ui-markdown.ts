@@ -22,13 +22,10 @@
  *   pnpm scan:uimd --nointeract         # 不点折叠面板，只扫默认挂载的内容（快，但覆盖有缺口）
  *   pnpm scan:uimd --interact-limit=4   # 每个页面最多点开几个折叠入口（默认 6）
  */
-import { chromium } from "playwright-core";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { db } from "../src/db.ts";
+import { launchChromium, WEB_URL } from "./browser-lib.ts";
 
-const WEB = process.env.WEB_URL ?? "http://127.0.0.1:5174";
+const WEB = WEB_URL;
 
 /** 记号判据：名称 + 正则源串（在页面里 new RegExp，故用字符串传）。 */
 const PATTERNS: Array<[string, string]> = [
@@ -82,45 +79,6 @@ function parseArgs(argv: string[]): Args {
     else if (a.startsWith("--interact-limit=")) out.interactLimit = Math.max(0, Number(a.slice(17)) || 0);
   }
   return out;
-}
-
-/** 找本机 ms-playwright 缓存里的 Chromium。 */
-function findChromium(): string | undefined {
-  const roots = [
-    process.env.PLAYWRIGHT_BROWSERS_PATH,
-    path.join(os.homedir(), "AppData", "Local", "ms-playwright"),
-    path.join(os.homedir(), ".cache", "ms-playwright"),
-    path.join(os.homedir(), "Library", "Caches", "ms-playwright"),
-  ].filter(Boolean) as string[];
-  // headless shell 优先：完整版 chrome.exe 在同目录 chrome.dll 缺失时会以
-  // 「Failed to load Chrome DLL」启动失败——本机缓存正是这种情况，实测踩过，故校验依赖文件。
-  const CANDIDATES: Array<[string, string | undefined]> = [
-    [path.join("chrome-headless-shell-win64", "chrome-headless-shell.exe"), undefined],
-    [path.join("chrome-headless-shell-linux", "chrome-headless-shell"), undefined],
-    [path.join("chrome-headless-shell-mac", "chrome-headless-shell"), undefined],
-    [path.join("chrome-win64", "chrome.exe"), path.join("chrome-win64", "chrome.dll")],
-    [path.join("chrome-win", "chrome.exe"), path.join("chrome-win", "chrome.dll")],
-    [path.join("chrome-linux", "chrome"), undefined],
-    [path.join("chrome-mac", "Chromium.app", "Contents", "MacOS", "Chromium"), undefined],
-  ];
-  for (const root of roots) {
-    if (!fs.existsSync(root)) continue;
-    // 目录名两种写法都出现过：chromium-1223 与 chromium_headless_shell-1223（下划线），
-    // 早先按 /^chromium(-headless-shell)?-\d+$/ 匹配把后者漏掉，直接判定「找不到浏览器」。
-    const dirs = fs
-      .readdirSync(root)
-      .filter((d) => /^chromium/i.test(d) && fs.statSync(path.join(root, d)).isDirectory())
-      .sort();
-    for (const d of dirs) {
-      for (const [rel, needs] of CANDIDATES) {
-        const p = path.join(root, d, rel);
-        if (!fs.existsSync(p)) continue;
-        if (needs && !fs.existsSync(path.join(root, d, needs))) continue;
-        return p;
-      }
-    }
-  }
-  return undefined;
 }
 
 /** 页面内执行的扫描函数：只取文本节点，跳过代码/输入/有意保留原文的容器。 */
@@ -206,12 +164,7 @@ async function main(): Promise<void> {
     targets = rows.filter((r) => r.rlen > 0);
   }
 
-  const exe = findChromium();
-  if (!exe) {
-    console.log("[FAIL] 找不到本机 Chromium 缓存（ms-playwright），无法实测扫描");
-    process.exit(2);
-  }
-  const browser = await chromium.launch({ executablePath: exe, headless: true });
+  const browser = await launchChromium();
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
   const pages: Array<{ label: string; url: string; tab: string }> = [];
   if (args.overview) {

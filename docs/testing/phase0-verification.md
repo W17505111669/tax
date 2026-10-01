@@ -1759,3 +1759,28 @@ H 那唯一 1 处很说明问题：`| 28号公告（统一计算） | A+B 合计
 量化：`verify:manifest` 425 → **1200 项**（任务级 35 个有结论任务 × 13 项 + 3 个无结论任务 × 3 项 + 交付 MD 文号节 38 个 × 6 项 + 平台级 11 项 + 3 条「确实比对到了东西」）。13 处不一致全部消解：10 处是门禁自己漏传 `UNCAPPED`，3 处是有意口径差异、现已写成断言。**文号**（总数 / 有出处 / 仅正文提到 / 复查取得 / 待复查 / matched）、**检索**（调用 / 仅元数据）、**金额**（总数 / 待确认）共 10 项指标两条路径逐项全等，平台级 11 项也全等——说明这几族此前就是对得上的，只是从来没人验过。金额待确认合计 85 / 金额总数 958，与台账、作品说明里的数字一致。
 
 还没接上的一处：交付 MD 只核对了「政策文号溯源」节的 6 个数字，因为只有这一节被抽成了模块（上一轮的成果），其余各节仍在 `bundleLines()` 闭包里取不到。等剩余各节抽完，按节接上即可；作品说明这一处目前是**间接**对上的（它由 `gen-materials` 从 `stats` 取数生成，而 `stats` 已与交付路径逐项对过），直接解析文档文本再比一遍留给下一轮判断值不值得做。
+
+### 交付物真的下载一次：三个「验生成逻辑」的门禁都没产出过一份文件
+
+`verify:csv` 验的是 `csv.ts` 的纯函数（转义 / BOM / CRLF / 往返），`verify:bundle` 验的是打包函数与条目组装，`verify:diaexport` 验的是图类型识别、文件名与导出配置——三个都在验「生成逻辑对不对」，**没有一个真的产出过一份文件**。于是对外声称的三句话此前全靠推断：「CSV 带 BOM，Excel 打开不乱码、含逗号与引号的标题不串列」「PNG 带背景色，Office 与 WPS 直接插得进」「bundle 里文件齐且 manifest 自校验通过」。
+
+新脚本 `scan:deliverables`（`pnpm scan:deliverables`，需要 `pnpm dev` 已起）用真浏览器点真按钮，接住 `download` 事件把字节落到临时目录，再逐项验：台账 CSV、台账 Markdown（作品总览页），单任务核对表 MD、交付包 zip、mermaid 的 PNG 与 SVG（任务结果页）。挑任务不能只挑「结论里有 mermaid」：交付包这一档还要有产物与上传资料，否则 manifest 的申报核对就在空数组上通过了——第一版正是这样，选中一个测试任务，zip 里只有 2 个文件、申报产物 0 份，那条「申报的都在包里」绿得毫无意义。现在优先挑三样都齐的任务，并断言 `declaredTotal > 0`。
+
+**第一趟就查出三个真缺陷，全在 SVG 导出这一条路上**：
+
+1. **两条导出路径不同源。** 「下载 PNG」用 `mm.render(id, withExportInit(code))` 重新渲染，「下载 SVG」却直接 `svg.cloneNode(true)` 抓页面上已经渲染好的 DOM。页面为了好看用 `htmlLabels`（标签是 `foreignObject` 里的 HTML），而 Office 与 WPS 插 SVG 时不渲染 `foreignObject`。实测导出的 SVG 有 53KB、`<path>` 与 `<rect>` 齐全，**12 处文字全在 `foreignObject` 里**，插进 Office 就是一张只有框没有字的图。而按钮的 title 写的是「导出矢量图（放大不糊，需要较新的 Office 或浏览器打开）」——暗示能进 Office。修法不是给 SVG 单独打补丁，而是把两条路收成一份 `exportSvg()`：都重新渲染、都补 `xmlns`、都过 `sanitizeSvgForExport`。
+2. **`withExportInit` 遇到作者自带 init 就整条失效。** 原实现是「原文已带 init 指令时原样返回，尊重作者写的配置」。这个取舍在页面上成立，在导出件上不成立：作者写 `%%{init: {"theme":"neutral"}}%%` 只是为了配色，导出必需的 `htmlLabels:false` 就跟着被丢掉了。改成**合并**——作者的其它配置优先，`htmlLabels` 一律关掉；作者的 init 解析不出来时不猜，整条换成导出配置。
+3. **mermaid v11 只关 `flowchart.htmlLabels` 不够。** 合并逻辑修好、指令也确实前置了，导出的 SVG 里节点标签仍然落在 `foreignObject` 里。顶层 `htmlLabels` 与 `flowchart.htmlLabels` 两处都写之后才干净（多写一处对不认它的版本无害，少写一处就导出没有文字的图）。这一条是实测逼出来的，不是读文档读出来的。
+
+翻车两次，都在测试数据上：
+
+- 合并用的正则第一版写成非贪婪 `([\s\S]*?)\}%%`。init 的 JSON 自己就以 `}` 结尾，指令收尾是「JSON 的 `}` + 指令的 `}` + `%%`」，非贪婪会在第一个 `}%%` 处截断，把 `{"theme":"neutral"}` 捕成 `{"theme":"neutral"`，`JSON.parse` 失败 → 作者配置被整条丢掉。改贪婪。
+- 给合并写的测试数据少写了一层收尾括号（`%%{init: {"flowchart":{...}}%%`，正确是三个 `}`），于是被当成「作者的 init 不是合法 JSON」走了退回分支，断言「留住作者的 curve 配置」当然红。**实现没错，是我构造的输入不合法**——这类失败先看测试数据再看实现。
+
+顺带收了两处重复：`findChromium` 从 `scan-ui-markdown.ts` 抽到新的 `browser-lib.ts`（两个实测脚本共用，本机缓存路径与 headless shell 的坑只写一份），`parseCsv` 从 `verify-csv.ts` 抽到 `csv.ts`（生成与解析本来就该是一对；交付物实测要按 RFC 把真下载到的 CSV 解析回来验列数，抄一遍就是两处口径各改各的）。
+
+还有一个与 P0-4 同源的教训：台账的两个下载按钮在 `<details>` 里、默认折叠，`visible=false`，直接点会一直等到超时，而报错只说「Timeout exceeded」。实测脚本必须先点 `summary` 展开。点击失败现在会把 `visible` / `enabled` 一起打出来，否则下次还是只能看到一句超时。
+
+量化：真下载 **6 份**交付物、**44 项**字节级检查全过——台账 CSV 40 行 × 22 列（BOM、CRLF、每行字段数一致、无公式注入格）、台账 MD 6202 字 / 表格 41 行（竖线数一致、不错位）、核对表 MD 801 字 / 表格 11 行、交付包 zip 4 个文件（含 manifest.json，schema 对得上、`manifestIssues` 自校验为空、申报的 2 份产物与 1 份资料都在包里）、PNG 982×556（魔数、IHDR、IEND 完整）、SVG 不含 `foreignObject` 且有 `width`/`viewBox`。`verify:diaexport` 79 → **85 项**（合并行为 8 条新断言，改写原来那 2 条「原样返回」）。文件落在系统临时目录并打印路径，可以用 Excel 与 Office 人工复核。
+
+它不进 `qa:all`，理由与 `scan:uimd` 相同：要开浏览器、要前端在跑，失败原因常常与代码无关。`--strict` 下有任何一项不符即退出码 1；非 `--strict` 时打 `[WARN]` 而不再打 `[PASS]`——第一版在有 6 项失败的情况下末尾仍然印 `[PASS]`，那种输出比没有输出更坏。

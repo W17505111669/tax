@@ -39,3 +39,43 @@ export function csvRow(cells: readonly CsvCell[]): string {
 export function csvBody(rows: readonly (readonly CsvCell[])[]): string {
   return rows.map(csvRow).join(CSV_EOL);
 }
+
+/**
+ * 按 RFC 4180 把 CSV 文本解析回二维数组（认引号内的逗号与换行、认 `""` 转义）。
+ *
+ * 放在生成函数旁边是因为「生成」与「解析回来」本来就该是一对：`verify:csv` 的往返断言用它，
+ * 交付物实测（`scan:deliverables`）检查真下载到的台账 CSV 有没有串列也用它。此前它只写在
+ * verify-csv.ts 里，第二个消费点要么抄一遍、要么干脆不验——抄一遍就是两处口径各改各的。
+ */
+export function parseCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let quoted = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text[i]!;
+    if (quoted) {
+      if (c === '"') {
+        if (text[i + 1] === '"') {
+          cell += '"';
+          i += 1;
+        } else quoted = false;
+      } else cell += c;
+      continue;
+    }
+    if (c === '"') quoted = true;
+    else if (c === ",") {
+      row.push(cell);
+      cell = "";
+    } else if (c === "\r" && text[i + 1] === "\n") {
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = "";
+      i += 1;
+    } else cell += c;
+  }
+  row.push(cell);
+  rows.push(row);
+  return rows;
+}

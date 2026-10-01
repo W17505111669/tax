@@ -3,7 +3,7 @@ import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { downloadText } from "../download.ts";
 import { downloadDiagramPng } from "../diagram-download.ts";
-import { diagramFilename, sanitizeSvgForExport, withExportInit } from "../diagram-export.ts";
+import { diagramFilename, sanitizeSvgForExport, withExportInit, withXmlns } from "../diagram-export.ts";
 import { prepareMarkdown } from "../md-render-fix.ts";
 
 type MermaidApi = typeof import("mermaid").default;
@@ -92,24 +92,39 @@ function renderMarkdown(el: HTMLElement, text: string, live: boolean): void {
               btn.textContent = label;
             }, 3000);
           };
+          // PNG 与 SVG 两条导出路共用这一份「重新渲染」：页面上的图为了好看用 htmlLabels
+          //（标签是 foreignObject 里的 HTML），而 Office 与 WPS 插 SVG 时不渲染 foreignObject，
+          // 直接 clone 页面 DOM 导出的图会整片没有文字。实测踩到：导出的 SVG 有 53KB、图形元素
+          // 齐全，唯独文字全在 foreignObject 里，插进 Office 就是一张只有框没有字的图。
+          const exportSvg = async (tag: string): Promise<string> => {
+            const mm = await loadMermaid();
+            const rendered = await mm.render(`dia-export-${tag}-${i}-${Date.now()}`, withExportInit(code));
+            return withXmlns(rendered.svg);
+          };
           mkBtn("下载 PNG", "导出 2 倍分辨率 PNG（带背景色，Office 与 WPS 直接插得进）", (btn) => {
             void (async () => {
               try {
-                const mm = await loadMermaid();
-                const rendered = await mm.render(`dia-export-${i}-${Date.now()}`, withExportInit(code));
                 await downloadDiagramPng(
                   diagramFilename(code, i, "png"),
-                  sanitizeSvgForExport(rendered.svg),
+                  sanitizeSvgForExport(await exportSvg("png")),
                 );
               } catch {
                 flash(btn, "下载 PNG", "PNG 导出失败，请改用 SVG");
               }
             })();
           });
-          mkBtn("下载 SVG", "导出矢量图（放大不糊，需要较新的 Office 或浏览器打开）", () => {
-            const clone = svg.cloneNode(true) as SVGSVGElement;
-            clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-            downloadText(diagramFilename(code, i, "svg"), sanitizeSvgForExport(clone.outerHTML), "image/svg+xml");
+          mkBtn("下载 SVG", "导出矢量图（放大不糊；与 PNG 同一套导出配置，文字不用 foreignObject，Office 与 WPS 插得进）", (btn) => {
+            void (async () => {
+              try {
+                downloadText(
+                  diagramFilename(code, i, "svg"),
+                  sanitizeSvgForExport(await exportSvg("svg")),
+                  "image/svg+xml",
+                );
+              } catch {
+                flash(btn, "下载 SVG", "SVG 导出失败，请改用 PNG");
+              }
+            })();
           });
           node.appendChild(bar);
         });

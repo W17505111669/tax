@@ -79,8 +79,41 @@ expect("加了导出指令后文件名不变", diagramFilename(withExportInit(FL
 // 3) 导出配置指令
 expect("普通代码前置导出指令", withExportInit(FLOW).startsWith(EXPORT_INIT), true);
 expect("原文完整保留", withExportInit(FLOW).endsWith(FLOW), true);
-expect("已有 init 指令时原样返回", withExportInit(`%%{init: {"theme":"neutral"}}%%\n${FLOW}`), `%%{init: {"theme":"neutral"}}%%\n${FLOW}`);
-expect("前面有空格的 init 指令也认", withExportInit(`  %%{init: {"theme":"neutral"}}%%\n${FLOW}`).startsWith("  %%{init"), true);
+// 原文已带 init 时是「合并」不是「原样返回」：作者的主题要留住，导出必需的项要补上。
+// 此前断言的是原样返回，于是自带 init 的图导出的 SVG 会带着 foreignObject（Office 插入文字全空）。
+const authored = withExportInit(`%%{init: {"theme":"neutral"}}%%\n${FLOW}`);
+expect("已有 init 时留住作者的主题", authored.includes('"theme":"neutral"'), true);
+expect("已有 init 时补上 htmlLabels:false", authored.includes('"htmlLabels":false'), true);
+expect("已有 init 时补上 useMaxWidth:false", authored.includes('"useMaxWidth":false'), true);
+expect("已有 init 时原文代码完整保留", authored.endsWith(FLOW), true);
+expect("已有 init 时输出仍是一条 init 指令（不是两条）", authored.split("%%{init:").length - 1, 1);
+expect(
+  "合并后的 init 是合法 JSON（mermaid 解析不了就等于没配）",
+  (() => {
+    try {
+      JSON.parse(authored.replace(/^%%\{init:\s*/, "").replace(/\}%%[\s\S]*$/, ""));
+      return true;
+    } catch {
+      return false;
+    }
+  })(),
+  true,
+);
+// 指令的收尾是「init 值的 } + 指令的 } + %%」，嵌套配置比单键配置多一层括号，
+// 写测试数据时数错一层就会被当成「作者的 init 不是合法 JSON」而整条退回导出配置。
+const NESTED = `%%{init: {"flowchart":{"htmlLabels":true,"curve":"basis"}}}%%\n${FLOW}`;
+expect("作者显式写 htmlLabels:true 也被覆盖（导出件的硬要求）", withExportInit(NESTED).includes('"htmlLabels":true'), false);
+expect("覆盖 htmlLabels 时留住作者的其它 flowchart 配置", withExportInit(NESTED).includes('"curve":"basis"'), true);
+expect(
+  "作者的 init 不是合法 JSON 时退回导出配置（不猜）",
+  withExportInit(`%%{init: {theme:neutral}}%%\n${FLOW}`).startsWith(EXPORT_INIT),
+  true,
+);
+expect(
+  "前面有空格的 init 指令同样走合并",
+  withExportInit(`  %%{init: {"theme":"neutral"}}%%\n${FLOW}`).includes('"htmlLabels":false'),
+  true,
+);
 expect("导出指令关掉 htmlLabels", EXPORT_INIT.includes('"htmlLabels":false'), true);
 expect("导出指令关掉 maxWidth 拉伸", EXPORT_INIT.includes('"useMaxWidth":false'), true);
 const initJson = EXPORT_INIT.replace(/^%%\{init:\s*/, "").replace(/\}%%$/, "");
