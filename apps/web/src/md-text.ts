@@ -144,3 +144,37 @@ export function countTables(md: string): number {
       return cells.length > 0 && cells.every((c) => /^:?-+:?$/.test(c.trim()));
     }).length;
 }
+/**
+ * 按 Markdown 表格规则把一行拆成单元格：转义的 `\|` 是字面竖线，不算列分隔符。
+ *
+ * 用 `line.split("|")` 数单元格是错的——`mdCell` 会把正文里的竖线转义成 `\|`（不转义表格就串列），
+ * 简单 split 把转义竖线也当成分隔符，于是「上下文里带竖线的那一行」被数出多一列，门禁报
+ * 「表行不是 5 个单元格」。实测就是这么撞出来的：提示词回归新建的任务里，有一处文号上下文
+ * 以 `\|` 开头（模型在结论里如实抄了原文的表格片段）。
+ *
+ * 三个消费点共用这一份：交付 MD 文号节的列数断言、交付物实测里台账 MD 的错位检查、
+ * 以及本模块自己的单测。各自 split 一遍就是三处口径。
+ */
+export function markdownTableCells(line: string): string[] {
+  const t = (line ?? "").trim();
+  const body = t.startsWith("|") ? t.slice(1) : t;
+  const trimmed = body.endsWith("|") && !body.endsWith("\\|") ? body.slice(0, -1) : body;
+  const out: string[] = [];
+  let cur = "";
+  for (let i = 0; i < trimmed.length; i += 1) {
+    const c = trimmed[i];
+    if (c === "\\" && trimmed[i + 1] === "|") {
+      cur += "|";
+      i += 1;
+      continue;
+    }
+    if (c === "|") {
+      out.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += c ?? "";
+  }
+  out.push(cur);
+  return out;
+}

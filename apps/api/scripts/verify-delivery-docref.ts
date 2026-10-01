@@ -11,6 +11,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { docRefSection } from "../../web/src/delivery-docref.ts";
 import { DOC_REF_TABLE_LIMIT, SOURCE_VIA_TEXT, traceDocRefs } from "../../web/src/policy-trace.ts";
+import { markdownTableCells } from "../../web/src/md-text.ts";
 import { summarizeRefChecks } from "../../web/src/ref-check.ts";
 import type { RefCheckRecord } from "../../web/src/types.ts";
 import { loadTaskDocRefs } from "./docref-lib.ts";
@@ -25,8 +26,8 @@ function expect(name: string, actual: unknown, want: unknown): void {
   if (a !== w) failures.push(`${name}: 实际 ${a}，期望 ${w}`);
 }
 
-/** 表格行的单元格数（按竖线切，首尾各多一个空串） */
-const cells = (line: string): number => line.split("|").length - 2;
+/** 表格行的单元格数：按 Markdown 规则切，转义的 `\|` 是字面竖线、不算列分隔符 */
+const cells = (line: string): number => markdownTableCells(line).length;
 /** 表格行第 5 列（依据档位）的文本。按列位置取，不依赖文案常量，常量被清空时才拦得住 */
 const viaCell = (line: string): string => (line.split("|")[5] ?? "").trim();
 /** 取某张表的数据行：表头之后跳过分隔行，一直取到不再是表格行为止 */

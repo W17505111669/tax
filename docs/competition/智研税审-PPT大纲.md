@@ -88,20 +88,20 @@ flowchart TD
 
 ## 第 8 页 · 现场演示
 
-- 演示 1：渲染实测H 联网政策检索摘引（completed）深链 #/agent/rd-audit/task/d64acb6d-2039-4e30-af8c-e2e524f964bb/tab/result
-- 演示 2：渲染实测F 多表格长文（completed）深链 #/agent/rd-audit/task/e17ec362-ebc5-4212-880b-ffcc1649dffe/tab/result
-- 演示 3：渲染实测E 政策问答短结论（completed）深链 #/agent/rd-audit/task/4e3aa131-ee2c-4a5f-89c2-7149435d1dfc/tab/result
+- 演示 1：渲染实测K 失效链接处置（completed）深链 #/agent/rd-audit/task/29443fec-7f40-4fda-96ef-a419906a40b6/tab/result
+- 演示 2：渲染实测J 加计扣除测算与图表（completed）深链 #/agent/rd-audit/task/cb6b937a-d4aa-4f2b-8d6b-bbe63e55c32c/tab/result
+- 演示 3：渲染实测H 联网政策检索摘引（completed）深链 #/agent/rd-audit/task/d64acb6d-2039-4e30-af8c-e2e524f964bb/tab/result
 
 > 讲稿：用深链直达任务页签；执行类镜头现场重新执行展示 SSE 实时事件。
 > 画面：工作台实录（时间线/结论/比对）
 
 ## 第 9 页 · 应用效果
 
-- 累计任务 27 个、已完成 19 个
-- 工具调用 242 次 · 成功 234 · 失败 8 · 成功率 96.69%（分母为有返回结果的 242 次）
-- 生成底稿/产物 16 份
+- 累计任务 29 个、已完成 21 个
+- 工具调用 262 次 · 成功 252 · 失败 10 · 成功率 96.18%（分母为有返回结果的 262 次）
+- 生成底稿/产物 19 份
 - 与人工参考底稿记录级比对：一致率 60%（填得对不对）· 覆盖率 100%（填得全不全）
-- 自动化验证 53 项全部 PASS（见测试报告）
+- 自动化验证 54 项全部 PASS（见测试报告）
 - 全平台证据核对台账：每任务一行 22 列，欠账按倒序排列，可导出 MD/CSV 直接当整改清单
 
 > 讲稿：数字全部来自平台数据库与验证脚本，可现场复算。

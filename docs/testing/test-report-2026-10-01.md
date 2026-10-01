@@ -98,6 +98,8 @@
 | 渲染实测G 合同发票核验 | land-vat | DEMO-001 | waiting_review | parse_uploaded_files → match_contract_invoice → render_matching_diagram | — | — |
 | 渲染实测H 联网政策检索摘引 | rd-audit | DEMO-001 | completed | web_search → search_public_cases → fetch_content → get_search_content → get_search_content → get_search_content → get_search_content → fetch_content → fetch_public_document → get_search_content → fetch_content(!) → fetch_public_document → fetch_public_document → fetch_public_document → fetch_public_document → fetch_content → fetch_content | — | — |
 | 渲染实测I 清算流程图解 | land-vat | DEMO-001 | completed | — | — | — |
+| 渲染实测J 加计扣除测算与图表 | rd-audit | case-rd-basic | completed | search_rd_policy → search_rd_policy → parse_uploaded_files → calculate_rd_adjustment → web_search → web_search → generate_workpaper | — | 1 个 |
+| 渲染实测K 失效链接处置 | rd-audit | case-rd-basic | completed | fetch_content → parse_uploaded_files → get_search_content → fetch_public_document(!) → web_search → search_public_cases → fetch_content(!) → search_rd_policy → web_search → fetch_content → fetch_content → generate_workpaper → generate_workpaper | — | 2 个 |
 
 ## 四、准确率统计（记录级比对口径）
 

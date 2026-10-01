@@ -18,6 +18,7 @@ import {
   plainSnippet,
   stripInlineMarkdown,
   tocEntries,
+  markdownTableCells,
 } from "../../web/src/md-text.ts";
 import { db } from "../src/db.ts";
 import fs from "node:fs";
@@ -208,6 +209,20 @@ const pt = fs.readFileSync(path.resolve(here, "..", "..", "web", "src", "policy-
 ok("金额溯源的上下文走 plainContext", at.includes('import { plainContext } from "./md-text.ts"') && at.includes("context: plainContext("));
 ok("文号溯源的上下文走 plainContext", pt.includes('import { plainContext } from "./md-text.ts"') && pt.includes("const ctx = plainContext("));
 
+// 表格行的单元格拆分：转义的 `\|` 是字面竖线，不能当成列分隔符。用 split("|") 数单元格会把
+// 「上下文里带竖线的那一行」多算一列，门禁就会误报表格串列——这是提示词回归新建的任务撞出来的
+// 真实形状：模型在结论里如实抄了原文的表格片段，文号上下文以 `\|` 开头。
+expect("普通表格行按竖线拆成单元格", markdownTableCells("| a | b | c |"), [" a ", " b ", " c "]);
+expect("转义竖线不算列分隔符", markdownTableCells("| a | b\\|c | d |").length, 3);
+expect("转义竖线还原成字面竖线", markdownTableCells("| a\\|b | c |")[0]?.trim(), "a|b");
+expect("上下文以转义竖线开头也不多算一列", markdownTableCells("| 1 | 文号 | \\| 已失效 | 依据 | 档 |").length, 5);
+expect("首尾没有竖线也认", markdownTableCells("a | b"), ["a ", " b"]);
+expect(
+  "分隔行与表头列数一致",
+  markdownTableCells("| --- | --- | --- |").length,
+  markdownTableCells("| a | b | c |").length,
+);
+expect("空行安全兜底", markdownTableCells(""), [""]);
 console.log(`[verify] Markdown 纯文本化：真实任务 ${withConclusion} 个 · 目录条目 ${tocTotal} 条 · 残留 ${leaks.length} 处`);
 console.log(`[verify] 真实结论表格计数：旧口径 ${oldTables} 张 → 新口径 ${newTables} 张`);
 console.log(`[verify] 纯文本化检查项=${checks} 失败=${failures.length}`);

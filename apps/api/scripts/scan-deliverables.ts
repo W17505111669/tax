@@ -24,6 +24,7 @@ import { db } from "../src/db.ts";
 import { dirs } from "../src/config.ts";
 import { listFiles } from "../src/services/task-store.ts";
 import { CSV_BOM, parseCsv } from "../../web/src/csv.ts";
+import { markdownTableCells } from "../../web/src/md-text.ts";
 import { MANIFEST_SCHEMA, manifestIssues, type BundleManifest } from "../../web/src/manifest.ts";
 import { launchChromium, WEB_URL } from "./browser-lib.ts";
 
@@ -103,7 +104,11 @@ function checkMd(g: Got, wantTable: boolean): void {
   const tableLines = text.split(/\r?\n/).filter((l) => l.trim().startsWith("|"));
   if (!wantTable) return;
   expect(`${g.label}：确实含表格`, tableLines.length > 3, true);
-  expect(`${g.label}：表格每行竖线数一致（不错位）`, new Set(tableLines.map((l) => l.split("|").length)).size, 1);
+  expect(
+    `${g.label}：表格每行单元格数一致（不错位）`,
+    new Set(tableLines.map((l) => markdownTableCells(l).length)).size,
+    1,
+  );
   expect(`${g.label}：表格有分隔行`, tableLines.some((l) => /^\|[\s\-|]+\|$/.test(l.trim())), true);
   console.log(`  ${g.label}：${text.length} 字，表格 ${tableLines.length} 行`);
 }
