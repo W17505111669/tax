@@ -45,6 +45,14 @@ export type CheckInput = {
   amountTotal: number;
   /** 其中在工具结果与客户指令里都找不到出处的处数 */
   amountUntraced: number;
+  /**
+   * amountUntraced 的两类拆分（口径见 amount-trace.ts 的 classifyUntraced），两者之和恒等于
+   * amountUntraced。分开报是因为处置动作不同：引自联网正文要核对的是引用抄得准不准，
+   * 三处均无出处才是「模型可能口算」要逐条看的那一类。混在一个数里时，检索类任务的大批量
+   * 引文会把真正要拦的淹掉。
+   */
+  amountPendingWeb: number;
+  amountPendingUnexplained: number;
   /** 上传资料总数与其中解析失败的份数 */
   filesTotal: number;
   filesFailed: number;
@@ -152,7 +160,9 @@ export function deliveryCheck(i: CheckInput): CheckResult {
   if (i.amountUntraced > 0) {
     items.push({
       level: "warn",
-      text: `${i.amountUntraced} 处结论金额未在工具结果与客户指令中找到出处，需人工确认是否为推算值`,
+      text: `${i.amountUntraced} 处结论金额未在工具结果与客户指令中找到出处，需人工确认是否为推算值（其中引自联网正文 ${
+        i.amountPendingWeb
+      } 处，核对的是引用抄得准不准；三处均无出处 ${i.amountPendingUnexplained} 处，这才是要逐条看的那一类）`,
     });
   } else if (i.amountTotal > 0) {
     items.push({ level: "ok", text: `结论金额 ${i.amountTotal} 处均可溯源到工具结果或客户指令` });

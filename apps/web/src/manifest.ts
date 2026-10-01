@@ -83,7 +83,16 @@ export type ManifestInput = {
   } | null;
   /** 本次修订对证据的影响（前后快照与总体判断）；没有可对比的上一轮结论时为 null */
   revision: { before: EvidenceSnapshot; after: EvidenceSnapshot; verdict: string } | null;
-  amounts: { total: number; traced: number; fromInput: number; pending: number; acked: number };
+  amounts: {
+    total: number;
+    traced: number;
+    fromInput: number;
+    pending: number;
+    acked: number;
+    /** pending 的两类拆分（口径见 amount-trace.ts 的 classifyUntraced）；两者之和恒等于 pending */
+    pendingWeb: number;
+    pendingUnexplained: number;
+  };
   review: { issues: number; done: number; pending: number; notRequired: number };
   generatedAt?: string;
 };
@@ -120,6 +129,11 @@ export function manifestIssues(m: BundleManifest): string[] {
   const a = m.amounts;
   if (a.total !== a.traced + a.fromInput + a.pending + a.acked) out.push("金额溯源四项之和不等于总数");
   if (a.pending < 0 || a.acked < 0) out.push("金额计数出现负数");
+  // 待确认金额的两类拆分必须能加回总数，否则交付包里就会出现「合计 85、分类加起来 61」这种账
+  if (a.pendingWeb + a.pendingUnexplained !== a.pending) {
+    out.push(`待确认金额两类之和 ${a.pendingWeb + a.pendingUnexplained} 不等于待确认总数 ${a.pending}`);
+  }
+  if (a.pendingWeb < 0 || a.pendingUnexplained < 0) out.push("待确认金额的分类计数出现负数");
 
   const t = m.tools;
   if (t.total !== t.ok + t.failed + t.running) out.push("工具调用四类之和不等于总数");

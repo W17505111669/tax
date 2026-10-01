@@ -62,7 +62,20 @@ export type SheetInput = {
     checkedAt: string | null;
   } | null;
   searches: { calls: number; withUrls: number; metadataOnly: number; dropped: number } | null;
-  amounts: { total: number; traced: number; fromInput: number; pending: number; acked: number };
+  amounts: {
+    total: number;
+    traced: number;
+    fromInput: number;
+    pending: number;
+    acked: number;
+    /**
+     * pending 的两类拆分，口径见 amount-trace.ts 的 classifyUntraced：引自联网正文（多半是摘引
+     * 政策原文或案例数字，要核对的是引用抄得准不准）／三处均无出处（这才是要逐条看的那一类）。
+     * 两者之和恒等于 pending。
+     */
+    pendingWeb: number;
+    pendingUnexplained: number;
+  };
   revision: { verdict: string; detail: string } | null;
   /** 还没闭环的具体条目，用于表末的待办清单 */
   todos: { docRefs: string[]; weakCitations: string[]; deadLinks: string[] };
@@ -157,7 +170,11 @@ export function evidenceSheetRows(i: SheetInput): SheetRow[] {
     note:
       a.total === 0
         ? "本次结论没有金额，测算类结论请确认是否遗漏"
-        : `工具结果 ${a.traced} · 客户指令 ${a.fromInput} · 待人工确认 ${a.pending}（已人工核对 ${a.acked}）`,
+        : `工具结果 ${a.traced} · 客户指令 ${a.fromInput} · 待人工确认 ${a.pending}（已人工核对 ${a.acked}）${
+            a.pending > 0
+              ? `，其中引自联网正文 ${a.pendingWeb} 处、三处均无出处 ${a.pendingUnexplained} 处`
+              : ""
+          }`,
   });
   rows.push({
     item: "本次修订对证据的影响",

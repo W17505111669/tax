@@ -18,6 +18,7 @@ import {
   searchEvidence,
   searchFiltering,
   UNCAPPED,
+  SEARCH_TOOL_NAMES,
 } from "../../web/src/search-evidence.ts";
 import { gradeCitation, summarizeGrades } from "../../web/src/citation-grade.ts";
 import { traceDocRefs } from "../../web/src/policy-trace.ts";
@@ -30,7 +31,7 @@ import {
   refKey,
   summarizeRefChecks,
 } from "../../web/src/ref-check.ts";
-import { amountKey, TEXT_AMOUNT_TOOLS, traceAmounts } from "../../web/src/amount-trace.ts";
+import { amountKey, classifyUntraced, TEXT_AMOUNT_TOOLS, traceAmounts } from "../../web/src/amount-trace.ts";
 import { deliveryCheck } from "../../web/src/delivery-check.ts";
 import { deltaDetail, deltaVerdict, evidenceDelta, evidenceSnapshot } from "../../web/src/revision-impact.ts";
 import {
@@ -80,7 +81,7 @@ const full: SheetInput = {
   citationChecks: { total: 2, matched: 1, candidate: 1, empty: 0, error: 0 },
   linkCheck: { total: 5, ok: 3, blocked: 1, dead: 1, unreachable: 0, checkedAt: "2026-09-29T01:00:00.000Z" },
   searches: { calls: 6, withUrls: 4, metadataOnly: 2, dropped: 12 },
-  amounts: { total: 12, traced: 10, fromInput: 1, pending: 1, acked: 0 },
+  amounts: { total: 12, traced: 10, fromInput: 1, pending: 1, acked: 0, pendingWeb: 1, pendingUnexplained: 0 },
   revision: { verdict: "证据质量改善", detail: "弱证据引用 3 → 2（-1）" },
   todos: {
     docRefs: ["〔2006〕187号（未复查）"],
@@ -114,6 +115,16 @@ ok(
   "文号溯源说明写出已标注为背景参考的处数",
   (rows[0]?.note ?? "").includes("其中 12 处已在结论中标注为背景参考"),
   rows[0]?.note ?? "",
+);
+// 金额溯源这一项：待确认要按「为什么找不到出处」拆开报，混在一个数里时检索类任务的大批量引文
+// 会把真正要拦的「三处均无出处」淹掉。按项目名取行，不按位置取下标（插一项就全错位）。
+const amountRow = rows.find((r) => r.item === "结论金额溯源");
+ok("核对表确实有金额溯源这一项", amountRow !== undefined);
+ok(
+  "待确认金额在核对表里按两类拆开报",
+  (amountRow?.note ?? "").includes("其中引自联网正文 1 处") &&
+    (amountRow?.note ?? "").includes("三处均无出处 0 处"),
+  amountRow?.note ?? "",
 );
 // 还没复查过、但待复查的都已在结论里标注时，不该再催人去点复查
 const noRecheck = evidenceSheetRows({
@@ -175,11 +186,17 @@ const bare: SheetInput = {
   citationChecks: { total: 0, matched: 0, candidate: 0, empty: 0, error: 0 },
   linkCheck: null,
   searches: null,
-  amounts: { total: 0, traced: 0, fromInput: 0, pending: 0, acked: 0 },
+  amounts: { total: 0, traced: 0, fromInput: 0, pending: 0, acked: 0, pendingWeb: 0, pendingUnexplained: 0 },
   revision: null,
   todos: { docRefs: [], weakCitations: [], deadLinks: [] },
 };
 const bareRows = evidenceSheetRows(bare);
+const bareAmountRow = bareRows.find((r) => r.item === "结论金额溯源");
+ok(
+  "待确认为 0 时不写两类拆分（不填占位数字）",
+  !(bareAmountRow?.note ?? "").includes("其中引自联网正文"),
+  bareAmountRow?.note ?? "",
+);
 expect("无文号时的结论", bareRows[0]?.value, "有出处 0/0");
 ok("无文号时的说明", (bareRows[0]?.note ?? "").includes("没有出现税收规范性文件文号"), bareRows[0]?.note ?? "");
 expect("未复查时的结论", bareRows[1]?.value, "未复查");
@@ -295,6 +312,11 @@ function sheetOf(taskId: string): SheetInput | null {
   );
   const acked = new Set(listAmountChecks(taskId).map((c) => c.key));
   const amountPending = amounts.untraced.filter((u) => !acked.has(amountKey(u))).length;
+  // 与台账、任务页同一口径：检索结果池不按 ok 过滤（服务端 stats.ts 也是这么算的）
+  const amountSplit = classifyUntraced(
+    amounts.untraced.filter((u) => !acked.has(amountKey(u))),
+    calls.filter((c) => SEARCH_TOOL_NAMES.has(c.toolName)).map((c) => c.result),
+  );
   const conclusions = listConclusions(taskId);
   const rev =
     conclusions.length >= 2
@@ -333,6 +355,8 @@ function sheetOf(taskId: string): SheetInput | null {
     linkCheckAgeHours: null,
     amountTotal: amounts.total,
     amountUntraced: amountPending,
+    amountPendingWeb: amountSplit.web.length,
+    amountPendingUnexplained: amountSplit.unexplained.length,
     filesTotal: listFiles(taskId).length,
     filesFailed: 0,
     docRefTotal: tr.total,
@@ -380,6 +404,8 @@ function sheetOf(taskId: string): SheetInput | null {
       fromInput: amounts.fromInput,
       pending: amountPending,
       acked: amounts.untraced.length - amountPending,
+      pendingWeb: amountSplit.web.length,
+      pendingUnexplained: amountSplit.unexplained.length,
     },
     revision: rev,
     todos: {

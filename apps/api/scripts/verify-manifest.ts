@@ -88,6 +88,8 @@ const delivery = deliveryCheck({
   linkCheckAgeHours: 1,
   amountTotal: 10,
   amountUntraced: 0,
+  amountPendingWeb: 0,
+  amountPendingUnexplained: 0,
   filesTotal: 1,
   filesFailed: 0,
   docRefTotal: 2,
@@ -188,7 +190,7 @@ const base: ManifestInput = {
     after: { citations: 3, official: 2, professional: 1, weak: 0, weakDisclaimed: 0, docRefs: 2 },
     verdict: "证据质量改善",
   },
-  amounts: { total: 10, traced: 8, fromInput: 1, pending: 1, acked: 0 },
+  amounts: { total: 10, traced: 8, fromInput: 1, pending: 1, acked: 0, pendingWeb: 1, pendingUnexplained: 0 },
   review: { issues: 3, done: 3, pending: 0, notRequired: 0 },
 };
 
@@ -206,6 +208,24 @@ expect(
   true,
 );
 expect("金额总数不符会发现", manifestIssues({ ...m, amounts: { ...m.amounts, total: 11 } }).length > 0, true);
+// 待确认金额的两类拆分也要能被自校验拦住：交付包里出现「合计 85、分类加起来 61」就是账不平
+expect(
+  "两类之和与待确认总数不符会发现",
+  manifestIssues({ ...m, amounts: { ...m.amounts, pendingWeb: 99 } }).some((s) => s.includes("待确认金额两类之和")),
+  true,
+);
+expect(
+  "分类计数为负会发现",
+  manifestIssues({ ...m, amounts: { ...m.amounts, pendingUnexplained: -1 } }).some((s) =>
+    s.includes("分类计数出现负数"),
+  ),
+  true,
+);
+expect(
+  "样例清单的两类拆分本身是平的（不是靠断言放水）",
+  m.amounts.pendingWeb + m.amounts.pendingUnexplained,
+  m.amounts.pending,
+);
 expect("工具总数不符会发现", manifestIssues({ ...m, tools: { ...m.tools, total: 5 } }).length > 0, true);
 expect("复核总数不符会发现", manifestIssues({ ...m, review: { ...m.review, issues: 4 } }).length > 0, true);
 expect(
@@ -529,6 +549,8 @@ for (const t of listTasks()) {
       linkCheckAgeHours: null,
       amountTotal: amounts.total,
       amountUntraced: amountPending,
+      amountPendingWeb: amountSplitLocal.web.length,
+      amountPendingUnexplained: amountSplitLocal.unexplained.length,
       filesTotal: listFiles(t.id).length,
       filesFailed: listFiles(t.id).filter((f) => f.parseStatus === "failed").length,
       docRefTotal: refs.total,
@@ -590,6 +612,8 @@ for (const t of listTasks()) {
       fromInput: amounts.fromInput,
       pending: amountPending,
       acked: amounts.untraced.length - amountPending,
+      pendingWeb: amountSplitLocal.web.length,
+      pendingUnexplained: amountSplitLocal.unexplained.length,
     },
     review: { issues: rc.total, done: rc.done, pending: rc.pending, notRequired: rc.notRequired },
     generatedAt: "2026-09-28T12:00:00.000Z",

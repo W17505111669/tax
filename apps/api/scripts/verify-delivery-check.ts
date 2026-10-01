@@ -38,6 +38,8 @@ const base: CheckInput = {
   linkCheckAgeHours: null,
   amountTotal: 12,
   amountUntraced: 0,
+  amountPendingWeb: 0,
+  amountPendingUnexplained: 0,
   filesTotal: 2,
   filesFailed: 0,
   docRefTotal: 0,
@@ -127,6 +129,31 @@ expect("存在未溯源金额 → 提醒", deliveryCheck({ ...base, amountUntrac
 expect(
   "未溯源金额提示含处数",
   deliveryCheck({ ...base, amountUntraced: 3 }).items.some((x) => x.level === "warn" && x.text.includes("3 处结论金额")),
+  true,
+);
+// 两类拆分必须写进提醒：混在一个数里时，检索类任务的大批量引文会把真正要拦的「三处均无出处」淹掉
+const splitItems = deliveryCheck({
+  ...base,
+  amountUntraced: 3,
+  amountPendingWeb: 2,
+  amountPendingUnexplained: 1,
+}).items;
+expect(
+  "提醒里分开报「引自联网正文」的处数",
+  splitItems.some((x) => x.text.includes("引自联网正文 2 处")),
+  true,
+);
+expect(
+  "提醒里分开报「三处均无出处」的处数",
+  splitItems.some((x) => x.text.includes("三处均无出处 1 处")),
+  true,
+);
+expect(
+  "同一条提醒里总数与两类并存（不是各写一套）",
+  splitItems.some(
+    (x) =>
+      x.text.includes("3 处结论金额") && x.text.includes("引自联网正文 2 处") && x.text.includes("三处均无出处 1 处"),
+  ),
   true,
 );
 expect(
