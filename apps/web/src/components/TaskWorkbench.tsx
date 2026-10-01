@@ -61,6 +61,7 @@ import {
 import { buildManifest } from "../manifest.ts";
 import { DOC_REF_TABLE_LIMIT, SOURCE_VIA_HINT, SOURCE_VIA_TEXT, traceDocRefs } from "../policy-trace.ts";
 import { docRefSection } from "../delivery-docref.ts";
+import { amountSection } from "../delivery-amount.ts";
 import { gradeCitation, GRADE_HINT, GRADE_TEXT, summarizeGrades } from "../citation-grade.ts";
 import { offTopicCitationTitles } from "../ref-check.ts";
 import { isInterruptedOnRestart, taskStatusLabel } from "../task-status.ts";
@@ -1523,43 +1524,17 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     // 「政策文号溯源」整节搬到 delivery-docref.ts：留在组件闭包里就没法单测，新加的那张
     // 「留存正文出处」表因此一条断言都没有（列数、链接、依据档位全靠肉眼）。
     ...docRefSection({ refTrace, refSummary, refChecks: Object.values(refChecks) }),
-    "## 结论金额溯源",
-    "",
-    `- 结论中识别出金额 ${amountTrace.total} 处：工具结果可溯源 ${amountTrace.traced} 处 · 来自客户指令 ${amountTrace.fromInput} 处 · 待人工确认 ${amountPending.length} 处${
-      amountAcked > 0 ? ` · 已人工核对 ${amountAcked} 处` : ""
-    }`,
-    ...(amountPending.length > 0
-      ? [
-          "",
-          "| # | 金额 | 结论中的上下文 | 处理建议 |",
-          "| --- | --- | --- | --- |",
-          ...amountPending.slice(0, 20).map(
-            (u, i) => `| ${i + 1} | ${u.raw} | ${mdCell(u.context)} | 核对来源或在正文中点击标记为已核对 |`,
-          ),
-          "",
-          ...(amountPending.length > 20 ? [`（另有 ${amountPending.length - 20} 处未列出）`, ""] : []),
-        ]
-      : [
-          "",
-          "（没有待人工确认的金额：结论中的金额都能在工具调用结果或客户指令中找到出处，或已完成人工核对）",
-        ]),
-    "",
-    ...(amountReviewItems.acked.length > 0
-      ? [
-          "### 已人工核对",
-          "",
-          "| # | 金额 | 出现处数 | 核对时间 | 备注 |",
-          "| --- | --- | --- | --- | --- |",
-          ...amountReviewItems.acked.map(
-            (a, i) =>
-              `| ${i + 1} | ${a.raw} | ${a.occurrences} | ${new Date(a.at).toLocaleString("zh-CN", {
-                hour12: false,
-              })} | ${mdCell(a.note || "（无）")} |`,
-          ),
-          "",
-        ]
-      : []),
-    "",
+    // 「结论金额溯源」整节搬到 delivery-amount.ts：留在组件闭包里就没法单测，待确认金额表的
+    // 列数、超出上限有没有如实说明、两类拆分有没有写进去，此前全靠下载下来肉眼扫。
+    ...amountSection({
+      total: amountTrace.total,
+      traced: amountTrace.traced,
+      fromInput: amountTrace.fromInput,
+      pending: amountPending,
+      split: amountSplit,
+      ackedCount: amountAcked,
+      acked: amountReviewItems.acked,
+    }),
   ];
 
   // 打包下载：整页 MD 交服务端与本任务产物合成 zip；失败时退回单文件 MD，保证材料总能拿到

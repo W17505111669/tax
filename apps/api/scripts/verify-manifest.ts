@@ -8,7 +8,14 @@ import { buildManifest, MANIFEST_SCHEMA, MANIFEST_VERSION, manifestIssues, type 
 import { deliveryCheck } from "../../web/src/delivery-check.ts";
 import { artifactSources } from "../../web/src/artifact-sources.ts";
 import { artifactsOfRun, runWindows } from "../../web/src/run-artifacts.ts";
-import { traceAmounts, amountKey, classifyUntraced, TEXT_AMOUNT_TOOLS } from "../../web/src/amount-trace.ts";
+import {
+  traceAmounts,
+  amountKey,
+  classifyUntraced,
+  TEXT_AMOUNT_TOOLS,
+  UNTRACED_ORIGIN_TEXT,
+} from "../../web/src/amount-trace.ts";
+import { amountSection, AMOUNT_TABLE_LIMIT } from "../../web/src/delivery-amount.ts";
 import { parseDetail, parsedByFileName } from "../../web/src/file-parse.ts";
 import { reviewCounts } from "../../web/src/review-export.ts";
 import { normalizeRef, traceDocRefs } from "../../web/src/policy-trace.ts";
@@ -393,6 +400,7 @@ const cross = {
   amountTotal: 0,
   amountPending: 0,
   mdChecked: 0,
+  mdAmountChecked: 0,
 };
 let rowsCompared = 0;
 let pairChecks = 0;
@@ -439,7 +447,8 @@ for (const t of listTasks()) {
   }>;
   const wins = runWindows(events);
   const parsed = parsedByFileName(calls);
-  const acked = new Set(listAmountChecks(t.id).map((c) => c.key));
+  const ackRows = listAmountChecks(t.id);
+  const acked = new Set(ackRows.map((c) => c.key));
   const amounts = traceAmounts(
     detail?.result ?? "",
     calls.map((c) => c.result),
@@ -700,6 +709,65 @@ for (const t of listTasks()) {
     cross.amountPending += amountPending;
   }
 
+  // ---- 交付 MD 的金额节：人读那一行里的数字与表里每行的类别都要对得上 ----
+  // 取数直接复用上面已经算好的 amounts / amountSplitLocal，不再抄第三份 SQL
+  cross.mdAmountChecked += 1;
+  const amountMd = amountSection({
+    total: amounts.total,
+    traced: amounts.traced,
+    fromInput: amounts.fromInput,
+    pending: amounts.untraced.filter((u) => !acked.has(amountKey(u))),
+    split: amountSplitLocal,
+    ackedCount: amounts.untraced.length - amountPending,
+    acked: amounts.untraced
+      .filter((u) => acked.has(amountKey(u)))
+      .map((u) => {
+        const rec = ackRows.find((r) => r.key === amountKey(u));
+        return { raw: u.raw, occurrences: 1, at: rec?.createdAt ?? "", note: rec?.note ?? "" };
+      }),
+  });
+  const amountHead = amountMd.find((l) => l.startsWith("- 结论中识别出金额")) ?? "";
+  for (const frag of [
+    `金额 ${amounts.total} 处`,
+    `可溯源 ${amounts.traced} 处`,
+    `来自客户指令 ${amounts.fromInput} 处`,
+    `待人工确认 ${amountPending} 处`,
+  ]) {
+    checks += 1;
+    if (!amountHead.includes(frag)) {
+      failures.push(`${t.id.slice(0, 8)} 交付 MD 的金额节没写出「${frag}」，实际是：${amountHead.slice(0, 90)}`);
+    }
+  }
+  if (amountPending > 0) {
+    for (const frag of [
+      `引自联网正文 ${amountSplitLocal.web.length} 处`,
+      `三处均无出处 ${amountSplitLocal.unexplained.length} 处`,
+    ]) {
+      checks += 1;
+      if (!amountHead.includes(frag)) {
+        failures.push(`${t.id.slice(0, 8)} 交付 MD 的金额节没写出「${frag}」`);
+      }
+    }
+    const amtHeader = "| # | 金额 | 结论中的上下文 | 类别 | 处理建议 |";
+    const at = amountMd.indexOf(amtHeader);
+    checks += 1;
+    if (at < 0) failures.push(`${t.id.slice(0, 8)} 交付 MD 的金额节缺待确认表`);
+    let amtRows = 0;
+    for (let i = at + 2; i < amountMd.length && (amountMd[i] ?? "").startsWith("|"); i++) amtRows += 1;
+    const wantRows = Math.min(amountPending, AMOUNT_TABLE_LIMIT);
+    checks += 1;
+    if (at >= 0 && amtRows !== wantRows) {
+      failures.push(`${t.id.slice(0, 8)} 交付 MD 金额表 ${amtRows} 行 ≠ ${wantRows} 行`);
+    }
+    for (let i = at + 2; i < at + 2 + amtRows; i++) {
+      checks += 1;
+      const line = amountMd[i] ?? "";
+      if (!line.includes(UNTRACED_ORIGIN_TEXT.web) && !line.includes(UNTRACED_ORIGIN_TEXT.unexplained)) {
+        failures.push(`${t.id.slice(0, 8)} 金额表有一行没标类别：${line.slice(0, 40)}`);
+      }
+    }
+  }
+
   // ---- 交叉核对之二：交付 MD 的文号节，人读那一行里的数字必须与结构化数据一致 ----
   cross.mdChecked += 1;
   const mdHead =
@@ -749,13 +817,17 @@ if (conclusionRows < 1) failures.push("一个有结论的任务都没比对到�
 checks += 1;
 if (cross.mdChecked < 1) failures.push("交付 MD 的文号节一处都没核对到");
 checks += 1;
+if (cross.mdAmountChecked < 1) failures.push("交付 MD 的金额节一处都没核对到");
+checks += 1;
 if (cross.docRefTotal < 1 && cross.citations < 1) {
   failures.push("交叉核对的指标全是 0，比了等于没比（库里没有真实数据？）");
 }
 console.log(
   `[verify] 交叉核对：任务级 ${rowsCompared} 个任务 · 逐项对比 ${pairChecks} 次（其中有结论 ${conclusionRows} 个）· 交付 MD 文号节 ${
     cross.mdChecked
-  } 个 × 6 项 · 平台级 ${platPairs.length} 项（金额待确认合计 ${cross.amountPending} / 总额 ${cross.amountTotal}）`,
+  } 个 × 6 项 · 金额节 ${cross.mdAmountChecked} 个 · 平台级 ${platPairs.length} 项（金额待确认合计 ${
+    cross.amountPending
+  } / 总额 ${cross.amountTotal}）`,
 );
 if (skippedTasks > 0) {
   console.log(

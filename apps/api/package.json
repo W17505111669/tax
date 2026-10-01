@@ -35,6 +35,7 @@
     "verify:manifest": "tsx scripts/verify-manifest.ts",
     "verify:policytrace": "tsx scripts/verify-policy-trace.ts",
     "verify:docrefmd": "tsx scripts/verify-delivery-docref.ts",
+    "verify:delivamount": "tsx scripts/verify-delivery-amount.ts",
     "verify:runcmd": "tsx scripts/verify-run-cmd.ts",
     "scan:deliverables": "tsx scripts/scan-deliverables.ts",
     "verify:websearch": "tsx scripts/verify-web-search.ts",
