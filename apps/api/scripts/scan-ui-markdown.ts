@@ -26,6 +26,7 @@ import { db } from "../src/db.ts";
 import { launchChromium, WEB_URL } from "./browser-lib.ts";
 import { loadTaskDocRefs } from "./docref-lib.ts";
 import { TEXT_AMOUNT_TOOLS, traceAmounts } from "../../web/src/amount-trace.ts";
+import { retentionNote, retentionStats } from "../../web/src/search-evidence.ts";
 import { percentValue } from "../../web/src/format.ts";
 import { outcomeOf, resolvedCalls } from "../../web/src/tool-outcome.ts";
 import { STATUS_BARS, statusBreakdown } from "../../web/src/status-breakdown.ts";
@@ -482,7 +483,15 @@ async function main(): Promise<void> {
   const cmpOf = new Map<string, { usable: StoredCompare[]; unusable: StoredCompare[] }>();
   const expectOf = new Map<
     string,
-    { calls: number; docTraced: number; docTotal: number; amtTraced: number; amtTotal: number }
+    {
+      calls: number;
+      docTraced: number;
+      docTotal: number;
+      amtTraced: number;
+      amtTotal: number;
+      /** 结果页那句「本任务的联网留存不完整…」；没有截断时为 null，此时界面就不该出现这句 */
+      retention: string | null;
+    }
   >();
   for (const t of targets) {
     const d = db
@@ -510,12 +519,16 @@ async function main(): Promise<void> {
         .map((i) => parsedAll[i]),
     );
     const dr = docrefOf.get(t.id) ?? { traced: 0, total: 0 };
+    // 与界面同一份取数：/api/tasks/:id 下发的 toolCalls 是 { toolName, result: 解析后的对象 }，
+    // retentionStats 读的就是这个形状（result.retainedChars / omittedChars / truncated / toolOmittedChars）
+    const uiCalls = callRows.map((r, i) => ({ toolName: r.tool_name, result: parsedAll[i] }));
     expectOf.set(t.id, {
       calls: callRows.length,
       docTraced: dr.traced,
       docTotal: dr.total,
       amtTraced: amt.traced,
       amtTotal: amt.total,
+      retention: retentionNote(retentionStats(uiCalls)),
     });
     // 比对页的期望值走 /api/tasks/:id/compares 用的那一份 listStoredCompares，顺序也是同一个
     // listToolCalls（ORDER BY started_at ASC）：界面少渲染一条、或把比率换成读留存字段，这里都会红。
@@ -580,6 +593,8 @@ async function main(): Promise<void> {
   /** 界面数字与库取数的核对：项数与不一致清单（不一致即失败，不是提醒） */
   let numChecks = 0;
   const numFails: string[] = [];
+  /** 其中「联网留存不完整」提示确实该出现的任务数：为 0 说明这半边判据一直在空跑 */
+  let retentionNotes = 0;
   /** 台账表格逐格核对：核到的单元格数与不一致数（为 0 说明表格压根没展开） */
   let ledgerCellChecks = 0;
   let ledgerCellBad = 0;
@@ -742,6 +757,25 @@ async function main(): Promise<void> {
           }
         } else if (amt !== null) {
           numFails.push(`${p.label} 门禁取数里没有金额，界面却显示「金额溯源 ${amt[0]}/${amt[1]}」`);
+        }
+        // 结果页那句「本任务的联网留存不完整…」是把「无出处 / 无法核验」判定的边界讲清楚的关键句：
+        // 引文若落在被截掉的段落里，平台核对不到，得人工回原页面确认。它由 retentionNote(retentionStats(...))
+        // 生成，这里用**同一份函数**算期望值、整句逐字对——句子里有 5 个数字（工具层截断次数、其中连正文
+        // 都没留住的次数、留存层截断条数、合计截掉字数、单条最多字数），任何一个换了口径整句就对不上。
+        numChecks += 1;
+        const bodyFlat = bodyText.replace(/\s+/g, " ");
+        if (want.retention !== null) {
+          retentionNotes += 1;
+          if (!bodyFlat.includes(want.retention.replace(/\s+/g, " "))) {
+            numFails.push(
+              `${p.label} 取数说该任务联网留存不完整，界面上却没有那句提示（或里面 5 个数字有一个对不上）：「${want.retention.slice(
+                0,
+                70,
+              )}…」`,
+            );
+          }
+        } else if (bodyFlat.includes("本任务的联网留存不完整")) {
+          numFails.push(`${p.label} 取数说该任务留存没有截断，界面却写着「本任务的联网留存不完整」`);
         }
         // 单任务「证据核对表」：这张表同时会作为核对表 MD 进交付包，界面渲染与导出用的是同一份
         // 取数（evidence-sheet.ts），但**渲染路径**此前没人核对过——表少一行、或某一行的数字
@@ -1475,6 +1509,11 @@ async function main(): Promise<void> {
   if (args.overview) console.log(`[scan] 看板 hero 区核对：${heroChecks} 项（大数字 + 口径标签 + 运行天数 + 日均 + 今日，× 总览页数）`);
   const weekMissing = args.overview && weekChecks === 0;
   if (args.overview) console.log(`[scan] 看板周环比 + 复核缺口核对：${weekChecks} 项`);
+  if (args.tabs.includes("result")) {
+    console.log(
+      `[scan] 结果页「联网留存不完整」提示：应有 ${retentionNotes} 个任务（其余任务走「这句不该出现」那半边判据）`,
+    );
+  }
   console.log(
     `[scan] 界面数字与库取数核对：${numChecks} 项 + 台账单元格 ${ledgerCellChecks} 个 + 比对页 ${cmpChecks} 项 + 看板 KPI ${kpiChecks} 项 + 状态分布 ${barsChecks} 项 + hero 区 ${heroChecks} 项 + 周环比与缺口 ${weekChecks} 项（不一致 ${ledgerCellBad} 个）· 合计不一致 ${numFails.length} 处`,
   );
