@@ -473,6 +473,26 @@ ok("指令说明反爬不算失效，因此不会被列进来", !deadInstr.inclu
 expect("既无素材也无失效链接时返回空指令", buildRevisionInstruction([], []), "");
 expect("失效链接单独计数", revisionCounts([], 2).deadLinks, 2);
 expect("total 仍只数复查素材，按钮上的数是两者相加", revisionCounts([], 2).total, 0);
+// 按钮上的数字是「复查素材 + 失效链接」，而它的渲染条件此前只看复查素材：只有失效链接的任务
+// 数字算得出来、按钮却不渲染，那条唯一的修复通道就等于没有（组件里的注释写着「链接腐烂此前
+// 只能被交付自检发现，没有修复通道」——通道加了，入口条件漏了它）。实测全库 40 个任务当前
+// 复查素材与失效链接都是 0，所以这一档在真实数据上跑不出来，只能钉源码：渲染条件与数字同源。
+const benchSrc = fs.readFileSync(
+  path.resolve(here, "..", "..", "web", "src", "components", "TaskWorkbench.tsx"),
+  "utf8",
+);
+expect("修订指令按钮的渲染条件用 revisionTotal（与按钮上的数字同源）", benchSrc.includes("{revisionTotal > 0 && ("), true);
+expect(
+  "不再只看复查素材（那样只有失效链接的任务点不到入口）",
+  benchSrc.includes("{revisionItems.length > 0 && ("),
+  false,
+);
+expect("按钮文字里的数字仍是 revisionTotal", benchSrc.includes("生成修订指令（{revisionTotal}）"), true);
+expect(
+  "只有失效链接时生成的指令确实非空（否则按钮点下去什么也填不出来）",
+  buildRevisionInstruction([], [{ title: "失效的解读页", url: "https://a.gov.cn/dead.html" }]).length > 0,
+  true,
+);
 
 // 已经交代过的素材不再进指令。此前【标注未取得原文】那一段没有任何「已写回」判据
 //（写回脚本的注释写着「没有地址可比，仍会列出，由人工决定」），于是每轮续跑都把同样几条

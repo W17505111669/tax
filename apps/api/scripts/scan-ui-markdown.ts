@@ -124,7 +124,7 @@ const scanSource = `(patterns) => {
  * 黑名单故意不看 title：说明性 title 里出现「点击展开复查面板」这种名词短语，不该把入口挡掉。
  * 点到会跳转的按钮时整页交互立刻中止（DOM 已经换了，继续点只会扫到别的页面），并如实计数。
  */
-const TOGGLE_OPEN = /(展开|收起|折叠|更多|显示全部|查看全部|帮助|详情|快捷键)/;
+const TOGGLE_OPEN = /(展开|收起|折叠|更多|显示全部|查看全部|帮助|详情|快捷键|修订指令)/;
 const TOGGLE_BLOCK =
   /(复查|复核|下载|删除|清空|生成|上传|运行|重跑|续跑|复制|写入|写回|导出|重新解析|校验|核验|标注|保存|提交|新建|发送|启动|停止|归档|打开|跳转|前往)/;
 /**
@@ -135,6 +135,14 @@ const TOGGLE_BLOCK =
  */
 const TOGGLE_SKIP = /(会话侧栏)/;
 /**
+ * BLOCK 的例外，逐个点名、只按**可见文字**精确放行：这些按钮的名字里带 BLOCK 词，但点下去只改
+ * 前端状态（`fillRevisionInstruction` 把修订指令填进「续跑任务」输入框并展开面板），既不写库也不
+ * 发请求。它打开的正是 P0 里点名要覆盖的「修订模式对话框」，而那一块文本此前从来没被扫过。
+ * 放行范围严格限定在按钮文字上，title 里的「需人工核对后提交」不参与判断；面板里真正会提交的
+ * 按钮（提交 / 续跑 / 运行）仍在 BLOCK 里，一个都不放。
+ */
+const TOGGLE_ALLOW = /^生成修订指令/;
+/**
  * 这些入口必须真的点到，否则「交互覆盖」就是空跑绿：面板没展开，里面的残留永远扫不到。
  * 「键盘快捷键」是图标按钮（只有 title，没有文字），此前 OPEN 词汇表里没有它，于是这个浮层的
  * 内容从来没被扫过一次——实测 34 页 201 次点击、14 类入口，全是带文字的按钮。
@@ -142,12 +150,14 @@ const TOGGLE_SKIP = /(会话侧栏)/;
 const REQUIRED_TOGGLES: Array<{ label: string; tabs: string[] }> = [
   { label: "文号溯源", tabs: ["result", "review"] },
   { label: "键盘快捷键", tabs: ["timeline", "result", "compare", "review"] },
+  { label: "生成修订指令", tabs: ["result", "review"] },
 ];
 
 const listTogglesSource = `(spec) => {
   const open = new RegExp(spec[0]);
   const block = new RegExp(spec[1]);
   const skip = new RegExp(spec[2]);
+  const allow = new RegExp(spec[3]);
   const out = [];
   for (const el of Array.from(document.querySelectorAll('button, [role="button"], summary'))) {
     const flat = (s) => (s || '').replace(/\\s+/g, ' ').trim();
@@ -161,7 +171,7 @@ const listTogglesSource = `(spec) => {
     // 「更多操作（删除 / 清空）」的图标按钮会因为 OPEN 命中「更多」而被点下去；而有文字的按钮
     // 不能拿 title 试 BLOCK——title 常常是一整段说明，实测「文号溯源」那个只读面板的 title 里
     // 写着「已联网复查 N 处…待人工确认 N 处」，一下命中三个 BLOCK 词，必需入口被自己排掉了。
-    if (block.test(text === '' ? hay : text)) continue;
+    if (block.test(text === '' ? hay : text) && !allow.test(text)) continue;
     if (skip.test(hay)) continue;
     if (el.offsetParent === null) continue;
     el.setAttribute('data-scan-toggle', String(out.length));
@@ -229,6 +239,8 @@ async function main(): Promise<void> {
   const seenIconOnly = new Set<string>();
   /** 其中扫完成功关回去的次数：关不掉的浮层会一直盖住后面的入口 */
   let iconOnlyClosed = 0;
+  /** 点开过多少次「续跑任务」面板（由「生成修订指令」打开，扫完按 Esc 收起） */
+  let revisionPanels = 0;
   const toggleLabels = new Set<string>();
   let nodesTotal = 0;
   let charsTotal = 0;
@@ -274,7 +286,12 @@ async function main(): Promise<void> {
   /** 枚举当前页点得动的折叠入口。每轮都要重新枚举，理由见下面循环里的注释。 */
   const listToggles = () =>
     page.evaluate(
-      `(${listTogglesSource})(${JSON.stringify([TOGGLE_OPEN.source, TOGGLE_BLOCK.source, TOGGLE_SKIP.source])})`,
+      `(${listTogglesSource})(${JSON.stringify([
+        TOGGLE_OPEN.source,
+        TOGGLE_BLOCK.source,
+        TOGGLE_SKIP.source,
+        TOGGLE_ALLOW.source,
+      ])})`,
     ) as Promise<Array<{ idx: number; label: string; iconOnly: boolean }>>;
 
   for (const p of pages) {
@@ -338,6 +355,13 @@ async function main(): Promise<void> {
             await page.waitForTimeout(200);
           }
         }
+        // 「生成修订指令」会把修订指令填进「续跑任务」面板并展开它（只改前端状态）。面板是覆盖层，
+        // 扫完按 Esc 收起——快捷键表里就写着「Esc 收起续跑面板 / 阅读器」，别让它挡住后面的入口。
+        if (TOGGLE_ALLOW.test(t.label)) {
+          revisionPanels += 1;
+          await page.keyboard.press("Escape");
+          await page.waitForTimeout(250);
+        }
       }
     }
     if (args.reader && p.tab === "result") {
@@ -380,6 +404,7 @@ async function main(): Promise<void> {
           iconOnlyClicked,
           iconOnlyClosed,
           iconOnlyLabels: [...iconOnlyLabels],
+          revisionPanels,
           requiredMissing,
           requiredAbsent,
           seenLabels: [...seenLabels],
@@ -409,6 +434,7 @@ async function main(): Promise<void> {
         iconOnlyLabels.size > 0 ? `：${[...iconOnlyLabels].join("；")}` : ""
       }`,
     );
+    console.log(`[scan] 「续跑任务」面板（修订模式对话框）：点开并扫过 ${revisionPanels} 次`);
     if (requiredMissing.length > 0) {
       console.log(`[scan] 必需入口一次都没点到：${requiredMissing.join("；")}（这些面板里的内容等于没扫）`);
     }

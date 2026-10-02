@@ -2374,12 +2374,15 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                       >
                         {refBusy ? "复查中…" : `联网复查${refTargets.length > 0 ? `（${Math.min(refTargets.length, 10)} 处）` : ""}`}
                       </button>
-                      {revisionItems.length > 0 && (
+                      {/* 渲染条件与按钮上的数字必须同源：数字是「复查素材 + 失效链接」，条件此前只看
+                          复查素材，于是「只有失效链接」的任务算得出数字、却渲染不出按钮——链接腐烂的
+                          唯一修复通道等于没有。 */}
+                      {revisionTotal > 0 && (
                         <button
                           type="button"
                           className="action-btn"
                           onClick={fillRevisionInstruction}
-                          title="把已找到出处的文号、已找到替代来源的弱证据引用、以及仍未取得原文的项目整理成一条修订指令，填进「续跑任务」输入框；平台不自动改写结论，需人工核对后提交"
+                          title="把已找到出处的文号、已找到替代来源的弱证据引用、仍未取得原文的项目与失效链接整理成一条修订指令，填进「续跑任务」输入框；平台不自动改写结论，需人工核对后提交"
                         >
                           生成修订指令（{revisionTotal}）
                         </button>
