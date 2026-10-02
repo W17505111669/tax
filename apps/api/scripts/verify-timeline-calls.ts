@@ -9,6 +9,8 @@ import { fileURLToPath } from "node:url";
 import { matchToolCalls } from "../../web/src/timeline-calls.ts";
 import { applyEvent, createEventsAcc, FLUSH_MS } from "../../web/src/task-events.ts";
 import type { AgentEvent } from "../../web/src/types.ts";
+import { db } from "../src/db.ts";
+import { listConclusions, listTasks } from "../src/services/task-store.ts";
 
 const failures: string[] = [];
 let checks = 0;
@@ -194,6 +196,41 @@ expect("hook 里不再每条事件复制一次调用数组", hookSrc.includes("s
 expect("hook 按固定间隔批量刷新", hookSrc.includes("setTimeout(flush, FLUSH_MS)"), true);
 expect("刷新间隔取自 task-events.ts（两边不各写一个数）", [hookSrc.includes("FLUSH_MS"), FLUSH_MS > 0], [true, true]);
 expect("聚合口径不在 hook 里重复实现", hookSrc.includes("STATUS_LABEL"), false);
+
+// ---- 结论正文的两份存放必须一致 ----
+// `tasks.result` 是运行结束时写下的那一份；`events` 里的 agent_text_delta 分片按 listConclusions
+// 的规则重组出「每次运行一段结论」。界面上结果页正文走前者、「上次运行结论 / 结论较上次运行变化」
+// 走后者，两边不一致就是同一份材料各说一套。实测 37 个有结论的任务全部一致、0 个不一致，
+// 但此前一条断言都没有——一致靠的是运气，不是被钉住的口径。
+let conclSame = 0;
+let conclDiff = 0;
+let conclNone = 0;
+for (const t of listTasks()) {
+  const stored = String(
+    (db.prepare(`SELECT COALESCE(result,'') AS r FROM tasks WHERE id = ?`).get(t.id) as { r: string }).r,
+  );
+  if (stored === "") {
+    conclNone += 1;
+    continue;
+  }
+  const runs = listConclusions(t.id);
+  const last = runs[runs.length - 1] ?? "";
+  checks += 1;
+  if (last === stored) {
+    conclSame += 1;
+  } else {
+    conclDiff += 1;
+    failures.push(
+      `${t.id.slice(0, 8)} 结论两份存放不一致：tasks.result ${stored.length} 字 vs 事件重组最后一段 ${last.length} 字（重组 ${runs.length} 段）`,
+    );
+  }
+}
+expect("确实对到了有结论的真实任务（不是空跑）", conclSame >= 1, true);
+const noResultTasks = (
+  db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE COALESCE(result,'') = ''`).get() as { n: number }
+).n;
+expect("没有结论的任务不参与比对，但数目必须与库里一致", conclNone, noResultTasks);
+console.log(`[verify] 结论两份存放：一致 ${conclSame} · 不一致 ${conclDiff} · 无结论 ${conclNone}`);
 
 console.log(`[verify] 时间线配对检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
