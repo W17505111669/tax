@@ -27,6 +27,15 @@ import { launchChromium, WEB_URL } from "./browser-lib.ts";
 import { loadTaskDocRefs } from "./docref-lib.ts";
 import { TEXT_AMOUNT_TOOLS, traceAmounts } from "../../web/src/amount-trace.ts";
 import { computePlatformStats } from "../src/services/stats.ts";
+import { listAgents } from "../src/agents.ts";
+import {
+  ledgerCells,
+  ledgerSort,
+  ledgerTotals,
+  ledgerTotalCells,
+  LEDGER_COLUMNS,
+  type LedgerRow,
+} from "../../web/src/evidence-ledger.ts";
 
 const WEB = WEB_URL;
 
@@ -214,6 +223,13 @@ async function main(): Promise<void> {
   // 看板取数：台账合计行那一行里有 15 个数字，全部与它对
   const board = computePlatformStats();
   const bev = board.evidence;
+  // 台账表格的期望值：与导出（MD / CSV）同一份 ledgerCells，行序也与界面同一份 ledgerSort
+  const agents = listAgents();
+  // 用 shortName：界面与导出（ledgerMarkdown / ledgerCsv）传的是同一个 agentName 函数，取的是
+  // shortName；第一版拿 displayName 当期望值，「作品」列 40 行全部报不一致，报的是我自己的错。
+  const agentNameOf = (id: string): string => agents.find((a) => a.id === id)?.shortName ?? id;
+  const expLedgerRows = ledgerSort(bev.ledger as unknown as LedgerRow[]);
+  const expLedgerCells = expLedgerRows.map((r) => ledgerCells(r, agentNameOf));
   const expectOf = new Map<
     string,
     { calls: number; docTraced: number; docTotal: number; amtTraced: number; amtTotal: number }
@@ -284,6 +300,9 @@ async function main(): Promise<void> {
   /** 界面数字与库取数的核对：项数与不一致清单（不一致即失败，不是提醒） */
   let numChecks = 0;
   const numFails: string[] = [];
+  /** 台账表格逐格核对：核到的单元格数与不一致数（为 0 说明表格压根没展开） */
+  let ledgerCellChecks = 0;
+  let ledgerCellBad = 0;
   /**
    * 枚举时**见过**的入口（点没点到另说）。「必需入口」的判据是「范围内出现过就必须点到」，
    * 不是「任何时候都必须点到」：窄范围跑（--tasks 指定几个任务、--no-overview）时，
@@ -460,6 +479,84 @@ async function main(): Promise<void> {
           }
         }
       }
+      // 台账表格本体：40 行 × 22 列，此前在界面上一个单元格都没被核对过。表头与列序正是「按位置
+      // 配对的两个数组」那类静默退化：JSX 里少一个 <td>、或列序与 LEDGER_COLUMNS 不一致，导出
+      // （MD / CSV 走 ledgerCells）与界面就会各说一套，而两边各自看起来都是自洽的。
+      const ledgerSummary = page.locator('summary:has-text("全平台证据核对台账")').first();
+      if ((await ledgerSummary.count()) > 0) {
+        await ledgerSummary.click({ timeout: 5000 }).catch(() => undefined);
+        await page.waitForTimeout(700);
+      }
+      const table = (await page.evaluate(`(function () {
+        for (const t of Array.from(document.querySelectorAll('table'))) {
+          const headRow = t.querySelector('thead tr') || t.querySelector('tr');
+          if (!headRow) continue;
+          const head = Array.from(headRow.querySelectorAll('th,td')).map((c) =>
+            (c.textContent || '').replace(/\\s+/g, ' ').trim(),
+          );
+          if (head[0] !== '任务' || head.length < 20) continue;
+          const rows = Array.from(t.querySelectorAll('tbody tr')).map((tr) =>
+            Array.from(tr.querySelectorAll('td,th')).map((c) => (c.textContent || '').replace(/\\s+/g, ' ').trim()),
+          );
+          return { head: head, rows: rows };
+        }
+        return null;
+      })()`)) as { head: string[]; rows: string[][] } | null;
+      numChecks += 1;
+      if (!table) {
+        numFails.push(`${p.label} 没找到台账表格（表头第一列应为「任务」，需要先点开「全平台证据核对台账」）`);
+      } else {
+        numChecks += 1;
+        if (table.head.join("|") !== LEDGER_COLUMNS.join("|")) {
+          numFails.push(
+            `${p.label} 台账表头与 LEDGER_COLUMNS 不一致：界面 ${table.head.length} 列（${table.head
+              .slice(0, 4)
+              .join("/")}…）vs 定义 ${LEDGER_COLUMNS.length} 列`,
+          );
+        }
+        const lastRow = table.rows[table.rows.length - 1] ?? [];
+        const totalRow = /合计/.test(lastRow[0] ?? "") ? lastRow : null;
+        const bodyRows = totalRow ? table.rows.slice(0, -1) : table.rows;
+        numChecks += 1;
+        if (bodyRows.length !== expLedgerCells.length) {
+          numFails.push(`${p.label} 台账界面 ${bodyRows.length} 行 ≠ 取数 ${expLedgerCells.length} 行`);
+        }
+        // 逐格比：界面单元格里可能还挂了徽章或链接文字，所以判据是「包含取数值」而不是全等
+        let cellBad = 0;
+        for (let i = 0; i < Math.min(bodyRows.length, expLedgerCells.length); i++) {
+          for (let j = 0; j < LEDGER_COLUMNS.length; j++) {
+            const want = expLedgerCells[i]![j] ?? "";
+            if (want === "") continue;
+            ledgerCellChecks += 1;
+            const got = bodyRows[i]![j] ?? "";
+            if (!got.includes(want)) {
+              cellBad += 1;
+              if (cellBad <= 6) {
+                numFails.push(
+                  `${p.label} 台账第 ${i + 1} 行「${LEDGER_COLUMNS[j]}」界面「${got.slice(0, 28)}」不含取数值「${want.slice(0, 28)}」`,
+                );
+              }
+            }
+          }
+        }
+        ledgerCellBad += cellBad;
+        if (totalRow) {
+          const wantTotal = ledgerTotalCells(ledgerTotals(expLedgerRows));
+          for (let j = 0; j < wantTotal.length; j++) {
+            const want = wantTotal[j] ?? "";
+            if (want === "") continue;
+            ledgerCellChecks += 1;
+            if (!(totalRow[j] ?? "").includes(want)) {
+              ledgerCellBad += 1;
+              numFails.push(
+                `${p.label} 台账合计行第 ${j + 1} 列界面「${(totalRow[j] ?? "").slice(0, 28)}」不含取数值「${want.slice(0, 28)}」`,
+              );
+            }
+          }
+        }
+        // 界面表格没有合计行是**对的**：合计走 <summary> 那一行（上面已按 15 个数字逐项核过），
+        // ledgerTotalCells 只用于 MD / CSV 导出。所以合计行「有就核、没有不算失败」。
+      }
     }
     if (args.interact && args.interactLimit > 0) {
       // 每轮重新枚举，不复用上一轮的标记：点开一个面板会让 React 重建那一片 DOM，
@@ -613,7 +710,13 @@ async function main(): Promise<void> {
     console.log(`  - [${h.page}] ${h.pattern} :: ${h.text.replace(/\s+/g, " ").slice(0, 90)} :: ${h.chain}`);
   }
   if (allHits.length > 25) console.log(`  …另有 ${allHits.length - 25} 处，用 --json 看全量`);
-  console.log(`[scan] 界面数字与库取数核对：${numChecks} 项 · 不一致 ${numFails.length} 处`);
+  // 台账表格没展开时逐格核对会一个都不剩，那这项覆盖就是空的（合计行那 15 个数还在，容易掩盖）
+  if (args.overview && ledgerCellChecks === 0) {
+    numFails.push("一个台账单元格都没核到（表格没展开？），逐格核对这项覆盖是空的");
+  }
+  console.log(
+    `[scan] 界面数字与库取数核对：${numChecks} 项 + 台账单元格 ${ledgerCellChecks} 个（不一致 ${ledgerCellBad} 个）· 合计不一致 ${numFails.length} 处`,
+  );
   for (const f of numFails.slice(0, 10)) console.log(`  - ${f}`);
   if (numFails.length > 10) console.log(`  …另有 ${numFails.length - 10} 处`);
   // 只有本轮确实扫了结果页时才要求「核对过数字」，否则 --tabs=timeline 这种窄跑会被误判成空跑
