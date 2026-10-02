@@ -14,6 +14,10 @@
  *
  * 覆盖的下载件：台账 CSV、台账 Markdown（作品总览页）；单任务核对表 MD、交付包 zip、
  * mermaid 的 PNG 与 SVG（任务结果页）。
+ *
+ * 结果页那一档按维度挑**多个**任务跑，不只挑一个最齐的：每个智能体各一个「资料 + 产物 + 图」
+ * 都齐的、一个「有结论但没产物」的空态、一个带 error 的失败态。一个任务通过不代表别的任务也
+ * 通过——此前只测一个，实测挑中的是 land-vat 的回归案例，rd-audit 的交付物一次都没被下载过。
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -113,14 +117,15 @@ function checkMd(g: Got, wantTable: boolean): void {
   console.log(`  ${g.label}：${text.length} 字，表格 ${tableLines.length} 行`);
 }
 
-async function checkZip(g: Got): Promise<void> {
+/** 返回 manifest 申报的产物 + 资料份数：0 说明「申报的都在包里」这条核对是在空数组上通过的 */
+async function checkZip(g: Got): Promise<number> {
   const zip = await JSZip.loadAsync(g.buf);
   const names = Object.keys(zip.files).filter((n) => !zip.files[n]?.dir);
   expect(`${g.label}：zip 能解开且确实有文件`, names.length > 1, true);
   expect(`${g.label}：包含 manifest.json`, names.includes("manifest.json"), true);
   expect(`${g.label}：包含整页交付 MD`, names.some((n) => n.toLowerCase().endsWith(".md")), true);
   const mf = zip.file("manifest.json");
-  if (!mf) return;
+  if (!mf) return 0;
   const m = JSON.parse(await mf.async("string")) as BundleManifest;
   expect(`${g.label}：manifest schema 对得上`, m.schema, MANIFEST_SCHEMA);
   expect(`${g.label}：manifest 自校验通过（内部不变量）`, manifestIssues(m), []);
@@ -135,6 +140,7 @@ async function checkZip(g: Got): Promise<void> {
   console.log(
     `  ${g.label}：${names.length} 个文件，${(g.buf.length / 1024).toFixed(1)} KB · 申报产物 ${declared.length} 份 / 资料 ${declaredFiles.length} 份`,
   );
+  return declared.length + declaredFiles.length;
 }
 
 function checkPng(g: Got): void {
@@ -166,23 +172,36 @@ function checkSvg(g: Got): void {
 }
 
 async function main(): Promise<void> {
+  type Row = { id: string; title: string; agentId: string; result: string | null; error: string };
   const rows = db
     .prepare(
-      `SELECT id, title, agent_id AS agentId, result FROM tasks WHERE LENGTH(COALESCE(result,'')) > 0 ORDER BY created_at DESC`,
+      `SELECT id, title, agent_id AS agentId, result, COALESCE(error,'') AS error FROM tasks WHERE LENGTH(COALESCE(result,'')) > 0 ORDER BY created_at DESC`,
     )
-    .all() as Array<{ id: string; title: string; agentId: string; result: string | null }>;
+    .all() as Row[];
   // 挑任务不能只挑「结论里有 mermaid」：交付包这一档还要有产物与上传资料，否则 manifest 的
-  // 申报核对就在空数组上通过了（空跑一样是绿的）。三样都齐优先，其次只要有图，最后退到第一条。
+  // 申报核对就在空数组上通过了（空跑一样是绿的）。所以三样都齐的必须有一个；但只测它也不够，
+  // 空态与失败态各有各的走法（空态的包里只有结论 MD 与 manifest；失败态的下载按钮此前压根
+  // 不渲染，是上一轮才修出来的），都得真下载一次。
   const artDir = (id: string): string => path.join(dirs.outputs, id);
-  const fullyLoaded = rows.find(
-    (r) =>
-      /```mermaid/.test(r.result ?? "") &&
-      listFiles(r.id).length > 0 &&
-      fs.existsSync(artDir(r.id)) &&
-      fs.readdirSync(artDir(r.id)).length > 0,
-  );
-  const target = fullyLoaded ?? rows.find((r) => /```mermaid/.test(r.result ?? "")) ?? rows[0];
-  if (!target) {
+  const artCount = (id: string): number => (fs.existsSync(artDir(id)) ? fs.readdirSync(artDir(id)).length : 0);
+  const hasDiagram = (r: Row): boolean => /```mermaid/.test(r.result ?? "");
+  const complete = (r: Row): boolean => hasDiagram(r) && listFiles(r.id).length > 0 && artCount(r.id) > 0;
+  const picked = new Map<string, { row: Row; tags: string[] }>();
+  const pick = (row: Row | undefined, tag: string): void => {
+    if (!row) return;
+    const e = picked.get(row.id) ?? { row, tags: [] };
+    if (!e.tags.includes(tag)) e.tags.push(tag);
+    picked.set(row.id, e);
+  };
+  const agentIds = [...new Set(rows.map((r) => r.agentId))];
+  for (const a of agentIds) {
+    const inAgent = rows.filter((r) => r.agentId === a);
+    pick(inAgent.find(complete) ?? inAgent.find(hasDiagram) ?? inAgent[0], `齐全·${a}`);
+  }
+  pick(rows.find((r) => artCount(r.id) === 0), "空态·无产物");
+  pick(rows.find((r) => r.error !== ""), "失败态·带error");
+  const targets = [...picked.values()];
+  if (targets.length === 0) {
     console.log("[FAIL] 库里没有带结论的任务，无从实测下载");
     process.exit(2);
   }
@@ -204,51 +223,80 @@ async function main(): Promise<void> {
   const csv = await grab(page, 'button[title^="下载台账 CSV"]', "台账CSV");
   const ledgerMd = await grab(page, 'button[title^="下载台账 Markdown"]', "台账MD");
 
-  // 2) 任务结果页：核对表 MD、交付包 zip、mermaid PNG / SVG
-  await page.goto(`${WEB_URL}/#/agent/${target.agentId}/task/${target.id}/tab/result`, {
-    waitUntil: "domcontentloaded",
-    timeout: 30000,
-  });
-  await page.waitForTimeout(2500);
-  const sheetMd = await grab(page, 'button[title^="单独下载这一页核对表"]', "核对表MD");
-  const zip = await grab(page, 'button[title*="zip"]', "交付包zip");
-  // mermaid 是异步渲染的，工具条要等图出来才会挂上
-  await page.waitForSelector(".mermaid-tools button", { timeout: 20000 }).catch(() => undefined);
-  const diagramBtns = page.locator(".mermaid-tools button");
-  const dn = await diagramBtns.count();
-  for (let i = 0; i < Math.min(dn, 2); i++) {
-    const label = (await diagramBtns.nth(i).textContent())?.trim() ?? `图${i}`;
-    const g = await grab(page, `.mermaid-tools button >> nth=${i}`, `mermaid${label.replace(/\s+/g, "")}`);
-    if (g && /\.png$/i.test(g.name)) checkPng(g);
-    if (g && /\.svg$/i.test(g.name)) checkSvg(g);
+  // 2) 每个目标任务的结果页：核对表 MD、交付包 zip、mermaid PNG / SVG
+  let diagramTasks = 0;
+  let emptyDeclared = -1;
+  const perTask: string[] = [];
+  for (const t of targets) {
+    const tag = t.tags.join("+");
+    await page.goto(`${WEB_URL}/#/agent/${t.row.agentId}/task/${t.row.id}/tab/result`, {
+      waitUntil: "domcontentloaded",
+      timeout: 30000,
+    });
+    // 等按钮真的挂上再点：事件多的任务（实测最大 13829 条）回放要几秒，固定等 2.5 秒会点到空
+    await page.waitForSelector('button[title^="单独下载这一页核对表"]', { timeout: 40000 }).catch(() => undefined);
+    await page.waitForTimeout(800);
+    const sheetMd = await grab(page, 'button[title^="单独下载这一页核对表"]', `核对表MD·${tag}`);
+    const zip = await grab(page, 'button[title*="zip"]', `交付包zip·${tag}`);
+    // mermaid 是异步渲染的，工具条要等图出来才会挂上；结论里没图的任务不必白等 20 秒
+    await page
+      .waitForSelector(".mermaid-tools button", { timeout: hasDiagram(t.row) ? 20000 : 3000 })
+      .catch(() => undefined);
+    const diagramBtns = page.locator(".mermaid-tools button");
+    const dn = await diagramBtns.count();
+    if (dn > 0) diagramTasks += 1;
+    for (let i = 0; i < Math.min(dn, 2); i++) {
+      const label = (await diagramBtns.nth(i).textContent())?.trim() ?? `图${i}`;
+      const g = await grab(page, `.mermaid-tools button >> nth=${i}`, `mermaid${label.replace(/\s+/g, "")}·${tag}`);
+      if (g && /\.png$/i.test(g.name)) checkPng(g);
+      if (g && /\.svg$/i.test(g.name)) checkSvg(g);
+    }
+    expect(`${tag}：确实下载到了核对表 MD`, sheetMd !== null, true);
+    expect(`${tag}：确实下载到了交付包 zip`, zip !== null, true);
+    if (sheetMd) checkMd(sheetMd, true);
+    if (zip) {
+      const declared = await checkZip(zip);
+      if (t.tags.some((x) => x.startsWith("空态"))) emptyDeclared = declared;
+      perTask.push(
+        `${tag}「${t.row.title.slice(0, 16)}」资料 ${listFiles(t.row.id).length} · 产物 ${artCount(
+          t.row.id,
+        )} · 图 ${hasDiagram(t.row)} · 申报 ${declared} 份`,
+      );
+    }
   }
   await browser.close();
 
   if (csv) checkCsv(csv);
   if (ledgerMd) checkMd(ledgerMd, true);
-  if (sheetMd) checkMd(sheetMd, true);
-  if (zip) await checkZip(zip);
 
   // 覆盖率：走查型断言必须同时断「确实下载到了东西」，否则按钮改了 title 就悄悄变成空跑
   const labels = new Set(got.map((g) => g.label));
-  for (const want of ["台账CSV", "台账MD", "核对表MD", "交付包zip"]) {
+  for (const want of ["台账CSV", "台账MD"]) {
     expect(`确实下载到了「${want}」`, labels.has(want), true);
   }
   expect("确实下载到了 mermaid 图（PNG 或 SVG 至少一种）", got.some((g) => g.label.startsWith("mermaid")), true);
   expect("下载的交付物不少于 5 份", got.length >= 5, true);
   expect("确实核对到了 manifest 申报的文件（不是空数组上通过）", declaredTotal > 0, true);
-  console.log(
-    `[scan] 选中任务「${target.title.slice(0, 24)}」：资料 ${listFiles(target.id).length} 份 · 产物 ${
-      fs.existsSync(artDir(target.id)) ? fs.readdirSync(artDir(target.id)).length : 0
-    } 份 · 结论含 mermaid ${/```mermaid/.test(target.result ?? "")}`,
+  // 覆盖维度必须真的覆盖到，否则「按维度挑任务」这段就是摆设
+  expect("覆盖到的任务不少于 4 个（两个智能体 + 空态 + 失败态）", targets.length >= 4, true);
+  expect("库里的智能体都覆盖到了", agentIds.every((a) => targets.some((t) => t.row.agentId === a)), true);
+  expect("覆盖了「有结论但没产物」的空态任务", targets.some((t) => t.tags.some((x) => x.startsWith("空态"))), true);
+  expect("覆盖了带 error 的失败态任务（它的下载按钮上一轮才刚出现）", targets.some((t) => t.tags.some((x) => x.startsWith("失败态"))), true);
+  expect(
+    "空态任务的 manifest 申报确实是 0（这一档的申报核对不算数，别把它当成有效覆盖）",
+    emptyDeclared,
+    0,
   );
+  expect("确实有任务的结论里带图（图这一档不是空跑）", diagramTasks >= 1, true);
+  console.log(`[scan] 覆盖 ${targets.length} 个任务 · 其中结论带图 ${diagramTasks} 个 · 共下载 ${got.length} 份交付物`);
+  for (const line of perTask) console.log(`  - ${line}`);
 
   if (asJson) {
     console.log(
       JSON.stringify(
         {
           outDir: OUT,
-          task: { id: target.id, title: target.title },
+          tasks: targets.map((t) => ({ id: t.row.id, title: t.row.title, tags: t.tags })),
           files: got.map((g) => ({ label: g.label, name: g.name, bytes: g.buf.length, path: g.file })),
           checks,
           failures,
@@ -260,7 +308,7 @@ async function main(): Promise<void> {
     return;
   }
   console.log(
-    `[scan] 真下载 ${got.length} 份交付物（任务「${target.title.slice(0, 20)}」）· 检查项=${checks} · 失败=${failures.length}`,
+    `[scan] 真下载 ${got.length} 份交付物（覆盖 ${targets.length} 个任务）· 检查项=${checks} · 失败=${failures.length}`,
   );
   console.log(`[scan] 文件落在 ${OUT}（可用 Excel / Office 打开复核）`);
   if (failures.length > 0) {

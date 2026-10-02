@@ -1501,7 +1501,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     }),
   ];
 
-  // 打包下载：整页 MD 交服务端与本任务产物合成 zip；失败时退回单文件 MD，保证材料总能拿到
+  // 打包下载：整页 MD 交服务端与本任务的产物、上传资料合成 zip；失败时退回单文件 MD，保证材料总能拿到
   const [zipBusy, setZipBusy] = useState(false);
   const [zipNote, setZipNote] = useState("");
   /** 交付包的机器可读清单：与整页 MD 同源，便于归档系统检索与后续自动核对 */
@@ -3890,7 +3890,7 @@ function ResultView({
           disabled={zipBusy}
           title={bundleButtonTitle(
             bundleFresh,
-            "把整页交付 MD 与本任务全部产物打成一个 zip（服务端合包，产物放在「产物/」目录下）",
+            "把整页交付 MD、本任务全部产物与上传的业务资料打成一个 zip（服务端合包，产物放在「产物/」目录、资料放在「资料/」目录下）",
           )}
         >
           <IconDownload className="h-3.5 w-3.5" />

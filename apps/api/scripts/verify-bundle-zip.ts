@@ -3,8 +3,9 @@
  * 运行：pnpm verify:bundle
  */
 import JSZip from "jszip";
+import fs from "node:fs";
 import { collectBundleEntries, createBundleZip, sanitizeEntryName } from "../src/services/bundle-zip.ts";
-import { listTasks } from "../src/services/task-store.ts";
+import { listFiles, listTasks } from "../src/services/task-store.ts";
 
 const failures: string[] = [];
 let checks = 0;
@@ -50,21 +51,43 @@ expect(
   0,
 );
 
-// 3) 真实任务的条目组装：MD 在最前，产物统一放在「产物/」下
+// 3) 真实任务的条目组装：MD 在最前，产物在「产物/」下、上传资料在「资料/」下。
+//    manifest 会申报这两类，包里就必须真的有——只申报不打包等于交付清单在说谎（实测 rd-audit
+//    的回归案例申报了「辅助账.xlsx」而包里没有，直到 scan:deliverables 铺开覆盖面才撞出来）。
 let withArtifacts = 0;
+let withFiles = 0;
+let declaredFiles = 0;
 for (const t of listTasks()) {
   const entries = await collectBundleEntries(t.id, "# 交付");
   checks += 1;
   if (entries[0]?.name !== "整页交付.md") failures.push(`${t.id} 首条目不是整页交付 MD`);
-  if (!entries.slice(1).every((e) => e.name.startsWith("产物/"))) failures.push(`${t.id} 存在未归入产物目录的条目`);
-  if (entries.length > 1) withArtifacts += 1;
+  checks += 1;
+  if (!entries.slice(1).every((e) => e.name.startsWith("产物/") || e.name.startsWith("资料/"))) {
+    failures.push(`${t.id} 存在既不在产物目录、也不在资料目录的条目`);
+  }
+  if (entries.some((e) => e.name.startsWith("产物/"))) withArtifacts += 1;
+  // 磁盘上实有的资料必须逐份打进包里；磁盘上没有的不塞空文件充数，也就不许出现在条目里
+  const onDisk = listFiles(t.id).filter((f) => fs.existsSync(f.storagePath));
+  const packed = entries.filter((e) => e.name.startsWith("资料/"));
+  declaredFiles += onDisk.length;
+  checks += 1;
+  if (packed.length !== onDisk.length) {
+    failures.push(`${t.id} 资料条目 ${packed.length} 份 ≠ 磁盘上实有的 ${onDisk.length} 份`);
+  }
+  checks += 1;
+  const missing = onDisk.filter((f) => !packed.some((e) => e.name === `资料/${f.fileName}`)).map((f) => f.fileName);
+  if (missing.length > 0) failures.push(`${t.id} 申报的资料没打进包里：${missing.join("、")}`);
+  if (packed.length > 0) withFiles += 1;
 }
 expect("至少有一个任务带产物", withArtifacts > 0, true);
+expect("至少有一个任务带上传资料（否则资料这一档是空跑）", withFiles > 0, true);
 
-console.log(`[verify] 交付打包检查项=${checks} 失败=${failures.length}（带产物任务=${withArtifacts}）`);
+console.log(
+  `[verify] 交付打包检查项=${checks} 失败=${failures.length}（带产物任务=${withArtifacts} · 带资料任务=${withFiles} · 打进包里的资料 ${declaredFiles} 份）`,
+);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  - ${f}`);
   console.log("[FAIL] 交付打包规则不符");
   process.exit(1);
 }
-console.log("[PASS] 交付打包正确（条目名安全化 / zip 往返 / 真实任务条目组装）");
+console.log("[PASS] 交付打包正确（条目名安全化 / zip 往返 / 真实任务条目组装 / 申报的资料都在包里）");
