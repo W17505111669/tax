@@ -102,6 +102,8 @@ import {
   extractTextCitations,
   mergeCitations,
   MERGED_CITATION_LIMIT,
+  retentionNote,
+  retentionStats,
   SEARCH_TOOL_NAMES as SEARCH_TOOLS,
   searchEvidence,
   searchEvidenceNote,
@@ -693,6 +695,10 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   const searchNote = useMemo(() => searchEvidenceNote(searches, allCitations.length), [searches, allCitations.length]);
   // 检索时被过滤掉的条数（落库在工具结果的 details.dropped 里），证据核对表用
   const filtering = useMemo(() => searchFiltering(toolCalls), [toolCalls]);
+  // 留存正文的截断量：与检索留痕同一批工具调用，这里算一次，界面与交付 MD 共用同一份数字。
+  // 此前 retainedChars / omittedChars 落库了却没有任何消费点，截断这件事没人知道。
+  const retention = useMemo(() => retentionStats(toolCalls), [toolCalls]);
+  const retentionText = useMemo(() => retentionNote(retention), [retention]);
 
   // 引用证据力汇总：交付自检、整页 MD 与交付包清单共用同一口径（按全量算，不按界面截断算）
   const citationGrades = useMemo(() => summarizeGrades(allCitations), [allCitations]);
@@ -1447,6 +1453,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       citeChecks: citationCheckList,
       linkCheckedAt,
       linkChecks: liveChecks,
+      retention,
     }),
     "## 业务资料清单",
     "",
@@ -2523,6 +2530,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                 allCitations={allCitations}
                 searches={searches}
                 searchNote={searchNote}
+                retentionText={retentionText}
                 citationRecheck={{
                   targets: weakTargets,
                   checks: citationCheckList,
@@ -3689,6 +3697,7 @@ function ResultView({
   allCitations,
   searches,
   searchNote,
+  retentionText,
   citationRecheck,
   sheet,
   onOpenUrl,
@@ -3725,6 +3734,8 @@ function ResultView({
   /** 联网检索留痕汇总（用于「检索过但没留下来源清单」的如实说明） */
   searches: SearchEvidence;
   searchNote: string | null;
+  /** 留存正文被截断时的如实说明；null 表示本任务没有截断，整块不显示 */
+  retentionText: string | null;
   /** 弱证据引用找官方原文：目标、已有结果、汇总、进行中状态与触发回调 */
   citationRecheck: {
     targets: Array<{ key: string; text: string; excludeUrl?: string }>;
@@ -3917,6 +3928,13 @@ function ResultView({
           <p className="mt-1.5 text-[11px] leading-5 text-mist-600" style={{ whiteSpace: "pre-line" }}>
             {searchNote}
           </p>
+        </div>
+      )}
+
+      {retentionText && (
+        <div>
+          <span className="kicker">留存正文截断</span>
+          <p className="mt-1.5 text-[11px] leading-5 text-mist-600">{retentionText}</p>
         </div>
       )}
 

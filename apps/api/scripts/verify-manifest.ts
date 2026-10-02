@@ -27,6 +27,8 @@ import {
   extractTextCitations,
   UNCAPPED,
   mergeCitations,
+  retentionNote,
+  retentionStats,
   SEARCH_TOOL_NAMES,
   searchEvidence,
   searchEvidenceNote,
@@ -414,6 +416,13 @@ let citeMdLinkTasks = 0;
 let toolMdTasks = 0;
 let toolMdRows = 0;
 let toolAvgNonNull = 0;
+/** 留存正文截断的真实规模，两层分开计：留存层（我们的上限）与工具层（扩展自报 truncated） */
+let retentionTruncTasks = 0;
+let retentionTruncCalls = 0;
+let retentionOmitted = 0;
+let retentionToolTasks = 0;
+let retentionToolCalls = 0;
+let retentionToolNoBody = 0;
 /**
  * 交叉核对：manifest 走的是「前端交付路径」（web 侧纯函数 + 自己从库取数），看板与台账走的是
  * 「服务端聚合路径」（stats.ts）。两条路径各算一遍同一批指标，此前从来没有逐项对过——
@@ -889,6 +898,7 @@ for (const t of listTasks()) {
   // 链接核验五类），此前只在 verify:delivcite 里喂假数据验形状，真实任务上一个数字都没对过。
   // 取数全部复用上面已经算好的那一份，不抄第二处口径。
   cross.mdCiteChecked += 1;
+  const retention = retentionStats(calls);
   const citeMd = citeSection({
     revImpact: rev ? rev.delta : null,
     citations: cites.map((c) => ({
@@ -907,6 +917,7 @@ for (const t of listTasks()) {
     citeChecks: refRecs.filter((r) => r.kind === "citation"),
     linkCheckedAt: lcAt,
     linkChecks: lcLive,
+    retention,
   });
   checks += 1;
   if (citeMd[0] !== "## 联网引用") failures.push(`${t.id.slice(0, 8)} 联网引用节标题不是「联网引用」：${citeMd[0]}`);
@@ -957,6 +968,45 @@ for (const t of listTasks()) {
     if (!disclosed) {
       failures.push(`${t.id.slice(0, 8)} 联网引用节没交代仅元数据检索的 ${searches.metadataOnly} 次`);
     }
+  }
+  // 留存正文被截断同样必须交代：截断意味着「无出处 / 无法核验」的判定只覆盖了存下来的那部分，
+  // 读的人却会以为平台核对过全部原文。此前 retainedChars / omittedChars 落库了、apps/web 里
+  // 一个消费者都没有（实测全库 36 条留存正文里 3 条被截断、合计 25004 字没存下，单条最多 10610）。
+  const rNote = retentionNote(retention);
+  const truncMark = "本任务的联网留存不完整";
+  checks += 1;
+  if (retention.truncatedCalls > 0 || retention.toolTruncatedCalls > 0) {
+    if (retention.truncatedCalls > 0) {
+      retentionTruncTasks += 1;
+      retentionTruncCalls += retention.truncatedCalls;
+      retentionOmitted += retention.omittedChars;
+    }
+    if (retention.toolTruncatedCalls > 0) {
+      retentionToolTasks += 1;
+      retentionToolCalls += retention.toolTruncatedCalls;
+      retentionToolNoBody += retention.toolTruncatedNoBody;
+    }
+    // 两层的数字都必须逐项出现在 MD 里：说明由 retentionNote 一处生成，这里按取数逐条对回去，
+    // 任一层被写漏（或写成了另一层的数字）都会红。
+    if (rNote === null || !citeMd.some((l) => l.includes(truncMark))) {
+      failures.push(
+        `${t.id.slice(0, 8)} 有截断（留存层 ${retention.truncatedCalls} 条 / 工具层 ${retention.toolTruncatedCalls} 次）却在联网引用节里没交代`,
+      );
+    }
+    if (
+      retention.truncatedCalls > 0 &&
+      !citeMd.some((l) => l.includes(`平台留存时又截断 ${retention.truncatedCalls} 条`))
+    ) {
+      failures.push(`${t.id.slice(0, 8)} 联网引用节没写出留存层截断的 ${retention.truncatedCalls} 条`);
+    }
+    if (
+      retention.toolTruncatedCalls > 0 &&
+      !citeMd.some((l) => l.includes(`联网工具自己截断了 ${retention.toolTruncatedCalls} 次`))
+    ) {
+      failures.push(`${t.id.slice(0, 8)} 联网引用节没写出工具层截断的 ${retention.toolTruncatedCalls} 次`);
+    }
+  } else if (rNote !== null || citeMd.some((l) => l.includes(truncMark))) {
+    failures.push(`${t.id.slice(0, 8)} 一层截断都没有却写了截断说明`);
   }
   if (citeCheckSum.total > 0) {
     citeMdTableTasks += 1;
@@ -1096,6 +1146,18 @@ if (toolAvgNonNull < 1) {
   failures.push("真实数据里没有一个任务算得出平均耗时，manifest 的 tools.avgMs 等于没验（此前它被写死成 null）");
 }
 checks += 1;
+if (retentionTruncTasks < 1) {
+  failures.push(
+    "真实数据里没有一个任务的留存正文被截断，截断说明这一项等于空跑（此前 retainedChars / omittedChars 在 apps/web 里零消费者）",
+  );
+}
+checks += 1;
+if (retentionToolTasks < 1) {
+  failures.push(
+    "真实数据里没有一个任务被联网工具截断过内容，工具层这一项等于空跑（实测 202 次联网类调用里 22 次被工具截断、涉及 10 个任务）",
+  );
+}
+checks += 1;
 if (linkTasks < 1) failures.push("一个带链接核验记录的真实任务都没走到，manifest 的链接核验一节等于没验");
 checks += 1;
 if (citesWithVerdict < 1) failures.push("真实数据里一条带核验结论的引用都没有，verdict 这一列等于没验");
@@ -1125,6 +1187,9 @@ console.log(
 );
 console.log(
   `[verify] 交付 MD 工具调用清单节走查：${toolMdTasks} 个任务有调用 · 表行合计 ${toolMdRows} 行 · 算得出平均耗时 ${toolAvgNonNull} 个`,
+);
+console.log(
+  `[verify] 留存正文截断走查：留存层 ${retentionTruncTasks} 个任务 ${retentionTruncCalls} 条 · 合计 ${retentionOmitted} 字未存下；工具层 ${retentionToolTasks} 个任务 ${retentionToolCalls} 次（其中 ${retentionToolNoBody} 次连正文都没留住）`,
 );
 if (skippedTasks > 0) {
   console.log(

@@ -408,3 +408,101 @@ export function searchEvidenceNote(ev: SearchEvidence, citations: number): strin
   const qs = ev.queries.length > 0 ? `\n检索词：${ev.queries.slice(0, 5).join("；")}` : "";
   return `本任务执行过 ${ev.calls} 次联网检索（${tools}${reported}），但检索扩展只把查询元数据写回工具结果，没有留存标题与 URL，因此无法生成引用清单。请在结论中附检索词与检索时间，或改用 search_public_cases 检索以留存来源。${qs}`;
 }
+
+/**
+ * 留存正文的规模与截断量。**截断有两层**，此前平台一层都报不出来：
+ *
+ * 一层是联网扩展自己截断返回内容（details 里自报 `truncated`），实测 202 次联网类调用里 22 次
+ * 被工具截断，其中 20 次连正文都没交给我们（`content` 里没有文本块，留存函数原样返回），平台手里
+ * 只有查询元数据；另一层是我们留存时的上限（agent-core 的 `MAX_RETAINED_TEXT`，20000 字/次），
+ * 实测 1 条被截、10173 字没存下。两层的字段名还撞过一次（都叫 `omittedChars`），已在源头分开。
+ *
+ * 这两个字段此前在 `apps/web` 里**一个消费者都没有**：界面上看不出来、交付 MD 里也没写。于是
+ * 「三处均无出处」「无法核验」这些判定的一个可能成因——引文正好落在被截掉的那一段里——从来没被
+ * 说出口，读的人只能以为平台核对过全部原文。
+ */
+export type RetentionStats = {
+  /** 有留存正文的联网类调用数（运行在留存上线之前的调用没有正文字段，不计入） */
+  retainedCalls: number;
+  /** 其中被平台留存上限截断的条数 */
+  truncatedCalls: number;
+  /** 留存下来的字数合计 */
+  retainedChars: number;
+  /** 被平台截掉、没能留存的字数合计 */
+  omittedChars: number;
+  /** 单条最多截掉多少字（最坏情况，比合计更能说明「有没有可能整段丢掉」） */
+  maxOmitted: number;
+  /** 联网扩展自报 `truncated: true` 的调用数（工具那一层的截断，与我们的上限无关） */
+  toolTruncatedCalls: number;
+  /** 其中连正文都没能留存的条数：这些调用平台手里只有查询元数据 */
+  toolTruncatedNoBody: number;
+  /**
+   * 工具层截掉的字数合计。只有撞名时被源头保留下来的那份（`toolOmittedChars`）才计得进来，
+   * 历史行里它被我们自己的 `omittedChars` 盖掉了，无从恢复——按「宁可留空也不猜」，不推算。
+   */
+  toolOmittedChars: number;
+};
+
+export function retentionStats(calls: SearchCall[]): RetentionStats {
+  const out: RetentionStats = {
+    retainedCalls: 0,
+    truncatedCalls: 0,
+    retainedChars: 0,
+    omittedChars: 0,
+    maxOmitted: 0,
+    toolTruncatedCalls: 0,
+    toolTruncatedNoBody: 0,
+    toolOmittedChars: 0,
+  };
+  for (const c of calls) {
+    // 与「哪些工具算联网证据」同一份名单：一边决定存不存、一边决定认不认，不另立一套
+    if (!SEARCH_TOOL_NAMES.has(c.toolName)) continue;
+    const r = asRecord(c.result);
+    if (!r) continue;
+    const text = typeof r.retainedText === "string" ? r.retainedText : "";
+    // 工具层截断要在「有没有留存正文」之前判：实测 22 条里有 20 条根本没有正文字段，
+    // 先按正文过滤的话，这一层一条都数不出来（而那恰恰是丢失最严重的一层）。
+    if (r.truncated === true) {
+      out.toolTruncatedCalls += 1;
+      if (text === "") out.toolTruncatedNoBody += 1;
+      out.toolOmittedChars += numOf(r.toolOmittedChars);
+    }
+    if (text === "") continue;
+    out.retainedCalls += 1;
+    out.retainedChars += numOf(r?.retainedChars);
+    const omitted = numOf(r?.omittedChars);
+    if (omitted > 0) {
+      out.truncatedCalls += 1;
+      out.omittedChars += omitted;
+      out.maxOmitted = Math.max(out.maxOmitted, omitted);
+    }
+  }
+  return out;
+}
+
+/**
+ * 有截断才说明，没截断返回 null——不为了显示而显示，也不让「0 条截断」变成一句废话。
+ * 措辞刻意不断言「引文一定丢了」：我们不知道被截掉的那段里有什么，只知道核对不到。
+ * 两层分开报，因为处置动作不同：工具层截断要换工具或改参数重抓，留存层截断是平台自己的上限。
+ */
+export function retentionNote(s: RetentionStats): string | null {
+  if (s.truncatedCalls <= 0 && s.toolTruncatedCalls <= 0) return null;
+  const parts: string[] = [];
+  if (s.toolTruncatedCalls > 0) {
+    parts.push(
+      `联网工具自己截断了 ${s.toolTruncatedCalls} 次返回内容${
+        s.toolTruncatedNoBody > 0
+          ? `（其中 ${s.toolTruncatedNoBody} 次连正文都没能留存，平台手里只有查询元数据）`
+          : ""
+      }`,
+    );
+  }
+  if (s.truncatedCalls > 0) {
+    parts.push(
+      `平台留存时又截断 ${s.truncatedCalls} 条、合计 ${s.omittedChars} 字没有存下（单条最多 ${s.maxOmitted} 字）`,
+    );
+  }
+  const caveat =
+    s.toolTruncatedCalls > 0 ? "工具层截掉的字数各工具口径不同，只报条数、不推算字数。" : "";
+  return `本任务的联网留存不完整：${parts.join("；")}。${caveat}「无出处 / 无法核验」的判定只针对存下来的那部分：引文若落在被截掉的段落里，平台核对不到，需人工回原页面确认。`;
+}

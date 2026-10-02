@@ -80,7 +80,15 @@ export function withRetainedText(toolName: string, stored: unknown, body: string
     retainedChars: truncated ? MAX_RETAINED_TEXT : body.length,
     omittedChars: truncated ? body.length - MAX_RETAINED_TEXT : 0,
   };
-  if (stored && typeof stored === "object" && !Array.isArray(stored)) return { ...stored, ...extra };
+  if (stored && typeof stored === "object" && !Array.isArray(stored)) {
+    const rec = stored as Record<string, unknown>;
+    // `omittedChars` 会撞名：联网扩展自己也会截断返回内容，用的正是这个键（实测 web_search 的
+    // details 里有 truncated / originalChars / returnedChars / omittedChars）。直接展开会把工具
+    // 那一层的数字盖掉——实测 29443fec 那条 fetch_content，工具层截掉的字数就这么没了，两层截断
+    // 只剩一层看得见。撞名时把工具那份原样挪到 toolOmittedChars 留着，我们的键名不动（历史行照旧可读）。
+    const kept = typeof rec.omittedChars === "number" ? { toolOmittedChars: rec.omittedChars } : {};
+    return { ...rec, ...kept, ...extra };
+  }
   return stored === null || stored === undefined ? extra : { value: stored, ...extra };
 }
 export interface TaxAgentSession {

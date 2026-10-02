@@ -12,6 +12,8 @@ import {
   MERGED_CITATION_LIMIT,
   mergeCitations,
   queriesOfCall,
+  retentionNote,
+  retentionStats,
   SEARCH_TOOL_NAMES,
   searchEvidence,
   searchEvidenceNote,
@@ -144,6 +146,118 @@ ok("说明含自报命中数", (note ?? "").includes("18 条"), note ?? "");
 ok("说明含工具名", (note ?? "").includes("web_search"), note ?? "");
 ok("说明含检索词", (note ?? "").includes("土增清算 口径"), note ?? "");
 ok("说明给出处置建议", (note ?? "").includes("请在结论中附检索词"), note ?? "");
+
+// 5a) 留存正文的截断量：两层截断，此前 apps/web 里零消费者，平台一层都报不出来
+const rc = (toolName: string, retainedChars: number, omittedChars: number): { toolName: string; result: unknown } => ({
+  toolName,
+  result: { retainedText: "正文", retainedChars, omittedChars },
+});
+expect("非联网类工具不计入（留存只发生在联网类工具上）", retentionStats([rc("generate_workpaper", 100, 50)]).retainedCalls, 0);
+expect(
+  "没有留存正文的调用不计入留存层（运行在留存上线之前）",
+  retentionStats([{ toolName: "web_search", result: { totalResults: 3 } }]).retainedCalls,
+  0,
+);
+expect(
+  "留存层截断逐项汇总，单条最多另记",
+  retentionStats([rc("web_search", 20000, 10610), rc("fetch_content", 20000, 14394), rc("fetch_content", 3459, 0)]),
+  {
+    retainedCalls: 3,
+    truncatedCalls: 2,
+    retainedChars: 43459,
+    omittedChars: 25004,
+    maxOmitted: 14394,
+    toolTruncatedCalls: 0,
+    toolTruncatedNoBody: 0,
+    toolOmittedChars: 0,
+  },
+);
+// 工具层必须在「有没有留存正文」之前判：实测 22 条工具层截断里 20 条根本没有正文字段，
+// 先按正文过滤的话这一层一条都数不出来，而那恰恰是丢失最严重的一层。
+expect(
+  "工具自报截断且没留住正文：只计工具层，不误记成留存层",
+  retentionStats([{ toolName: "web_search", result: { truncated: true, omittedChars: 10610, queries: ["土增清算"] } }]),
+  {
+    retainedCalls: 0,
+    truncatedCalls: 0,
+    retainedChars: 0,
+    omittedChars: 0,
+    maxOmitted: 0,
+    toolTruncatedCalls: 1,
+    toolTruncatedNoBody: 1,
+    toolOmittedChars: 0,
+  },
+);
+expect(
+  "两层同时截断时各算各的，工具层字数只取源头保留的那一份",
+  retentionStats([
+    {
+      toolName: "fetch_content",
+      result: { retainedText: "正文", retainedChars: 20000, omittedChars: 10173, truncated: true, toolOmittedChars: 6745 },
+    },
+  ]),
+  {
+    retainedCalls: 1,
+    truncatedCalls: 1,
+    retainedChars: 20000,
+    omittedChars: 10173,
+    maxOmitted: 10173,
+    toolTruncatedCalls: 1,
+    toolTruncatedNoBody: 0,
+    toolOmittedChars: 6745,
+  },
+);
+expect(
+  "历史行里工具层字数被我们盖掉过，不推算（宁可留空也不猜）",
+  retentionStats([
+    { toolName: "web_search", result: { retainedText: "正文", retainedChars: 20000, omittedChars: 10173, truncated: true } },
+  ]).toolOmittedChars,
+  0,
+);
+expect(
+  "两层都没截断就不给说明（不为了显示而显示）",
+  retentionNote({
+    retainedCalls: 3,
+    truncatedCalls: 0,
+    retainedChars: 100,
+    omittedChars: 0,
+    maxOmitted: 0,
+    toolTruncatedCalls: 0,
+    toolTruncatedNoBody: 0,
+    toolOmittedChars: 0,
+  }),
+  null,
+);
+const rNote = retentionNote({
+  retainedCalls: 16,
+  truncatedCalls: 1,
+  retainedChars: 51107,
+  omittedChars: 10173,
+  maxOmitted: 10173,
+  toolTruncatedCalls: 4,
+  toolTruncatedNoBody: 3,
+  toolOmittedChars: 0,
+});
+ok("说明里给出工具层截断次数", (rNote ?? "").includes("联网工具自己截断了 4 次返回内容"), rNote ?? "");
+ok("说明里给出连正文都没留住的次数", (rNote ?? "").includes("其中 3 次连正文都没能留存"), rNote ?? "");
+ok("说明里给出留存层截断的条数与字数", (rNote ?? "").includes("平台留存时又截断 1 条、合计 10173 字没有存下"), rNote ?? "");
+ok("说明交代工具层字数不推算", (rNote ?? "").includes("只报条数、不推算字数"), rNote ?? "");
+ok("说明只说核对不到，不断言引文一定丢了", (rNote ?? "").includes("平台核对不到"), rNote ?? "");
+const oursOnly = retentionNote({
+  retainedCalls: 2,
+  truncatedCalls: 1,
+  retainedChars: 20000,
+  omittedChars: 500,
+  maxOmitted: 500,
+  toolTruncatedCalls: 0,
+  toolTruncatedNoBody: 0,
+  toolOmittedChars: 0,
+});
+expect("只有留存层截断时不提工具层", (oursOnly ?? "").includes("联网工具自己截断"), false);
+expect("只有留存层截断时不写工具层那句字数口径", (oursOnly ?? "").includes("不推算字数"), false);
+expect("只有留存层截断时照样给出条数与字数", (oursOnly ?? "").includes("平台留存时又截断 1 条、合计 500 字没有存下"), true);
+// 这句话在界面上是纯文本展示位，带记号就会以原文显示出来
+expect("说明不含 Markdown 记号", /[#*`|>]/.test(rNote ?? ""), false);
 
 // 5b) 结论正文里的引用提取与两来源合并
 expect("markdown 链接取链接文字", extractTextCitations("见[政策执行指引](https://a.gov.cn/x.pdf)。")[0], {

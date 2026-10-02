@@ -99,6 +99,25 @@ expect("超长正文按上限截断，且省略号不计入留存字符数", [ca
 ]);
 ok("details 为空时也能单独留存正文", typeof capped.retainedText === "string");
 
+// 撞名不覆盖：联网扩展自己截断返回内容时也写 `omittedChars`（实测 web_search 的 details 里有
+// truncated / originalChars / returnedChars / omittedChars，两条共 14831 字），我们这一层再展开一次
+// 就会把工具那一层的数字盖掉——实测 29443fec 那条 fetch_content 就是这么丢的，两层截断只剩一层看得见。
+const clash = withRetainedText(
+  "web_search",
+  { truncated: true, originalChars: 36918, returnedChars: 30173, omittedChars: 6745 },
+  "字".repeat(MAX_RETAINED_TEXT + 100),
+) as Record<string, unknown>;
+expect("我们这一层的截断量写进 omittedChars", clash.omittedChars, 100);
+expect("工具那一层的截断量原样保留在 toolOmittedChars", clash.toolOmittedChars, 6745);
+ok(
+  "工具自报的其余字段一个不少",
+  clash.truncated === true && clash.originalChars === 36918 && clash.returnedChars === 30173,
+);
+ok(
+  "没撞名时不凭空造 toolOmittedChars",
+  (withRetainedText("web_search", { a: 1 }, BODY) as Record<string, unknown>).toolOmittedChars === undefined,
+);
+
 // 系统提示词必须是惰性 getter。在模块顶层 readFileSync 会让「改完 .md 不重启就不生效」，而且
 // 没有任何提示——实测 API 进程 23:07:31 启动、两份 system-prompt.md 23:28 才改，之后跑的仍是
 // 21 分钟前的旧提示词（tsx watch 盯的是 import 图，readFileSync 读的 .md 不在里面）。

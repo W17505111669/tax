@@ -15,6 +15,7 @@ import { linkVerdict, summarizeLinkChecks, VERDICT_TEXT, type LinkCheckLike } fr
 import { REF_VERDICT_TEXT, type RefCheckSummary } from "./ref-check.ts";
 import { deltaText, type EvidenceDelta } from "./revision-impact.ts";
 import { mdCell } from "./run-tools.ts";
+import { retentionNote, type RetentionStats } from "./search-evidence.ts";
 import type { RefCheckRecord } from "./types.ts";
 
 /** 一行链接核验记录（link_checks 的行形状），必须已按 liveLinkChecks 过滤 */
@@ -44,6 +45,8 @@ export interface CiteSectionInput {
   linkCheckedAt: string | null;
   /** 已过滤的核验行；汇总就地由它算出，不接受外部传入的汇总 */
   linkChecks: CiteLinkRow[];
+  /** 留存正文规模与截断量；有截断才在这一节写一行说明（口径见 search-evidence.ts 的 retentionNote） */
+  retention: RetentionStats;
 }
 
 const CITE_TABLE_HEADER = "| # | 原弱证据引用 | 判定 | 替代来源 |";
@@ -63,6 +66,7 @@ export function citeSection(input: CiteSectionInput): string[] {
     citeChecks,
     linkCheckedAt,
     linkChecks,
+    retention,
   } = input;
   const out: string[] = ["## 联网引用", ""];
   if (revImpact) {
@@ -116,6 +120,10 @@ export function citeSection(input: CiteSectionInput): string[] {
   } else {
     out.push(emptyNote ?? "（本次任务无联网引用）");
   }
+  // 截断说明放在引用清单之外：没有引用清单的任务同样可能截断了正文，而那一节恰恰是
+  // 「无出处」判定最容易被误读成「平台核对过全部原文」的地方。
+  const rNote = retentionNote(retention);
+  if (rNote) out.push(`- ${rNote}`);
   out.push("");
   if (linkCheckedAt) {
     // 汇总就地算，不接受外部传入：明细行与汇总行必须由同一份列表推出来

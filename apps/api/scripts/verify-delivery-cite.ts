@@ -86,6 +86,20 @@ const REV = evidenceDelta(
   ),
 );
 
+/** 留存正文规模：没截断 / 只有留存层截断 / 只有工具层截断三份，用于验「有截断才写这一行」与行里的数字 */
+const RETENTION_OK = {
+  retainedCalls: 4,
+  truncatedCalls: 0,
+  retainedChars: 8000,
+  omittedChars: 0,
+  maxOmitted: 0,
+  toolTruncatedCalls: 0,
+  toolTruncatedNoBody: 0,
+  toolOmittedChars: 0,
+};
+const RETENTION_TRUNC = { ...RETENTION_OK, retainedCalls: 6, truncatedCalls: 2, retainedChars: 40000, omittedChars: 25004, maxOmitted: 10610 };
+const RETENTION_TOOL = { ...RETENTION_OK, toolTruncatedCalls: 4, toolTruncatedNoBody: 3 };
+
 const base: CiteSectionInput = {
   revImpact: null,
   citations: CITES,
@@ -99,6 +113,7 @@ const base: CiteSectionInput = {
   citeChecks: CITE_CHECKS,
   linkCheckedAt: "2026-10-01T02:00:00.000Z",
   linkChecks: LINKS,
+  retention: RETENTION_OK,
 };
 
 // 1) 节的骨架
@@ -225,6 +240,39 @@ expect("明细行确实按判定过滤（不是全列）", modSrc.includes('if (
 // 按**调用**判、不按「提到了哪个词」判：模块注释里写了 liveLinkChecks 三个字不算重复实现。
 // 这与上一轮 verify:gates 踩过的坑同源——拿文本特征代替结构特征，迟早被自己的注释绊倒。
 expect("陈旧行过滤不在本模块重复实现（判据在 link-check.ts）", /liveLinkChecks\s*\(/.test(modSrc), false);
+
+// 8) 留存正文截断说明：两层截断此前零消费者，界面上看不出来、交付 MD 里也没写
+const TRUNC_MARK = "本任务的联网留存不完整";
+expect("没有截断时整行不写", citeSection(base).some((l) => l.includes(TRUNC_MARK)), false);
+const truncLine = citeSection({ ...base, retention: RETENTION_TRUNC }).find((l) => l.includes(TRUNC_MARK)) ?? "";
+expect("有截断就写出一行", truncLine !== "", true);
+expect("行里给出留存层截断的条数", truncLine.includes("平台留存时又截断 2 条"), true);
+expect("行里给出没存下来的字数合计", truncLine.includes("合计 25004 字没有存下"), true);
+expect("行里给出单条最多截掉多少", truncLine.includes("单条最多 10610 字"), true);
+expect("只有留存层截断时不提工具层", truncLine.includes("联网工具自己截断"), false);
+const toolLine = citeSection({ ...base, retention: RETENTION_TOOL }).find((l) => l.includes(TRUNC_MARK)) ?? "";
+expect("只有工具层截断时同样写（那一层丢得更多）", toolLine !== "", true);
+expect("行里给出工具层截断次数", toolLine.includes("联网工具自己截断了 4 次返回内容"), true);
+expect("行里给出连正文都没留住的次数", toolLine.includes("其中 3 次连正文都没能留存"), true);
+expect("工具层不编造字数", toolLine.includes("只报条数、不推算字数"), true);
+expect(
+  "没有引用清单时同样写（截断与有没有引用无关）",
+  citeSection({ ...base, citations: [], emptyNote: null, retention: RETENTION_TRUNC }).some((l) =>
+    l.includes(TRUNC_MARK),
+  ),
+  true,
+);
+expect(
+  "写了截断说明时节的末尾仍留一个空行",
+  citeSection({ ...base, retention: RETENTION_TRUNC }).at(-1),
+  "",
+);
+expect(
+  "文案取自 retentionNote（不在本模块再写一遍）",
+  [modSrc.includes("retentionNote(retention)"), new RegExp(TRUNC_MARK).test(modSrc)],
+  [true, false],
+);
+expect("组件里不再自己拼截断说明", benchSrc.includes(TRUNC_MARK), false);
 
 console.log(`[verify] 交付 MD 联网引用节检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
