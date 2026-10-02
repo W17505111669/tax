@@ -219,6 +219,14 @@ async function main(): Promise<void> {
   /** 点开过的图标按钮（只有 title / aria-label，没有文字）：为 0 就说明这条路根本没生效 */
   let iconOnlyClicked = 0;
   const iconOnlyLabels = new Set<string>();
+  /**
+   * 枚举时**见过**的入口（点没点到另说）。「必需入口」的判据是「范围内出现过就必须点到」，
+   * 不是「任何时候都必须点到」：窄范围跑（--tasks 指定几个任务、--no-overview）时，
+   * 有些入口在这些页面上压根不存在——实测 4 个失败任务的结果页就没有「文号溯源」，
+   * 按老判据会红，而红的原因与覆盖率无关。
+   */
+  const seenLabels = new Set<string>();
+  const seenIconOnly = new Set<string>();
   /** 其中扫完成功关回去的次数：关不掉的浮层会一直盖住后面的入口 */
   let iconOnlyClosed = 0;
   const toggleLabels = new Set<string>();
@@ -287,6 +295,10 @@ async function main(): Promise<void> {
       const clicked = new Set<string>();
       for (let round = 0; round < args.interactLimit; round++) {
         const toggles = await listToggles();
+        for (const x of toggles) {
+          seenLabels.add(x.label);
+          if (x.iconOnly) seenIconOnly.add(x.label);
+        }
         // 必需入口先点：interactLimit 是每页的点击预算（默认 6），DOM 顺序在前的一堆普通入口
         // 就能把预算吃光，于是「必须点到」这条断言变成自己无法满足的要求。
         const pending = toggles.filter((x) => !clicked.has(x.label));
@@ -338,12 +350,22 @@ async function main(): Promise<void> {
   // 必需入口一次都没点到 = 这一轮交互覆盖是空的。--strict 下按失败处理，不让它绿着过去。
   const requiredMissing = args.interact
     ? REQUIRED_TOGGLES.filter(
-        (r) => r.tabs.some((t) => args.tabs.includes(t)) && ![...toggleLabels].some((l) => l.includes(r.label)),
+        (r) =>
+          r.tabs.some((t) => args.tabs.includes(t)) &&
+          [...seenLabels].some((l) => l.includes(r.label)) &&
+          ![...toggleLabels].some((l) => l.includes(r.label)),
+      ).map((r) => r.label)
+    : [];
+  /** 本次扫描范围内压根没出现的必需入口：如实报出来，但不算失败 */
+  const requiredAbsent = args.interact
+    ? REQUIRED_TOGGLES.filter(
+        (r) => r.tabs.some((t) => args.tabs.includes(t)) && ![...seenLabels].some((l) => l.includes(r.label)),
       ).map((r) => r.label)
     : [];
   // 图标按钮一个都没点到 = title / aria-label 那条匹配路径失效了（词汇表被改窄、或组件换了写法），
   // 这些浮层里的内容会静默退出扫描范围，而扫描照样是绿的。
-  const iconOnlyMissing = args.interact && args.interactLimit > 0 && iconOnlyClicked === 0;
+  const iconOnlyMissing =
+    args.interact && args.interactLimit > 0 && seenIconOnly.size > 0 && iconOnlyClicked === 0;
 
   if (args.json) {
     console.log(
@@ -359,6 +381,8 @@ async function main(): Promise<void> {
           iconOnlyClosed,
           iconOnlyLabels: [...iconOnlyLabels],
           requiredMissing,
+          requiredAbsent,
+          seenLabels: [...seenLabels],
           nodesTotal,
           charsTotal,
           thin,
@@ -387,6 +411,9 @@ async function main(): Promise<void> {
     );
     if (requiredMissing.length > 0) {
       console.log(`[scan] 必需入口一次都没点到：${requiredMissing.join("；")}（这些面板里的内容等于没扫）`);
+    }
+    if (requiredAbsent.length > 0) {
+      console.log(`[scan] 本次范围内没出现的必需入口：${requiredAbsent.join("；")}（不计为失败，换 --all 复扫才会覆盖到）`);
     }
     if (iconOnlyMissing) console.log("[scan] 一个图标按钮都没点到：这些浮层里的内容等于没扫");
   }

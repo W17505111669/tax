@@ -3788,14 +3788,23 @@ function ResultView({
   // 分级按全量算：界面胶囊只列前若干条，但「官方来源 X 条」不能跟着截断，
   // 否则它与交付自检、整页 MD、平台看板上的同一个数字对不上
   const grades = summarizeGrades(allCitations);
-  if (error) {
-    return (
-      <div className="rounded-md border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-[13px] text-rose-300">
-        <div className="font-medium">执行失败</div>
-        <div className="mt-1 break-words">{error}</div>
-      </div>
-    );
-  }
+  // 有 error 不等于什么都没有。实测 4bb22d34：error 是「服务重启导致执行中断」，而它已经有
+  // 16365 字结论正文、33 次工具调用（其中 6 次被联网工具截断）。此前这里一见 error 就整块
+  // return，结果页只剩一行错误——联网引用、检索留痕、留存截断说明、文号 / 金额溯源、交付自检、
+  // 下载报告全都不渲染，复核人连原文都点不开。改成：只有「既失败又没有结论」时才整块替换，
+  // 否则错误只作横幅，证据区照常渲染（并说清结论可能不完整、必要时续跑）。
+  const errorBanner = (
+    <div className="rounded-md border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-[13px] text-rose-300">
+      <div className="font-medium">执行失败</div>
+      <div className="mt-1 break-words">{error}</div>
+      {result ? (
+        <div className="mt-1.5 text-[11.5px] leading-5 text-rose-300/85">
+          本次运行中断前已产出 {result.length} 字结论正文，下面的证据与原文入口照常可用；结论可能不完整，请核对后决定是否续跑。
+        </div>
+      ) : null}
+    </div>
+  );
+  if (error && !result) return errorBanner;
   if (!result) {
     return (
       <div className="py-10 text-center text-[13px] text-mist-600">
@@ -3805,6 +3814,7 @@ function ResultView({
   }
   return (
     <div className="max-w-4xl space-y-5">
+      {error ? errorBanner : null}
       <article className="glow-card px-6 py-5">
         <MarkdownView
           text={result}

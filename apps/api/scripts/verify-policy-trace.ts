@@ -20,6 +20,7 @@ import { loadTaskDocRefs } from "./docref-lib.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { db } from "../src/db.ts";
 
 const failures: string[] = [];
 let checks = 0;
@@ -501,6 +502,37 @@ expect(
   workbench.includes("refTrace.bodyTracedRefs.length - DOC_REF_TABLE_LIMIT"),
   true,
 );
+
+// ---- 结果页的失败态：上面这些断言全是绿的，也可能一整块压根没渲染 ----
+// 实测 4bb22d34：error 是「服务重启导致执行中断」，而它已经有 16365 字结论正文、33 次工具调用
+// （其中 6 次被联网工具截断）。ResultView 开头此前是 `if (error) return <执行失败块>`，于是
+// 文号溯源面板、「仅在留存正文中出现」那一组原文入口、联网引用、留存截断说明、交付自检、
+// 下载报告全都不挂载，结果页只剩一行错误。源码断言查不出这种事——它查的是「写了没有」，
+// 不是「运行时渲染了没有」，所以这里把渲染条件本身钉住。
+expect(
+  "有结论时 error 只作横幅，不整块替换结果页",
+  workbench.includes("if (error && !result) return errorBanner;"),
+  true,
+);
+expect("不再有「一见 error 就 return」的写法", /if \(error\) \{\s*\n\s*return/.test(workbench), false);
+expect(
+  "横幅里说清结论可能不完整、并给出续跑这个动作",
+  workbench.includes("结论可能不完整，请核对后决定是否续跑"),
+  true,
+);
+expect(
+  "横幅在主内容那条路上也渲染（不是只在 early return 里）",
+  workbench.includes("{error ? errorBanner : null}"),
+  true,
+);
+// 这一档不是编出来的：库里确实有「带 error 但已有结论正文」的任务
+const errRows = db
+  .prepare(`SELECT LENGTH(COALESCE(result,'')) AS rlen FROM tasks WHERE COALESCE(error,'') <> ''`)
+  .all() as Array<{ rlen: number }>;
+const errWithResult = errRows.filter((r) => r.rlen > 0).length;
+expect("库里有带 error 的任务（否则这一节是空跑）", errRows.length >= 1, true);
+expect("其中确实有已经产出结论正文的", errWithResult >= 1, true);
+console.log(`[verify] 失败态呈现：带 error 的任务 ${errRows.length} 个，其中已有结论正文 ${errWithResult} 个`);
 
 console.log(`[verify] 文号溯源检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
