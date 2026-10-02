@@ -230,6 +230,8 @@ async function main(): Promise<void> {
   const agentNameOf = (id: string): string => agents.find((a) => a.id === id)?.shortName ?? id;
   const expLedgerRows = ledgerSort(bev.ledger as unknown as LedgerRow[]);
   const expLedgerCells = expLedgerRows.map((r) => ledgerCells(r, agentNameOf));
+  /** 单任务证据核对表的期望值来源：看板 ledger 那一份（与台账逐行同源） */
+  const ledgerOf = new Map(bev.ledger.map((r) => [r.taskId, r]));
   const expectOf = new Map<
     string,
     { calls: number; docTraced: number; docTotal: number; amtTraced: number; amtTotal: number }
@@ -421,6 +423,92 @@ async function main(): Promise<void> {
           }
         } else if (amt !== null) {
           numFails.push(`${p.label} 门禁取数里没有金额，界面却显示「金额溯源 ${amt[0]}/${amt[1]}」`);
+        }
+        // 单任务「证据核对表」：这张表同时会作为核对表 MD 进交付包，界面渲染与导出用的是同一份
+        // 取数（evidence-sheet.ts），但**渲染路径**此前没人核对过——表少一行、或某一行的数字
+        // 换了口径，导出侧的门禁（verify:sheet）照样全绿。
+        const sheet = (await page.evaluate(`(function () {
+          for (const t of Array.from(document.querySelectorAll('table'))) {
+            const head = Array.from(t.querySelectorAll('thead th, thead td')).map((c) =>
+              (c.textContent || '').replace(/\\s+/g, ' ').trim(),
+            );
+            if (head.join('|') !== '#|核对项|结论|说明') continue;
+            return Array.from(t.querySelectorAll('tbody tr')).map((tr) =>
+              Array.from(tr.querySelectorAll('td,th')).map((c) => (c.textContent || '').replace(/\\s+/g, ' ').trim()),
+            );
+          }
+          return null;
+        })()`)) as string[][] | null;
+        const lrow = ledgerOf.get(p.taskId);
+        numChecks += 1;
+        if (!sheet) {
+          numFails.push(`${p.label} 没找到「证据核对表」（表头应为 # / 核对项 / 结论 / 说明）`);
+        } else if (lrow) {
+          const textOf = (name: string): string | null => {
+            const r = sheet.find((x) => (x[1] ?? "").includes(name));
+            return r ? r.slice(2).join(" ") : null;
+          };
+          const wantItem = (name: string, frag: string): string | null => {
+            const text = textOf(name);
+            numChecks += 1;
+            if (text === null) {
+              numFails.push(`${p.label} 核对表里没有「${name}」这一项`);
+              return null;
+            }
+            if (!text.includes(frag)) {
+              numFails.push(`${p.label} 核对表「${name}」界面「${text.slice(0, 40)}」不含取数值「${frag}」`);
+            }
+            return text;
+          };
+          wantItem("政策文号溯源", `${lrow.docRefTraced}/${lrow.docRefTotal}`);
+          // 0 条引用 / 0 次检索时，核对表给的不是「0/0」而是一句空态提示（「无联网引用 结论未引用
+          // 联网来源，涉及政策依据请确认是否已完成在线核验」/「无检索调用 本任务没有联网检索类
+          // 工具调用」）。这是**该保住的行为**：空态无提示正是界面走查要拦的缺陷之一，所以这里
+          // 两种写法都认，但必须出现其中之一——第一版按数字硬对，8 处全是我的期望值错了。
+          const citeText = textOf("联网引用证据力");
+          numChecks += 1;
+          if (citeText === null) numFails.push(`${p.label} 核对表里没有「联网引用证据力」这一项`);
+          else if (lrow.citations > 0) {
+            if (!citeText.includes(`${lrow.official}/${lrow.citations}`)) {
+              numFails.push(
+                `${p.label} 核对表「联网引用证据力」界面「${citeText.slice(0, 40)}」不含取数值「${lrow.official}/${lrow.citations}」`,
+              );
+            }
+          } else if (!citeText.includes("无联网引用")) {
+            numFails.push(
+              `${p.label} 核对表「联网引用证据力」0 条引用时既没写 0/0 也没给空态提示（界面：${citeText.slice(0, 40)}）`,
+            );
+          }
+          const searchText = textOf("联网检索留痕");
+          numChecks += 1;
+          if (searchText === null) numFails.push(`${p.label} 核对表里没有「联网检索留痕」这一项`);
+          else if (lrow.searchCalls > 0) {
+            if (!searchText.includes(`检索 ${lrow.searchCalls} 次`)) {
+              numFails.push(
+                `${p.label} 核对表「联网检索留痕」界面「${searchText.slice(0, 40)}」不含取数值「检索 ${lrow.searchCalls} 次」`,
+              );
+            }
+          } else if (!searchText.includes("无检索调用")) {
+            numFails.push(
+              `${p.label} 核对表「联网检索留痕」0 次检索时既没写「检索 0 次」也没给空态提示（界面：${searchText.slice(0, 40)}）`,
+            );
+          }
+          // 弱证据条数写在「联网引用证据力」的说明里；为 0 时界面不写这一段，所以只在有弱证据时要求
+          if (lrow.weak > 0) {
+            const text = textOf("联网引用证据力");
+            numChecks += 1;
+            if (text === null || !text.includes(`证据力弱 ${lrow.weak}`)) {
+              numFails.push(`${p.label} 核对表「联网引用证据力」没写出证据力弱 ${lrow.weak} 条（界面：${(text ?? "无此项").slice(0, 40)}）`);
+            }
+          }
+          // 只留元数据的检索次数：与「引自联网正文 / 三处均无出处」一样，是判定成立的前提，必须交代
+          if (lrow.searchMetadataOnly > 0) {
+            const text = textOf("联网检索留痕");
+            numChecks += 1;
+            if (text === null || !text.includes(`只留查询元数据 ${lrow.searchMetadataOnly} 次`)) {
+              numFails.push(`${p.label} 核对表「联网检索留痕」没写出只留查询元数据 ${lrow.searchMetadataOnly} 次`);
+            }
+          }
         }
       }
     }
