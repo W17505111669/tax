@@ -26,6 +26,7 @@ import { db } from "../src/db.ts";
 import { launchChromium, WEB_URL } from "./browser-lib.ts";
 import { loadTaskDocRefs } from "./docref-lib.ts";
 import { TEXT_AMOUNT_TOOLS, traceAmounts } from "../../web/src/amount-trace.ts";
+import { computePlatformStats } from "../src/services/stats.ts";
 
 const WEB = WEB_URL;
 
@@ -210,6 +211,9 @@ async function main(): Promise<void> {
   // （docref-lib 的文号溯源、verify:amounts 的金额溯源、tool_calls 的调用数），不另立一套。
   const docrefOf = new Map<string, { traced: number; total: number }>();
   for (const td of loadTaskDocRefs()) docrefOf.set(td.taskId, { traced: td.res.traced, total: td.res.total });
+  // 看板取数：台账合计行那一行里有 15 个数字，全部与它对
+  const board = computePlatformStats();
+  const bev = board.evidence;
   const expectOf = new Map<
     string,
     { calls: number; docTraced: number; docTotal: number; amtTraced: number; amtTotal: number }
@@ -398,6 +402,62 @@ async function main(): Promise<void> {
           }
         } else if (amt !== null) {
           numFails.push(`${p.label} 门禁取数里没有金额，界面却显示「金额溯源 ${amt[0]}/${amt[1]}」`);
+        }
+      }
+    }
+    // 看板页：台账合计行是界面这条腿上数字最密的一处（一行 15 个数），逐个与看板取数对。
+    // 判据钉的是渲染出来的文本，所以版式一改（少一个空格、换个词）这里就会红——那是有意的：
+    // 这一行是复核人扫一眼就看全平台欠账的地方，改了版式就得同时确认数字还是同一份取数。
+    if (p.tab === "" && p.taskId === "") {
+      const bodyText = ((await page.evaluate(`document.body.innerText`)) as string).replace(/\s+/g, " ");
+      const LEDGER_TOTAL =
+        /全平台证据核对台账（(\d+) 个任务）文号 (\d+)\/(\d+) 有出处（其中复查取得 (\d+) · 仅正文提到 (\d+)）· 待复查 (\d+)（已标注 (\d+)） · 引用 (\d+) 条（官方 (\d+) · 弱 (\d+)，待处置 (\d+)）· 金额待确认 (\d+)（引自联网正文 (\d+) · 三处均无出处 (\d+)） · 欠账任务 (\d+) 个/;
+      const m = LEDGER_TOTAL.exec(bodyText);
+      numChecks += 1;
+      if (!m) {
+        numFails.push(`${p.label} 没找到「全平台证据核对台账」合计行（界面数字最密的一处，改版式要同步这里的判据）`);
+      } else {
+        const NAMES = [
+          "任务数",
+          "文号有出处",
+          "文号总数",
+          "复查取得",
+          "仅正文提到",
+          "待复查",
+          "已标注背景参考",
+          "引用条数",
+          "官方来源",
+          "证据力弱",
+          "弱证据待处置",
+          "金额待确认",
+          "引自联网正文",
+          "三处均无出处",
+          "欠账任务数",
+        ];
+        const wantNums = [
+          board.tasks,
+          bev.docRefTraced,
+          bev.docRefs,
+          bev.docRefTracedByRecheck,
+          bev.docRefTracedByBody,
+          // 界面上「待复查」是扣掉已标注的净值，「已标注」另给一个数：与台账的欠账公式同一口径
+          Math.max(0, bev.docRefPending - bev.docRefLabeled),
+          bev.docRefLabeled,
+          bev.citations,
+          bev.officialCitations,
+          bev.weakCitations,
+          Math.max(0, bev.weakCitations - bev.weakDisclaimed - bev.weakUncited),
+          bev.amountPending,
+          bev.amountPendingWeb,
+          bev.amountPendingUnexplained,
+          bev.gaps.length,
+        ];
+        const got = m.slice(1).map(Number);
+        for (let i = 0; i < wantNums.length; i++) {
+          numChecks += 1;
+          if (got[i] !== wantNums[i]) {
+            numFails.push(`${p.label} 台账合计行「${NAMES[i]}」界面 ${got[i]} ≠ 看板取数 ${wantNums[i]}`);
+          }
         }
       }
     }
