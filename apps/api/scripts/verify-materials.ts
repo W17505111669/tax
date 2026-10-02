@@ -24,6 +24,7 @@ import { computePlatformStats } from "../src/services/stats.ts";
 import { getTask, listTasks } from "../src/services/task-store.ts";
 import { statsFor } from "./materials-lib.ts";
 import { LEDGER_COLUMNS } from "../../web/src/evidence-ledger.ts";
+import { MAX_RETAINED_TEXT } from "@tax/agent-core";
 
 const failures: string[] = [];
 let checks = 0;
@@ -251,6 +252,29 @@ console.log(
 );
 console.log(
   `[verify] 对外文档 ${docsRead} 份 · 当前状态数字核对 ${stateChecked} 处 · 历史数字限定词核对 ${historyChecked} 处（平台当前：金额 ${e.amountTotal} 处 / 待确认 ${e.amountPending} · 引用 ${e.citations} 条 · 检索 ${e.searchCalls} 次 · 文号 ${e.docRefs} 处）`,
+);
+
+// 留存正文的字数上限：常量在 agent-core（MAX_RETAINED_TEXT），作品说明里此前写死「单次 20000 字」。
+// 写死的数字改常量时不会跟着变，对外就成了假话；现在改成插值，并断言两边同源。
+// 同一句话里「截断量单独记在 omittedChars」也过时了：截断有两层（工具自报 truncated / 平台留存
+// 撞上限），两层还曾共用一个字段名互相覆盖，这些都在文档里如实交代。
+const rdDoc = fs.readFileSync(path.join(ROOT, "docs", "competition", "智研税审-作品说明.md"), "utf8");
+expect("作品说明写出的留存上限取自 agent-core 的常量", rdDoc.includes(`单次 ${MAX_RETAINED_TEXT} 字`), true);
+expect("materials-lib 不再写死留存上限", libSrc.includes("单次 20000 字"), false);
+expect("materials-lib 引用了 MAX_RETAINED_TEXT", libSrc.includes("MAX_RETAINED_TEXT"), true);
+expect(
+  "作品说明交代了两层截断（工具层与平台留存层各说各的数）",
+  [
+    rdDoc.includes("联网扩展自己截断返回内容时在 details 里自报 truncated"),
+    rdDoc.includes("平台留存撞上限时把截掉的字数记在 omittedChars"),
+  ],
+  [true, true],
+);
+expect("作品说明交代了撞名已在源头分开", rdDoc.includes("toolOmittedChars"), true);
+expect(
+  "作品说明不承诺工具层的字数（各工具口径不同，只报条数、不推算）",
+  rdDoc.includes("只报条数、不推算字数"),
+  true,
 );
 
 console.log(`[verify] 交付文档数字一致性检查项=${checks} 失败=${failures.length}`);
