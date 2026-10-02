@@ -196,11 +196,12 @@ export function statsFor(agentId: string): Stats {
     id: string;
     status: string;
   }>;
-  let toolCalls = 0;
-  let toolOk = 0;
-  let toolFailed = 0;
-  let toolUnfinished = 0;
-  let artifacts = 0;
+  // 任务数 / 已完成 / 工具调用三态 / 产物数这七项**不在这里再算一遍**：看板（computePlatformStats
+  // 的 perAgent）已经算过一份。两边各跑一遍 SQL 就是同一件事写两遍——本文件的比对口径曾因此与
+  // 看板对不上（09-28 的旧比对压过 09-29 的最新一次，见下面那段注释）。取同一份就不可能各说一套；
+  // 取不到就报错，不猜数字。实测合并前两边 2 个智能体 × 7 个字段逐项相等（0 处不一致）。
+  const board = computePlatformStats().perAgent.find((a) => a.agentId === agentId);
+  if (!board) throw new Error(`看板取数里没有智能体 ${agentId}：作品说明不猜数字`);
   let compareAccuracy: number | null = null;
   let compareRuns = 0;
   let compareAt = "";
@@ -226,15 +227,6 @@ export function statsFor(agentId: string): Stats {
       result: string | null;
       started_at: string | null;
     }>;
-    toolCalls += calls.length;
-    const okCount = calls.filter((c) => c.ok === 1).length;
-    const failedCount = calls.filter((c) => c.ok === 0).length;
-    toolOk += okCount;
-    toolFailed += failedCount;
-    // 三态互斥且穷尽，未返回的那部分不能用「总数 - 成功数」冒充失败数
-    toolUnfinished += calls.length - okCount - failedCount;
-    const dir = path.join(dirs.outputs, t.id);
-    if (fs.existsSync(dir)) artifacts += fs.readdirSync(dir).filter((f) => fs.statSync(path.join(dir, f)).isFile()).length;
     const cmp = summarizeTaskCompares(calls);
     peerRuns += cmp.peerRuns;
     compareTemplateRuns += cmp.template.runs;
@@ -255,13 +247,14 @@ export function statsFor(agentId: string): Stats {
   compareMatchRate = agg.matchRatePercent;
   compareCoverage = agg.coveragePercent;
   return {
-    tasks: tasks.length,
-    completed: tasks.filter((t) => t.status === "completed").length,
-    toolCalls,
-    toolOk,
-    toolFailed,
-    toolUnfinished,
-    artifacts,
+    tasks: board.tasks,
+    completed: board.completed,
+    toolCalls: board.toolCalls,
+    toolOk: board.toolOk,
+    toolFailed: board.toolFailed,
+    // 三态互斥且穷尽：未返回的那部分不能用「总数 - 成功数」冒充失败数（口径在看板那一份里）
+    toolUnfinished: board.toolUnfinished,
+    artifacts: board.artifacts,
     compareAccuracy,
     compareRuns,
     compareMatched,

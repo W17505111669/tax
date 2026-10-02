@@ -22,6 +22,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { computePlatformStats } from "../src/services/stats.ts";
 import { getTask, listTasks } from "../src/services/task-store.ts";
+import { statsFor } from "./materials-lib.ts";
 import { LEDGER_COLUMNS } from "../../web/src/evidence-ledger.ts";
 
 const failures: string[] = [];
@@ -130,6 +131,33 @@ const agentTasks = (id: string): [number, number] => {
 };
 const [rdTotal, rdDone] = agentTasks("rd-audit");
 const [lvTotal, lvDone] = agentTasks("land-vat");
+// 作品说明的智能体级数字必须与看板出自同一份取数。materials-lib 的 statsFor 此前自己跑了一遍
+// SQL 数工具调用三态与产物数——同一件事写两遍，而本文件的比对口径就曾在两边各写一遍并对不上
+// （09-28 的旧比对压过 09-29 的最新一次）。合并之后这条断言钉的是「同源」这个事实本身：数字
+// 相等今天成立（实测 2 个智能体 × 7 个字段 0 处不一致），将来有人把 SQL 加回来就会红。
+const AGENT_FIELDS = [
+  "tasks",
+  "completed",
+  "toolCalls",
+  "toolOk",
+  "toolFailed",
+  "toolUnfinished",
+  "artifacts",
+] as const;
+for (const a of stats.perAgent) {
+  const mine = statsFor(a.agentId) as unknown as Record<string, number>;
+  const board = a as unknown as Record<string, number>;
+  for (const f of AGENT_FIELDS) {
+    checks += 1;
+    if (mine[f] !== board[f]) {
+      failures.push(`${a.agentId} 作品说明取数的 ${f}=${mine[f]} 与看板 perAgent 的 ${f}=${board[f]} 不一致`);
+    }
+  }
+}
+expect("确实比到了两个智能体（不是空跑）", stats.perAgent.length >= 2, true);
+const libSrc = fs.readFileSync(path.resolve(ROOT, "apps/api/scripts/materials-lib.ts"), "utf8");
+expect("materials-lib 不再自己数工具调用三态（那份口径只在看板一处）", libSrc.includes("c.ok === 1"), false);
+expect("materials-lib 的智能体级数字取自看板 perAgent", libSrc.includes("computePlatformStats().perAgent.find"), true);
 const rootPkg = JSON.parse(fs.readFileSync(path.resolve(ROOT, "package.json"), "utf8")) as {
   scripts: Record<string, string>;
 };
