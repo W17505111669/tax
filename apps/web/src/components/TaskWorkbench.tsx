@@ -199,6 +199,21 @@ function toPlainText(md: string): string {
     .trim();
 }
 
+/**
+ * 逐行找第一段正文，跳过标题行、表格行、围栏行与引用行。
+ *
+ * 是「按空行切块」那条路的兜底：整篇用单换行分隔的结论切不出合格的块，此时逐行找还能拿到
+ * 一段能读的正文。找不到就返回空串（调用方据此决定整张卡片要不要渲染），不猜、不拿标题凑。
+ */
+function firstProseLine(text: string): string {
+  for (const raw of text.split(/\r?\n/)) {
+    const s = raw.trim();
+    if (s === "") continue;
+    if (/^(?:#{1,6}\s|\||```|>|-{3,}$|\*{3,}$|_{3,}$)/.test(s)) continue;
+    return s;
+  }
+  return "";
+}
 export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, secInto }: Props) {
   const { timeline, toolCalls, status, connected, reconnect } = useTaskEvents(task.id);
   const [compares, setCompares] = useState<CompareRecord[]>([]);
@@ -835,9 +850,19 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
 
   const summary = useMemo(() => {
     if (!finalResult) return null;
-    const firstPara =
-      finalResult.split(/\n{2,}/).find((s) => s.trim() && !s.startsWith("#") && !s.startsWith("|") && !s.startsWith("```")) ??
-      "";
+    // 挑「第一段正文」的判据必须是**剥掉记号之后还有字**，不能只看开头是什么记号。
+    // 旧判据只排除以 # / | / ``` 开头的块，于是分隔线 `---` 会被当成第一段正文选中，而它过
+    // plainSnippet 之后是空串——这张卡片是 `{summary && summary.firstPara && …}`，firstPara 为空
+    // 卡片就整块不渲染，挂在卡片里的金额溯源与文号溯源两个徽章跟着一起消失。实测 渲染实测H：
+    // 门禁取数 2 处文号 / 34 处金额，界面上两个徽章都不在，复核人在结果页看不到「有几处要核对」
+    // 的入口；而它的结论第 3 块正好是一条 `---`。整篇用单换行分隔时同样挑不出块，逐行兜底。
+    const isProse = (s: string): boolean => {
+      const t = s.trim();
+      if (t === "") return false;
+      if (t.startsWith("#") || t.startsWith("|") || t.startsWith("```")) return false;
+      return plainSnippet(t, 220).trim() !== "";
+    };
+    const firstPara = finalResult.split(/\n{2,}/).find(isProse) ?? firstProseLine(finalResult);
     return {
       firstPara: plainSnippet(firstPara, 220),
       // 分隔行可能带对齐冒号（|:---|---:|），旧正则一张也数不到，见 md-text.ts 的 countTables

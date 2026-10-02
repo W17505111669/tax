@@ -24,6 +24,8 @@
  */
 import { db } from "../src/db.ts";
 import { launchChromium, WEB_URL } from "./browser-lib.ts";
+import { loadTaskDocRefs } from "./docref-lib.ts";
+import { TEXT_AMOUNT_TOOLS, traceAmounts } from "../../web/src/amount-trace.ts";
 
 const WEB = WEB_URL;
 
@@ -202,12 +204,57 @@ async function main(): Promise<void> {
     targets = rows.filter((r) => r.rlen > 0);
   }
 
+  // 界面上渲染出来的数字也要与库里的取数对一遍。门禁此前比的是台账 / 交付 MD / manifest /
+  // 作品说明，**界面这条腿一直是空的**：徽章取数与门禁取数不同源、或哪个 useMemo 依赖漏了，
+  // 界面上的数字就会与交付材料对不上，而没有任何东西会报警。期望值全部用门禁那一份口径算
+  // （docref-lib 的文号溯源、verify:amounts 的金额溯源、tool_calls 的调用数），不另立一套。
+  const docrefOf = new Map<string, { traced: number; total: number }>();
+  for (const td of loadTaskDocRefs()) docrefOf.set(td.taskId, { traced: td.res.traced, total: td.res.total });
+  const expectOf = new Map<
+    string,
+    { calls: number; docTraced: number; docTotal: number; amtTraced: number; amtTotal: number }
+  >();
+  for (const t of targets) {
+    const d = db
+      .prepare(`SELECT COALESCE(result,'') AS result, COALESCE(instruction,'') AS instruction FROM tasks WHERE id = ?`)
+      .get(t.id) as { result: string; instruction: string };
+    const callRows = db.prepare(`SELECT tool_name, result, ok FROM tool_calls WHERE task_id = ?`).all(t.id) as Array<{
+      tool_name: string;
+      result: string | null;
+      ok: number | null;
+    }>;
+    const parsedAll = callRows.map((r) => {
+      try {
+        return r.result ? (JSON.parse(r.result) as unknown) : null;
+      } catch {
+        return null;
+      }
+    });
+    const okIdx = callRows.map((_, i) => i).filter((i) => callRows[i]!.ok === 1);
+    const amt = traceAmounts(
+      d.result,
+      okIdx.map((i) => parsedAll[i]),
+      d.instruction,
+      okIdx
+        .filter((i) => TEXT_AMOUNT_TOOLS.has(callRows[i]!.tool_name))
+        .map((i) => parsedAll[i]),
+    );
+    const dr = docrefOf.get(t.id) ?? { traced: 0, total: 0 };
+    expectOf.set(t.id, {
+      calls: callRows.length,
+      docTraced: dr.traced,
+      docTotal: dr.total,
+      amtTraced: amt.traced,
+      amtTotal: amt.total,
+    });
+  }
+
   const browser = await launchChromium();
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
-  const pages: Array<{ label: string; url: string; tab: string }> = [];
+  const pages: Array<{ label: string; url: string; tab: string; taskId: string }> = [];
   if (args.overview) {
     for (const agentId of ["rd-audit", "land-vat"]) {
-      pages.push({ label: `总览 ${agentId}`, url: `${WEB}/#/agent/${agentId}`, tab: "" });
+      pages.push({ label: `总览 ${agentId}`, url: `${WEB}/#/agent/${agentId}`, tab: "", taskId: "" });
     }
   }
   for (const t of targets) {
@@ -216,6 +263,7 @@ async function main(): Promise<void> {
         label: `${t.title.slice(0, 18)} · ${tab}`,
         url: `${WEB}/#/agent/${t.agentId}/task/${t.id}/tab/${tab}`,
         tab,
+        taskId: t.id,
       });
     }
   }
@@ -229,6 +277,9 @@ async function main(): Promise<void> {
   /** 点开过的图标按钮（只有 title / aria-label，没有文字）：为 0 就说明这条路根本没生效 */
   let iconOnlyClicked = 0;
   const iconOnlyLabels = new Set<string>();
+  /** 界面数字与库取数的核对：项数与不一致清单（不一致即失败，不是提醒） */
+  let numChecks = 0;
+  const numFails: string[] = [];
   /**
    * 枚举时**见过**的入口（点没点到另说）。「必需入口」的判据是「范围内出现过就必须点到」，
    * 不是「任何时候都必须点到」：窄范围跑（--tasks 指定几个任务、--no-overview）时，
@@ -304,6 +355,52 @@ async function main(): Promise<void> {
     await page.waitForTimeout(1800);
     await scanOnce(p.label);
     pageScans += 1;
+    if (p.tab === "result" && p.taskId !== "") {
+      const want = expectOf.get(p.taskId);
+      // 等界面把事件回放完再取数：以头部「工具调用 N 次」与库里的调用数对齐为准。固定等一小段
+      // 时间在大任务上会量到半成品（徽章还没挂上就被判成「界面没有这个数」），在小任务上白等。
+      const deadline = Date.now() + 30000;
+      let bodyText = (await page.evaluate(`document.body.innerText`)) as string;
+      while (Date.now() < deadline && want !== undefined && !bodyText.includes(`工具调用 ${want.calls} 次`)) {
+        await page.waitForTimeout(500);
+        bodyText = (await page.evaluate(`document.body.innerText`)) as string;
+      }
+      const one = (re: RegExp): number | null => {
+        const m = re.exec(bodyText);
+        return m ? Number(m[1]) : null;
+      };
+      const pair = (re: RegExp): [number, number] | null => {
+        const m = re.exec(bodyText);
+        return m ? [Number(m[1]), Number(m[2])] : null;
+      };
+      if (want) {
+        const calls = one(/工具调用 (\d+) 次/);
+        numChecks += 1;
+        if (calls !== want.calls) numFails.push(`${p.label} 头部「工具调用 ${calls} 次」≠ 库里 ${want.calls} 次`);
+        const doc = pair(/文号溯源 (\d+)\/(\d+)/);
+        numChecks += 1;
+        if (want.docTotal > 0) {
+          if (doc === null) {
+            numFails.push(`${p.label} 门禁取数有 ${want.docTotal} 处文号，界面上却没有「文号溯源」徽章`);
+          } else if (doc[0] !== want.docTraced || doc[1] !== want.docTotal) {
+            numFails.push(`${p.label} 文号溯源徽章 ${doc[0]}/${doc[1]} ≠ 门禁取数 ${want.docTraced}/${want.docTotal}`);
+          }
+        } else if (doc !== null) {
+          numFails.push(`${p.label} 门禁取数里没有文号，界面却显示「文号溯源 ${doc[0]}/${doc[1]}」`);
+        }
+        const amt = pair(/金额溯源 (\d+)\/(\d+)/);
+        numChecks += 1;
+        if (want.amtTotal > 0) {
+          if (amt === null) {
+            numFails.push(`${p.label} 门禁取数有 ${want.amtTotal} 处金额，界面上却没有「金额溯源」徽章`);
+          } else if (amt[0] !== want.amtTraced || amt[1] !== want.amtTotal) {
+            numFails.push(`${p.label} 金额溯源徽章 ${amt[0]}/${amt[1]} ≠ 门禁取数 ${want.amtTraced}/${want.amtTotal}`);
+          }
+        } else if (amt !== null) {
+          numFails.push(`${p.label} 门禁取数里没有金额，界面却显示「金额溯源 ${amt[0]}/${amt[1]}」`);
+        }
+      }
+    }
     if (args.interact && args.interactLimit > 0) {
       // 每轮重新枚举，不复用上一轮的标记：点开一个面板会让 React 重建那一片 DOM，
       // 挂在旧节点上的 data-scan-toggle 跟着没了——第一版一次枚举到底，实测 92 次成功里
@@ -408,6 +505,8 @@ async function main(): Promise<void> {
           requiredMissing,
           requiredAbsent,
           seenLabels: [...seenLabels],
+          numChecks,
+          numFails,
           nodesTotal,
           charsTotal,
           thin,
@@ -454,7 +553,20 @@ async function main(): Promise<void> {
     console.log(`  - [${h.page}] ${h.pattern} :: ${h.text.replace(/\s+/g, " ").slice(0, 90)} :: ${h.chain}`);
   }
   if (allHits.length > 25) console.log(`  …另有 ${allHits.length - 25} 处，用 --json 看全量`);
-  if (args.strict && (allHits.length > 0 || thin.length > 0 || requiredMissing.length > 0 || iconOnlyMissing)) {
+  console.log(`[scan] 界面数字与库取数核对：${numChecks} 项 · 不一致 ${numFails.length} 处`);
+  for (const f of numFails.slice(0, 10)) console.log(`  - ${f}`);
+  if (numFails.length > 10) console.log(`  …另有 ${numFails.length - 10} 处`);
+  // 只有本轮确实扫了结果页时才要求「核对过数字」，否则 --tabs=timeline 这种窄跑会被误判成空跑
+  const numbersMissing = args.tabs.includes("result") && targets.length > 0 && numChecks === 0;
+  if (
+    args.strict &&
+    (allHits.length > 0 ||
+      thin.length > 0 ||
+      requiredMissing.length > 0 ||
+      iconOnlyMissing ||
+      numFails.length > 0 ||
+      numbersMissing)
+  ) {
     console.log(
       allHits.length > 0
         ? "[FAIL] 界面上仍有 Markdown 原文"
@@ -462,7 +574,11 @@ async function main(): Promise<void> {
           ? "[FAIL] 有页面没渲染出内容，扫描不算数"
           : requiredMissing.length > 0
             ? "[FAIL] 必需的折叠入口没点到，交互覆盖是空的"
-            : "[FAIL] 一个图标按钮都没点到，浮层覆盖是空的",
+            : iconOnlyMissing
+              ? "[FAIL] 一个图标按钮都没点到，浮层覆盖是空的"
+              : numbersMissing
+                ? "[FAIL] 一个结果页都没核对到界面数字，这项覆盖是空的"
+                : "[FAIL] 界面上的数字与库里的取数对不上",
     );
     process.exit(1);
   }
