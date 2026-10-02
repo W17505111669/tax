@@ -80,3 +80,45 @@ export function callStats(calls: CallRow[]): {
     avgMs: durations.length > 0 ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : null,
   };
 }
+
+/** 工具调用表的表头，供验证脚本按列位置断言（不依赖文案常量） */
+export const TOOL_TABLE_HEADER = "| # | 工具 | 结果 | 耗时 | 开始时间 | 入参摘要 |";
+
+/**
+ * 交付 MD「工具调用清单」一节的行。
+ *
+ * 本文件的头注释一直写着「供整页交付 MD 的工具调用清单一节使用」，但拼行的那段此前留在
+ * TaskWorkbench 的闭包里，于是这一节的文本一条断言都没有：合计行五个数字对不对、分组表头
+ * 写得对不对、每行是不是 6 列、行数加起来等不等于调用总数，全靠下载下来肉眼扫。搬进来之后
+ * 汇总行由 `callStats` 就地算出、明细行由 `callsByRun` 的分组就地展开，两者不可能各说一套。
+ */
+export function toolCallSection(calls: CallRow[], windows: RunWindow[]): string[] {
+  if (calls.length === 0) return ["（本次任务没有工具调用记录）"];
+  const grouped = callsByRun(calls, windows);
+  const st = callStats(calls);
+  const lines: string[] = [
+    `- 合计 ${st.total} 次调用：成功 ${st.ok} · 失败 ${st.failed} · 执行中 ${st.running} · 平均耗时 ${fmtDuration(
+      st.avgMs,
+    )}`,
+    "",
+  ];
+  for (const k of [...grouped.keys()].sort((a, b) => a - b)) {
+    const list = grouped.get(k) ?? [];
+    const w = windows.find((x) => x.run === k);
+    lines.push(
+      k === 0 ? "### 运行窗口之外" : `### 第 ${k} 次运行（${w?.start ?? "?"} ~ ${w?.end ?? "未结束"}）`,
+      "",
+      TOOL_TABLE_HEADER,
+      "| --- | --- | --- | --- | --- | --- |",
+    );
+    list.forEach((c, i) => {
+      lines.push(
+        `| ${i + 1} | ${c.toolName} | ${c.ok === null ? "执行中" : c.ok ? "成功" : "失败"} | ${fmtDuration(
+          durationMs(c.at, c.endedAt),
+        )} | ${c.at} | ${summarizeArgs(c.args)} |`,
+      );
+    });
+    lines.push("");
+  }
+  return lines;
+}

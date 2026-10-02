@@ -26,7 +26,7 @@ import { loadTags, saveTags } from "../tags.ts";
 import { matchToolCalls } from "../timeline-calls.ts";
 import { artifactsOfRun, artifactTable, fmtBytes, runWindows, unattributedArtifacts } from "../run-artifacts.ts";
 import { artifactSources } from "../artifact-sources.ts";
-import { callStats, callsByRun, durationMs, fmtDuration, mdCell, summarizeArgs } from "../run-tools.ts";
+import { callStats, toolCallSection } from "../run-tools.ts";
 import {
   amountKey,
   classifyUntraced,
@@ -1403,35 +1403,9 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     todos: sheetTodos,
   };
 
-  // 交付包里的工具调用清单：按运行分组，含结果、耗时与入参摘要（表格单元格已做竖线/换行安全化）
-  const toolCallSection = (): string[] => {
-    if (toolCalls.length === 0) return ["（本次任务没有工具调用记录）"];
-    const grouped = callsByRun(toolCalls, runWins);
-    const st = callStats(toolCalls);
-    const lines: string[] = [
-      `- 合计 ${st.total} 次调用：成功 ${st.ok} · 失败 ${st.failed} · 执行中 ${st.running} · 平均耗时 ${fmtDuration(st.avgMs)}`,
-      "",
-    ];
-    for (const k of [...grouped.keys()].sort((a, b) => a - b)) {
-      const list = grouped.get(k) ?? [];
-      const w = runWins.find((x) => x.run === k);
-      lines.push(
-        k === 0 ? "### 运行窗口之外" : `### 第 ${k} 次运行（${w?.start ?? "?"} ~ ${w?.end ?? "未结束"}）`,
-        "",
-        "| # | 工具 | 结果 | 耗时 | 开始时间 | 入参摘要 |",
-        "| --- | --- | --- | --- | --- | --- |",
-      );
-      list.forEach((c, i) => {
-        lines.push(
-          `| ${i + 1} | ${c.toolName} | ${c.ok === null ? "执行中" : c.ok ? "成功" : "失败"} | ${fmtDuration(
-            durationMs(c.at, c.endedAt),
-          )} | ${c.at} | ${summarizeArgs(c.args)} |`,
-        );
-      });
-      lines.push("");
-    }
-    return lines;
-  };
+  // 交付包里的工具调用清单整节搬到 run-tools.ts（那个文件的头注释本来就写着「供整页交付 MD 的
+  // 工具调用清单一节使用」，只是拼行那段一直留在这里）：留在闭包里就没法单测，合计行五个数字、
+  // 分组表头、每行 6 列、行数合计等于调用总数，此前一条断言都没有。
 
   const bundleLines = () => [
     `# ${task.title}`,
@@ -1498,7 +1472,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     "",
     "## 工具调用清单（按运行分组）",
     "",
-    ...toolCallSection(),
+    ...toolCallSection(toolCalls, runWins),
     "",
     "## 人工复核记录",
     "",

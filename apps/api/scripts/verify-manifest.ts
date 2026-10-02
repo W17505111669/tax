@@ -8,6 +8,7 @@ import { buildManifest, MANIFEST_SCHEMA, MANIFEST_VERSION, manifestIssues, type 
 import { deliveryCheck } from "../../web/src/delivery-check.ts";
 import { artifactSources } from "../../web/src/artifact-sources.ts";
 import { artifactsOfRun, runWindows } from "../../web/src/run-artifacts.ts";
+import { callStats, fmtDuration, toolCallSection, TOOL_TABLE_HEADER } from "../../web/src/run-tools.ts";
 import {
   traceAmounts,
   amountKey,
@@ -409,6 +410,10 @@ let manifestLinkSummaries = 0;
 let citeMdTasks = 0;
 let citeMdTableTasks = 0;
 let citeMdLinkTasks = 0;
+/** 交付 MD 工具调用清单节的真实走查规模与非空平均耗时条数 */
+let toolMdTasks = 0;
+let toolMdRows = 0;
+let toolAvgNonNull = 0;
 /**
  * 交叉核对：manifest 走的是「前端交付路径」（web 侧纯函数 + 自己从库取数），看板与台账走的是
  * 「服务端聚合路径」（stats.ts）。两条路径各算一遍同一批指标，此前从来没有逐项对过——
@@ -451,6 +456,7 @@ for (const t of listTasks()) {
     .all(t.id) as Array<{
     id: string;
     tool_name: string;
+    args: string | null;
     result: string | null;
     ok: number | null;
     started_at: string;
@@ -463,12 +469,19 @@ for (const t of listTasks()) {
     } catch {
       result = null;
     }
+    let args: unknown = null;
+    try {
+      args = c.args ? JSON.parse(c.args) : null;
+    } catch {
+      args = null;
+    }
     return {
       id: c.id,
       toolName: c.tool_name,
       at: c.started_at,
       endedAt: c.ended_at,
       ok: c.ok === 1 ? true : c.ok === 0 ? false : null,
+      args,
       result,
     };
   });
@@ -508,6 +521,19 @@ for (const t of listTasks()) {
   );
   const toolOk = calls.filter((c) => c.ok === true).length;
   const toolFailed = calls.filter((c) => c.ok === false).length;
+  // 工具调用汇总与产品同一份 callStats（此前 avgMs 写死 null，见下面 tools 处的注释）
+  const toolStats = callStats(calls);
+  checks += 1;
+  if (toolStats.total !== calls.length || toolStats.ok !== toolOk || toolStats.failed !== toolFailed) {
+    failures.push(
+      `${t.id.slice(0, 8)} callStats 与本脚本自己数的不一致：${toolStats.total}/${toolStats.ok}/${toolStats.failed} vs ${calls.length}/${toolOk}/${toolFailed}`,
+    );
+  }
+  // 平均耗时必须有分母：实测 363 次调用全都有 ended_at，若哪天算出 null 说明耗时口径断了
+  if (calls.length > 0) {
+    checks += 1;
+    toolAvgNonNull += toolStats.avgMs === null ? 0 : 1;
+  }
   // 链接核验：与结果页同一份数据、同一道过滤（link-check.ts 的 liveLinkChecks）。
   // 此前本脚本从头到尾没读过 link_checks：manifest 的 linkCheck 一节写死 null、每条引用的 verdict
   // 写死 "unchecked"，于是 manifestIssues 里那两条链接规则只在合成数据上跑过，而交付自检的
@@ -665,13 +691,9 @@ for (const t of listTasks()) {
         run: win ? win.run : null,
       };
     }),
-    tools: {
-      total: calls.length,
-      ok: toolOk,
-      failed: toolFailed,
-      running: calls.filter((c) => c.ok === null).length,
-      avgMs: null,
-    },
+    // 与产品同一份 callStats：此前 avgMs 写死 null，于是门禁验的清单里「平均耗时」永远是空的，
+    // 而用户下载到的 manifest.json 里是真数字（实测 37 个任务全都算得出来）
+    tools: toolStats,
     citations: cites,
     citationGrades: cites.length > 0 ? grades : null,
     searches: searches.calls > 0 ? searches : null,
@@ -981,6 +1003,49 @@ for (const t of listTasks()) {
       failures.push(`${t.id.slice(0, 8)} 核验明细 ${detailRows} 行 ≠ 汇总非可访问 ${lcSum.total - lcSum.ok} 条`);
     }
   }
+
+  // ---- 交叉核对之二·补 2：交付 MD 的工具调用清单节 ----
+  // 合计行的数字必须与 manifest 的 tools 块逐项相同：两边同出 callStats，但一个渲染成人读的一行、
+  // 一个写进 JSON，各自组装一次，最容易只改一边。分组表行数合计必须等于调用总数（分组不能丢行、
+  // 也不能重复计行）。
+  const toolMd = toolCallSection(calls, wins);
+  if (calls.length > 0) {
+    toolMdTasks += 1;
+    const toolHead = toolMd.find((l) => l.startsWith("- 合计 ")) ?? "";
+    for (const frag of [
+      `合计 ${toolStats.total} 次调用`,
+      `成功 ${toolStats.ok}`,
+      `失败 ${toolStats.failed}`,
+      `执行中 ${toolStats.running}`,
+      // 平均耗时也必须逐项对：真实库里没有未结束的调用（running 恒为 0），只比前四个数字时
+      // 「总数写成 ok+failed」这种错在真实数据上看不出来，耗时这一项才是真能拦住的那道。
+      `平均耗时 ${fmtDuration(toolStats.avgMs)}`,
+    ]) {
+      checks += 1;
+      if (!toolHead.includes(frag)) {
+        failures.push(`${t.id.slice(0, 8)} 工具调用清单节没写出「${frag}」，实际是：${toolHead.slice(0, 80)}`);
+      }
+    }
+    let toolRows = 0;
+    let toolTables = 0;
+    for (let i = 0; i < toolMd.length; i++) {
+      if (toolMd[i] !== TOOL_TABLE_HEADER) continue;
+      toolTables += 1;
+      for (let j = i + 2; j < toolMd.length && (toolMd[j] ?? "").startsWith("|"); j++) toolRows += 1;
+    }
+    toolMdRows += toolRows;
+    checks += 1;
+    if (toolRows !== calls.length) {
+      failures.push(`${t.id.slice(0, 8)} 工具调用表合计 ${toolRows} 行 ≠ 调用总数 ${calls.length}`);
+    }
+    checks += 1;
+    if (toolTables < 1) failures.push(`${t.id.slice(0, 8)} 有 ${calls.length} 次调用却没有分组表`);
+  } else {
+    checks += 1;
+    if (toolMd.length !== 1 || !toolMd[0]!.includes("没有工具调用记录")) {
+      failures.push(`${t.id.slice(0, 8)} 没有工具调用时该节应只有一行兜底说明，实际 ${toolMd.length} 行`);
+    }
+  }
 }
 
 // ---- 交叉核对之三：平台级，看板聚合 vs 交付路径逐任务累加 ----
@@ -1025,6 +1090,12 @@ if (citeMdTasks < 1) failures.push("一个有引用的真实任务都没走到�
 checks += 1;
 if (citeMdLinkTasks < 1) failures.push("一个带链接核验的真实任务都没走到，核验汇总与明细同源的断言等于空跑");
 checks += 1;
+if (toolMdTasks < 1) failures.push("一个有工具调用的真实任务都没走到，工具调用清单节的断言等于空跑");
+checks += 1;
+if (toolAvgNonNull < 1) {
+  failures.push("真实数据里没有一个任务算得出平均耗时，manifest 的 tools.avgMs 等于没验（此前它被写死成 null）");
+}
+checks += 1;
 if (linkTasks < 1) failures.push("一个带链接核验记录的真实任务都没走到，manifest 的链接核验一节等于没验");
 checks += 1;
 if (citesWithVerdict < 1) failures.push("真实数据里一条带核验结论的引用都没有，verdict 这一列等于没验");
@@ -1051,6 +1122,9 @@ console.log(
 );
 console.log(
   `[verify] 交付 MD 联网引用节走查：${cross.mdCiteChecked} 个任务（有引用 ${citeMdTasks} · 带替代来源表 ${citeMdTableTasks} · 带链接核验 ${citeMdLinkTasks}）`,
+);
+console.log(
+  `[verify] 交付 MD 工具调用清单节走查：${toolMdTasks} 个任务有调用 · 表行合计 ${toolMdRows} 行 · 算得出平均耗时 ${toolAvgNonNull} 个`,
 );
 if (skippedTasks > 0) {
   console.log(
