@@ -36,6 +36,20 @@ export interface ToolOutcomeCounts {
   unfinished: number;
 }
 
+/**
+ * 平台与单作品的工具调用三态计数 → 共用口径的入参形状。
+ * 原本写在 AgentOverview 里，但门禁脚本（scan:uimd 核对看板 KPI 卡）也要按同一份口径算期望值，
+ * 放在组件里就只能再抄一遍——四个字段名抄错一个，成功率的分母就悄悄换了。
+ */
+export function outcomeOf(s: {
+  toolCalls: number;
+  toolOk: number;
+  toolFailed: number;
+  toolUnfinished: number;
+}): ToolOutcomeCounts {
+  return { calls: s.toolCalls, ok: s.toolOk, failed: s.toolFailed, unfinished: s.toolUnfinished };
+}
+
 /** 有返回结果的调用数，也就是成功率的分母 */
 export function resolvedCalls(c: ToolOutcomeCounts): number {
   return c.ok + c.failed;

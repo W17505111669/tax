@@ -24,11 +24,11 @@ import { dayStamp, relTime } from "../time-format.ts";
 import { groupSummary } from "../review-queue.ts";
 import {
   outcomeLine,
+  outcomeOf,
   resolvedCalls,
   ringSegments,
   successRate,
   type RingSegmentKey,
-  type ToolOutcomeCounts,
 } from "../tool-outcome.ts";
 import { failureSummary, groupFailures } from "../tool-failures.ts";
 import { UNTRACED_ORIGIN_HINT, UNTRACED_ORIGIN_TEXT } from "../amount-trace.ts";
@@ -44,16 +44,6 @@ const RING_COLOR: Record<RingSegmentKey, string> = {
   failed: "#fb7185",
   unfinished: "#fbbf24",
 };
-
-/** 平台与单作品的工具调用三态计数，统一喂给 tool-outcome.ts 那一份共用口径 */
-function outcomeOf(s: {
-  toolCalls: number;
-  toolOk: number;
-  toolFailed: number;
-  toolUnfinished: number;
-}): ToolOutcomeCounts {
-  return { calls: s.toolCalls, ok: s.toolOk, failed: s.toolFailed, unfinished: s.toolUnfinished };
-}
 
 /**
  * 台账里要标琥珀色的两列欠账（待复查 / 证据力弱）。
@@ -813,7 +803,8 @@ export function AgentOverview({
                 </button>
               </span>
             </div>
-            <div className="mt-2 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+            {/* data-kpi-grid：scan:uimd 靠它定位这一排卡片，逐个核对数字与单位串 */}
+            <div className="mt-2 grid gap-3 sm:grid-cols-2 xl:grid-cols-6" data-kpi-grid="1">
               {[
                 { label: "累计任务", key: "tasks", value: stats.platform.tasks.toLocaleString("zh-CN"), unit: "个", desc: "全平台已创建任务总数（含未完成）" },
                 { label: "已完成", key: "completed", value: stats.platform.completed.toLocaleString("zh-CN"), unit: "个", desc: "状态为 completed 的任务数" },

@@ -26,6 +26,8 @@ import { db } from "../src/db.ts";
 import { launchChromium, WEB_URL } from "./browser-lib.ts";
 import { loadTaskDocRefs } from "./docref-lib.ts";
 import { TEXT_AMOUNT_TOOLS, traceAmounts } from "../../web/src/amount-trace.ts";
+import { percentValue } from "../../web/src/format.ts";
+import { outcomeOf, resolvedCalls } from "../../web/src/tool-outcome.ts";
 import { computePlatformStats } from "../src/services/stats.ts";
 import { listAgents } from "../src/agents.ts";
 import { listStoredCompares, type StoredCompare } from "../src/services/compare-stats.ts";
@@ -126,6 +128,28 @@ const CMP_READ = `(() => {
     ids: (bt.match(/#[0-9a-f]{8}/g) || []).map((s) => s.slice(1)),
     donut: donut,
   };
+})()`;
+
+/**
+ * 看板顶部那一排 KPI 卡（label / 数值 / 单位串）。值取 flex 行的第一个子元素、单位取最后一个：
+ * 中间可能夹着「较上次变化」的 delta 徽章，按 children[1] 取会把徽章文字当成单位。
+ */
+const KPI_READ = `(() => {
+  const grid = document.querySelector("[data-kpi-grid]");
+  if (!grid) return { cards: [] };
+  const cards = [];
+  for (let i = 0; i < grid.children.length; i++) {
+    const card = grid.children[i];
+    const row = card.children[1];
+    const first = row ? row.firstElementChild : null;
+    const last = row ? row.lastElementChild : null;
+    cards.push({
+      label: ((card.children[0] && card.children[0].innerText) || "").trim(),
+      value: (first && first.innerText ? first.innerText : "").trim(),
+      unit: (last && last !== first && last.innerText ? last.innerText : "").replace(/\\s+/g, " ").trim(),
+    });
+  }
+  return { cards: cards };
 })()`;
 
 interface Args {
@@ -305,6 +329,28 @@ async function main(): Promise<void> {
   // 看板取数：台账合计行那一行里有 15 个数字，全部与它对
   const board = computePlatformStats();
   const bev = board.evidence;
+  // 看板 KPI 卡的期望值：与界面同一个 computePlatformStats()，比率与分母也走界面那一份
+  // percentValue / resolvedCalls / outcomeOf（outcomeOf 本轮从 AgentOverview 挪进 tool-outcome.ts，
+  // 就是为了不在这里再抄一遍四个字段名——抄错一个，成功率的分母就悄悄换了）。
+  const boardOutcome = outcomeOf(board);
+  const kpiWant: Array<{ label: string; value: string; unit: string }> = [
+    { label: "累计任务", value: board.tasks.toLocaleString("zh-CN"), unit: "个" },
+    { label: "已完成", value: board.completed.toLocaleString("zh-CN"), unit: "个" },
+    { label: "工具成功率", value: percentValue(board.toolOk, resolvedCalls(boardOutcome)), unit: "%" },
+    { label: "底稿产物", value: board.artifacts.toLocaleString("zh-CN"), unit: "份" },
+    {
+      label: "记录级比对准确率",
+      value: board.compareAccuracy !== null ? String(board.compareAccuracy) : "—",
+      // 单位串里还带着一个对外数字（累计一致率），所以整串一起对，不只对那个百分号
+      unit:
+        board.compareMatchRateOverall !== null ? `% · 累计一致率 ${board.compareMatchRateOverall}%` : "%",
+    },
+    {
+      label: "OCR 平均置信度",
+      value: board.ocrAvgConfidence !== null ? String(board.ocrAvgConfidence) : "—",
+      unit: board.ocrRuns > 0 ? `% · ${board.ocrRuns} 次` : "%",
+    },
+  ];
   // 台账表格的期望值：与导出（MD / CSV）同一份 ledgerCells，行序也与界面同一份 ledgerSort
   const agents = listAgents();
   // 用 shortName：界面与导出（ledgerMarkdown / ledgerCsv）传的是同一个 agentName 函数，取的是
@@ -417,6 +463,8 @@ async function main(): Promise<void> {
   let ledgerCellBad = 0;
   /** 比对页数字核对：核到的数字个数（为 0 说明这一屏压根没核到，覆盖是空的） */
   let cmpChecks = 0;
+  /** 看板 KPI 卡核对：核到的项数（标签 / 数值 / 单位串各算一项） */
+  let kpiChecks = 0;
   /**
    * 枚举时**见过**的入口（点没点到另说）。「必需入口」的判据是「范围内出现过就必须点到」，
    * 不是「任何时候都必须点到」：窄范围跑（--tasks 指定几个任务、--no-overview）时，
@@ -785,6 +833,36 @@ async function main(): Promise<void> {
     // 这一行是复核人扫一眼就看全平台欠账的地方，改了版式就得同时确认数字还是同一份取数。
     if (p.tab === "" && p.taskId === "") {
       const bodyText = ((await page.evaluate(`document.body.innerText`)) as string).replace(/\s+/g, " ");
+      // 看板顶部那一排 KPI 卡是全平台最显眼的 6 个数字（22px），此前一项都没被核对过：
+      // scan 在这一页只核过台账合计行与台账表格。按位置逐张对标签 / 数值 / 单位串——
+      // 顺序也是判据的一部分，重排会让「工具成功率」顶着「累计任务」的标签显示。
+      const kpiUi = (await page.evaluate(KPI_READ)) as {
+        cards: Array<{ label: string; value: string; unit: string }>;
+      };
+      kpiChecks += 1;
+      if (kpiUi.cards.length !== kpiWant.length) {
+        numFails.push(
+          `${p.label} 看板 KPI 卡渲染了 ${kpiUi.cards.length} 张，取数侧期望 ${kpiWant.length} 张（少一张就是有一个对外数字不见了）`,
+        );
+      }
+      kpiWant.forEach((w, i) => {
+        const g = kpiUi.cards[i];
+        kpiChecks += 1;
+        if (!g) {
+          numFails.push(`${p.label} 看板第 ${i + 1} 张 KPI 卡「${w.label}」在界面上不存在`);
+          return;
+        }
+        for (const [field, wantV, gotV] of [
+          ["标签", w.label, g.label],
+          ["数值", w.value, g.value],
+          ["单位串", w.unit, g.unit],
+        ] as Array<[string, string, string]>) {
+          kpiChecks += 1;
+          if (wantV !== gotV) {
+            numFails.push(`${p.label} 看板第 ${i + 1} 张 KPI 卡${field}「${gotV || "(空)"}」≠ 取数「${wantV}」`);
+          }
+        }
+      });
       const LEDGER_TOTAL =
         /全平台证据核对台账（(\d+) 个任务）文号 (\d+)\/(\d+) 有出处（其中复查取得 (\d+) · 仅正文提到 (\d+)）· 待复查 (\d+)（已标注 (\d+)） · 引用 (\d+) 条（官方 (\d+) · 弱 (\d+)，待处置 (\d+)）· 金额待确认 (\d+)（引自联网正文 (\d+) · 三处均无出处 (\d+)） · 欠账任务 (\d+) 个/;
       const m = LEDGER_TOTAL.exec(bodyText);
@@ -1079,8 +1157,11 @@ async function main(): Promise<void> {
   if (args.tabs.includes("compare") && cmpTargets > 0) {
     console.log(`[scan] 比对页数字核对：${cmpChecks} 项（范围内 ${cmpTargets} 个任务有比对留存）`);
   }
+  // 看板 KPI 卡同理：扫了总览页却一张卡都没核到，说明 data-kpi-grid 这个钩子失效了（版式改过）
+  const kpiMissing = args.overview && kpiChecks === 0;
+  if (args.overview) console.log(`[scan] 看板 KPI 卡核对：${kpiChecks} 项（期望每张卡 3 项 × ${kpiWant.length} 张 × 总览页数）`);
   console.log(
-    `[scan] 界面数字与库取数核对：${numChecks} 项 + 台账单元格 ${ledgerCellChecks} 个 + 比对页 ${cmpChecks} 项（不一致 ${ledgerCellBad} 个）· 合计不一致 ${numFails.length} 处`,
+    `[scan] 界面数字与库取数核对：${numChecks} 项 + 台账单元格 ${ledgerCellChecks} 个 + 比对页 ${cmpChecks} 项 + 看板 KPI ${kpiChecks} 项（不一致 ${ledgerCellBad} 个）· 合计不一致 ${numFails.length} 处`,
   );
   for (const f of numFails.slice(0, 10)) console.log(`  - ${f}`);
   if (numFails.length > 10) console.log(`  …另有 ${numFails.length - 10} 处`);
@@ -1094,7 +1175,8 @@ async function main(): Promise<void> {
       iconOnlyMissing ||
       numFails.length > 0 ||
       numbersMissing ||
-      compareMissing)
+      compareMissing ||
+      kpiMissing)
   ) {
     console.log(
       allHits.length > 0
@@ -1109,7 +1191,9 @@ async function main(): Promise<void> {
                 ? "[FAIL] 一个结果页都没核对到界面数字，这项覆盖是空的"
                 : compareMissing
                   ? "[FAIL] 一个比对页都没核对到界面数字，这项覆盖是空的"
-                  : "[FAIL] 界面上的数字与库里的取数对不上",
+                  : kpiMissing
+                    ? "[FAIL] 一张看板 KPI 卡都没核对到，这项覆盖是空的"
+                    : "[FAIL] 界面上的数字与库里的取数对不上",
     );
     process.exit(1);
   }
