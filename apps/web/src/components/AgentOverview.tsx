@@ -31,6 +31,7 @@ import {
   type RingSegmentKey,
 } from "../tool-outcome.ts";
 import { failureSummary, groupFailures } from "../tool-failures.ts";
+import { STATUS_BARS, type StatusBreakdown } from "../status-breakdown.ts";
 import { UNTRACED_ORIGIN_HINT, UNTRACED_ORIGIN_TEXT } from "../amount-trace.ts";
 
 /** 大数字 odometer：每位数字独立滚轮到目标值，对齐参考片数据页质感。 */
@@ -103,15 +104,8 @@ interface Props {
   agents: AgentInfo[];
   activeAgentId: string;
   stats: { tasks: number; completed: number; platform: PlatformStats | null };
-  breakdown: {
-    processing: number;
-    waiting_review: number;
-    completed: number;
-    /** Agent 执行报错的任务数（不含服务重启打断的） */
-    failed: number;
-    /** 服务重启打断、续跑即可的任务数 */
-    interrupted: number;
-  };
+  /** 状态分布：口径与条目名单都在 status-breakdown.ts（App.tsx 算、这里渲染、门禁算期望值） */
+  breakdown: StatusBreakdown;
   createdAts: string[];
   recent: Array<{
     id: string;
@@ -200,18 +194,9 @@ export function AgentOverview({
   // 缺口任务自身的未复核项合计（与「全平台待复核合计」不同：后者还包含待复核态任务）
   const backlogPending = (p?.reviewBacklog ?? []).reduce((s, b) => s + b.pending, 0);
   const heroValue = p?.tasks ?? stats.tasks;
-  const bars = [
-    { label: "已完成", value: breakdown.completed },
-    { label: "执行中", value: breakdown.processing },
-    { label: "待复核", value: breakdown.waiting_review },
-    // 分成两行：服务重启打断的续跑就行，与 Agent 执行报错混在一行会让人去查错方向
-    { label: "执行失败", value: breakdown.failed, hint: "Agent 执行报错，需要看错误原因" },
-    {
-      label: "已中断",
-      value: breakdown.interrupted,
-      hint: "服务重启打断了执行，结论未完成；在结果页续跑即可，不是 Agent 出错",
-    },
-  ];
+  // 条目与顺序取自 STATUS_BARS：分成两行是有意的（服务重启打断的续跑就行，与 Agent 执行报错
+  // 混在一行会让人去查错方向），文案与顺序都只在那一份名单里存着
+  const bars = STATUS_BARS.map((b) => ({ label: b.label, value: breakdown[b.key], hint: b.hint }));
   const barMax = Math.max(1, ...bars.map((b) => b.value));
   // 近 14 天任务创建分布（按本地日桶）
   const days = useMemo(() => {
@@ -621,7 +606,8 @@ export function AgentOverview({
               <span>任务状态分布 · 件数</span>
               <span>共 {stats.tasks} 件</span>
             </div>
-            <ul className="mt-3 space-y-2.5">
+            {/* data-status-bars：scan:uimd 靠它定位这五条，逐个核对标签与件数 */}
+            <ul className="mt-3 space-y-2.5" data-status-bars="1">
               {bars.map((b) => (
                 <li key={b.label} title={b.hint ?? undefined} className="grid grid-cols-[56px_1fr_36px] items-center gap-3">
                   <span className="text-[11.5px] text-mist-500">{b.label}</span>

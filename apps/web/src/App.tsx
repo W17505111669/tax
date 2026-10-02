@@ -9,6 +9,7 @@ import { NewTaskPanel } from "./components/NewTaskPanel.tsx";
 import { TaskWorkbench } from "./components/TaskWorkbench.tsx";
 import { IconAlert } from "./components/Icons.tsx";
 import { partitionFiles, policyMessage, type UploadPolicy } from "./upload-policy.ts";
+import { statusBreakdown } from "./status-breakdown.ts";
 
 type WbTab = "timeline" | "result" | "compare" | "review";
 
@@ -343,14 +344,7 @@ export default function App() {
                 completed: visibleTasks.filter((t) => t.status === "completed").length,
                 platform,
               }}
-              breakdown={{
-                processing: visibleTasks.filter((t) => t.status === "processing").length,
-                waiting_review: visibleTasks.filter((t) => t.status === "waiting_review").length,
-                completed: visibleTasks.filter((t) => t.status === "completed").length,
-                // 服务重启打断的不算执行失败：那类续跑就行，混在一起会让看板上的「失败」虚高
-                failed: visibleTasks.filter((t) => t.status === "failed" && !t.interrupted).length,
-                interrupted: visibleTasks.filter((t) => t.status === "failed" && t.interrupted).length,
-              }}
+              breakdown={statusBreakdown(visibleTasks)}
               createdAts={visibleTasks.map((t) => t.createdAt)}
               recent={[...visibleTasks]
                 .sort((a, b) => b.createdAt.localeCompare(a.createdAt))

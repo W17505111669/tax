@@ -28,10 +28,12 @@ import { loadTaskDocRefs } from "./docref-lib.ts";
 import { TEXT_AMOUNT_TOOLS, traceAmounts } from "../../web/src/amount-trace.ts";
 import { percentValue } from "../../web/src/format.ts";
 import { outcomeOf, resolvedCalls } from "../../web/src/tool-outcome.ts";
+import { STATUS_BARS, statusBreakdown } from "../../web/src/status-breakdown.ts";
 import { computePlatformStats } from "../src/services/stats.ts";
 import { listAgents } from "../src/agents.ts";
+import { AGENT_IDS } from "@tax/shared-schemas";
 import { listStoredCompares, type StoredCompare } from "../src/services/compare-stats.ts";
-import { listToolCalls } from "../src/services/task-store.ts";
+import { listTasks, listToolCalls } from "../src/services/task-store.ts";
 import {
   ledgerCells,
   ledgerSort,
@@ -150,6 +152,23 @@ const KPI_READ = `(() => {
     });
   }
   return { cards: cards };
+})()`;
+
+/** 看板「任务状态分布」那几条（标签 + 件数）与右上角的「共 N 件」 */
+const BARS_READ = `(() => {
+  const ul = document.querySelector("[data-status-bars]");
+  const bars = [];
+  if (ul) {
+    for (let i = 0; i < ul.children.length; i++) {
+      const li = ul.children[i];
+      bars.push({
+        label: ((li.children[0] && li.children[0].innerText) || "").trim(),
+        value: ((li.children[2] && li.children[2].innerText) || "").trim(),
+      });
+    }
+  }
+  const m = /共 (\\d+) 件/.exec(document.body.innerText || "");
+  return { bars: bars, total: m ? Number(m[1]) : null };
 })()`;
 
 interface Args {
@@ -353,6 +372,18 @@ async function main(): Promise<void> {
   ];
   // 台账表格的期望值：与导出（MD / CSV）同一份 ledgerCells，行序也与界面同一份 ledgerSort
   const agents = listAgents();
+  // 看板「任务状态分布」的期望值：与 App.tsx 同一份 statusBreakdown、同一份 STATUS_BARS 名单，
+  // 任务清单走 listTasks(agentId)——interrupted 是它按 error 文本算出来的，不是库里的一列，
+  // 自己写 SQL 数就会把「服务重启打断的」重新混回「执行失败」，正是界面刻意分开的那两类。
+  const barsWant = new Map<string, { total: number; bars: Array<{ label: string; value: string }> }>();
+  for (const agentId of AGENT_IDS) {
+    const list = listTasks(agentId);
+    const bd = statusBreakdown(list);
+    barsWant.set(agentId, {
+      total: list.length,
+      bars: STATUS_BARS.map((b) => ({ label: b.label, value: String(bd[b.key]) })),
+    });
+  }
   // 用 shortName：界面与导出（ledgerMarkdown / ledgerCsv）传的是同一个 agentName 函数，取的是
   // shortName；第一版拿 displayName 当期望值，「作品」列 40 行全部报不一致，报的是我自己的错。
   const agentNameOf = (id: string): string => agents.find((a) => a.id === id)?.shortName ?? id;
@@ -410,10 +441,12 @@ async function main(): Promise<void> {
 
   const browser = await launchChromium();
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
-  const pages: Array<{ label: string; url: string; tab: string; taskId: string }> = [];
+  const pages: Array<{ label: string; url: string; tab: string; taskId: string; agentId: string }> = [];
   if (args.overview) {
-    for (const agentId of ["rd-audit", "land-vat"]) {
-      pages.push({ label: `总览 ${agentId}`, url: `${WEB}/#/agent/${agentId}`, tab: "", taskId: "" });
+    // 作品名单取 shared-schemas 的 AGENT_IDS：此前这里手抄了一份 ["rd-audit", "land-vat"]，
+    // 多一个作品时看板会整个漏扫，而且漏得悄无声息（页数少两页而已）
+    for (const agentId of AGENT_IDS) {
+      pages.push({ label: `总览 ${agentId}`, url: `${WEB}/#/agent/${agentId}`, tab: "", taskId: "", agentId });
     }
   }
   for (const t of targets) {
@@ -423,6 +456,7 @@ async function main(): Promise<void> {
         url: `${WEB}/#/agent/${t.agentId}/task/${t.id}/tab/${tab}`,
         tab,
         taskId: t.id,
+        agentId: t.agentId,
       });
     }
   }
@@ -442,6 +476,7 @@ async function main(): Promise<void> {
         url: `${WEB}/#/agent/${r.agentId}/task/${r.id}/tab/compare`,
         tab: "compare",
         taskId: r.id,
+        agentId: r.agentId,
       });
     }
   }
@@ -465,6 +500,8 @@ async function main(): Promise<void> {
   let cmpChecks = 0;
   /** 看板 KPI 卡核对：核到的项数（标签 / 数值 / 单位串各算一项） */
   let kpiChecks = 0;
+  /** 看板「任务状态分布」核对：核到的项数（每条算标签 + 件数，外加合计与「共 N 件」） */
+  let barsChecks = 0;
   /**
    * 枚举时**见过**的入口（点没点到另说）。「必需入口」的判据是「范围内出现过就必须点到」，
    * 不是「任何时候都必须点到」：窄范围跑（--tasks 指定几个任务、--no-overview）时，
@@ -863,6 +900,51 @@ async function main(): Promise<void> {
           }
         }
       });
+      // 「任务状态分布」与右上角「共 N 件」：这一块是 App.tsx 按 visibleTasks 现算的，
+      // 与上面那排 KPI 卡（computePlatformStats）不是同一个来源，所以要单独对一遍。
+      const barsUi = (await page.evaluate(BARS_READ)) as {
+        bars: Array<{ label: string; value: string }>;
+        total: number | null;
+      };
+      const bw = barsWant.get(p.agentId);
+      if (bw) {
+        barsChecks += 1;
+        if (barsUi.total !== bw.total) {
+          numFails.push(`${p.label} 「共 ${barsUi.total ?? "(没读到)"} 件」≠ 库里该作品 ${bw.total} 个任务`);
+        }
+        barsChecks += 1;
+        if (barsUi.bars.length !== bw.bars.length) {
+          numFails.push(
+            `${p.label} 状态分布渲染了 ${barsUi.bars.length} 条，名单里是 ${bw.bars.length} 条（少一条就是有一类任务状态在看板上不见了）`,
+          );
+        }
+        bw.bars.forEach((w, i) => {
+          const g = barsUi.bars[i];
+          barsChecks += 1;
+          if (!g) {
+            numFails.push(`${p.label} 状态分布第 ${i + 1} 条「${w.label}」在界面上不存在`);
+            return;
+          }
+          // 按位置对：顺序本身是判据——「执行失败」与「已中断」调个位，件数就顶错了标签
+          for (const [field, wantV, gotV] of [
+            ["标签", w.label, g.label],
+            ["件数", w.value, g.value],
+          ] as Array<[string, string, string]>) {
+            barsChecks += 1;
+            if (wantV !== gotV) {
+              numFails.push(`${p.label} 状态分布第 ${i + 1} 条${field}「${gotV || "(空)"}」≠ 取数「${wantV}」`);
+            }
+          }
+        });
+        // 各条件数之和必须等于「共 N 件」：TaskStatus 新增取值而名单没跟上时，这一条会先红
+        barsChecks += 1;
+        const barSum = bw.bars.reduce((a, b) => a + Number(b.value), 0);
+        if (barSum !== bw.total) {
+          numFails.push(
+            `${p.label} 状态分布 ${bw.bars.length} 条合计 ${barSum} ≠ 该作品任务数 ${bw.total}（有状态被漏计，看板右上角那个数与分布对不上）`,
+          );
+        }
+      }
       const LEDGER_TOTAL =
         /全平台证据核对台账（(\d+) 个任务）文号 (\d+)\/(\d+) 有出处（其中复查取得 (\d+) · 仅正文提到 (\d+)）· 待复查 (\d+)（已标注 (\d+)） · 引用 (\d+) 条（官方 (\d+) · 弱 (\d+)，待处置 (\d+)）· 金额待确认 (\d+)（引自联网正文 (\d+) · 三处均无出处 (\d+)） · 欠账任务 (\d+) 个/;
       const m = LEDGER_TOTAL.exec(bodyText);
@@ -1160,8 +1242,10 @@ async function main(): Promise<void> {
   // 看板 KPI 卡同理：扫了总览页却一张卡都没核到，说明 data-kpi-grid 这个钩子失效了（版式改过）
   const kpiMissing = args.overview && kpiChecks === 0;
   if (args.overview) console.log(`[scan] 看板 KPI 卡核对：${kpiChecks} 项（期望每张卡 3 项 × ${kpiWant.length} 张 × 总览页数）`);
+  const barsMissing = args.overview && barsChecks === 0;
+  if (args.overview) console.log(`[scan] 看板状态分布核对：${barsChecks} 项（${STATUS_BARS.length} 条 × 2 项 + 条数 + 共 N 件 + 合计，× 总览页数）`);
   console.log(
-    `[scan] 界面数字与库取数核对：${numChecks} 项 + 台账单元格 ${ledgerCellChecks} 个 + 比对页 ${cmpChecks} 项 + 看板 KPI ${kpiChecks} 项（不一致 ${ledgerCellBad} 个）· 合计不一致 ${numFails.length} 处`,
+    `[scan] 界面数字与库取数核对：${numChecks} 项 + 台账单元格 ${ledgerCellChecks} 个 + 比对页 ${cmpChecks} 项 + 看板 KPI ${kpiChecks} 项 + 状态分布 ${barsChecks} 项（不一致 ${ledgerCellBad} 个）· 合计不一致 ${numFails.length} 处`,
   );
   for (const f of numFails.slice(0, 10)) console.log(`  - ${f}`);
   if (numFails.length > 10) console.log(`  …另有 ${numFails.length - 10} 处`);
@@ -1176,7 +1260,8 @@ async function main(): Promise<void> {
       numFails.length > 0 ||
       numbersMissing ||
       compareMissing ||
-      kpiMissing)
+      kpiMissing ||
+      barsMissing)
   ) {
     console.log(
       allHits.length > 0
@@ -1193,7 +1278,9 @@ async function main(): Promise<void> {
                   ? "[FAIL] 一个比对页都没核对到界面数字，这项覆盖是空的"
                   : kpiMissing
                     ? "[FAIL] 一张看板 KPI 卡都没核对到，这项覆盖是空的"
-                    : "[FAIL] 界面上的数字与库里的取数对不上",
+                    : barsMissing
+                      ? "[FAIL] 看板状态分布一条都没核对到，这项覆盖是空的"
+                      : "[FAIL] 界面上的数字与库里的取数对不上",
     );
     process.exit(1);
   }
