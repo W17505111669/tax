@@ -305,6 +305,7 @@ const listTogglesSource = `(spec) => {
   const block = new RegExp(spec[1]);
   const skip = new RegExp(spec[2]);
   const allow = new RegExp(spec[3]);
+  const required = spec[4] || [];
   const out = [];
   for (const el of Array.from(document.querySelectorAll('button, [role="button"], summary'))) {
     const flat = (s) => (s || '').replace(/\\s+/g, ' ').trim();
@@ -318,7 +319,14 @@ const listTogglesSource = `(spec) => {
     // 「更多操作（删除 / 清空）」的图标按钮会因为 OPEN 命中「更多」而被点下去；而有文字的按钮
     // 不能拿 title 试 BLOCK——title 常常是一整段说明，实测「文号溯源」那个只读面板的 title 里
     // 写着「已联网复查 N 处…待人工确认 N 处」，一下命中三个 BLOCK 词，必需入口被自己排掉了。
-    if (block.test(text === '' ? hay : text) && !allow.test(text)) continue;
+    // 必需入口一律放行：它们的可见文字里也可能带 BLOCK 词——实测「文号溯源 4/9 · 无法核验 5 ·
+    // 复查到出处 1」里的「核验」就把它自己排掉了，于是「必须点到」这条断言永远满足不了，
+    // 修订模式对话框覆盖 0 次，而报告只会说「换 --all 复扫才会覆盖到」。REQUIRED_TOGGLES 是
+    // 逐个点名过的只读入口（开面板 / 填输入框），放行范围仍然按可见文字前缀精确匹配。
+    const isRequired = required.some(
+      (r) => text.indexOf(r) === 0 || aria.indexOf(r) === 0 || title.indexOf(r) === 0,
+    );
+    if (!isRequired && block.test(text === '' ? hay : text) && !allow.test(text)) continue;
     if (skip.test(hay)) continue;
     if (el.offsetParent === null) continue;
     el.setAttribute('data-scan-toggle', String(out.length));
@@ -551,6 +559,8 @@ async function main(): Promise<void> {
   let iconOnlyClosed = 0;
   /** 点开过多少次「续跑任务」面板（由「生成修订指令」打开，扫完按 Esc 收起） */
   let revisionPanels = 0;
+  /** 枚举判据自检核到的项数（合成 DOM 上跑真正的 listToggles，见下面） */
+  let specChecks = 0;
   const toggleLabels = new Set<string>();
   let nodesTotal = 0;
   let charsTotal = 0;
@@ -601,8 +611,37 @@ async function main(): Promise<void> {
         TOGGLE_BLOCK.source,
         TOGGLE_SKIP.source,
         TOGGLE_ALLOW.source,
+        REQUIRED_TOGGLES.map((r) => r.label),
       ])})`,
     ) as Promise<Array<{ idx: number; label: string; iconOnly: boolean }>>;
+
+  // 枚举判据自检：用一段合成 DOM 跑**真正的** listToggles，钉住两件事——必需入口不会被自己的
+  // 标签排掉；会写库 / 发请求的按钮一个都不放行。判据不另写一份（那就会与真实现各走各路），
+  // 直接复用同一份 listTogglesSource，所以这条自检红了一定是判据本身出了问题。
+  await page.setContent(
+    [
+      `<button title="点击展开复查面板">文号溯源 4/9 · 无法核验 5 · 复查到出处 1</button>`,
+      `<button title="键盘快捷键" aria-label="键盘快捷键"></button>`,
+      `<button>生成修订指令（5）</button>`,
+      `<button title="展开下载">下载交付包</button>`,
+      `<button title="展开">复核并提交</button>`,
+    ].join(""),
+  );
+  const probeLabels = (await listToggles()).map((x) => x.label);
+  for (const r of REQUIRED_TOGGLES) {
+    specChecks += 1;
+    if (!probeLabels.some((l) => l.includes(r.label))) {
+      numFails.push(
+        `枚举判据把必需入口「${r.label}」自己排掉了（合成 DOM 里它在，却枚举不出来；标签里带 BLOCK 词时必须放行）`,
+      );
+    }
+  }
+  for (const banned of ["下载交付包", "复核并提交"]) {
+    specChecks += 1;
+    if (probeLabels.some((l) => l.includes(banned))) {
+      numFails.push(`枚举判据放行了不该点的「${banned}」（BLOCK 词表被改松了，扫描会触发写库或发请求）`);
+    }
+  }
 
   for (const p of pages) {
     try {
@@ -1161,7 +1200,7 @@ async function main(): Promise<void> {
           seenLabels.add(x.label);
           if (x.iconOnly) seenIconOnly.add(x.label);
         }
-        // 必需入口先点：interactLimit 是每页的点击预算（默认 6），DOM 顺序在前的一堆普通入口
+        // 必需入口先点：interactLimit 是每页的点击预算（默认 10），DOM 顺序在前的一堆普通入口
         // 就能把预算吃光，于是「必须点到」这条断言变成自己无法满足的要求。
         const pending = toggles.filter((x) => !clicked.has(x.label));
         const t = pending.find((x) => REQUIRED_TOGGLES.some((r) => x.label.includes(r.label))) ?? pending[0];
@@ -1282,11 +1321,18 @@ async function main(): Promise<void> {
       }`,
     );
     console.log(`[scan] 「续跑任务」面板（修订模式对话框）：点开并扫过 ${revisionPanels} 次`);
+    console.log(`[scan] 枚举判据自检：${specChecks} 项（必需入口 ${REQUIRED_TOGGLES.length} 个必须枚举得到，2 个写库/发请求按钮必须被排掉）`);
     if (requiredMissing.length > 0) {
       console.log(`[scan] 必需入口一次都没点到：${requiredMissing.join("；")}（这些面板里的内容等于没扫）`);
     }
     if (requiredAbsent.length > 0) {
-      console.log(`[scan] 本次范围内没出现的必需入口：${requiredAbsent.join("；")}（不计为失败，换 --all 复扫才会覆盖到）`);
+      console.log(
+        args.all
+          ? `[scan] 全库跑里一次都没出现的必需入口：${requiredAbsent.join(
+              "；",
+            )}（不计为失败，但这不是「换 --all 就好」：要么这一档素材确实清零了，要么入口被枚举判据排掉了，两种都得查清）`
+          : `[scan] 本次范围内没出现的必需入口：${requiredAbsent.join("；")}（不计为失败，换 --all 复扫才会覆盖到）`,
+      );
     }
     if (iconOnlyMissing) console.log("[scan] 一个图标按钮都没点到：这些浮层里的内容等于没扫");
   }
