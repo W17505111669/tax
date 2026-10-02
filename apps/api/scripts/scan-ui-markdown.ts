@@ -20,7 +20,7 @@
  *   pnpm scan:uimd --all --json         # 全库任务，输出机器可读结果
  *   pnpm scan:uimd --strict             # 有残留即退出码 1（供门禁使用）
  *   pnpm scan:uimd --nointeract         # 不点折叠面板，只扫默认挂载的内容（快，但覆盖有缺口）
- *   pnpm scan:uimd --interact-limit=4   # 每个页面最多点开几个折叠入口（默认 6）
+ *   pnpm scan:uimd --interact-limit=4   # 每个页面最多点开几个折叠入口（默认 10）
  */
 import { db } from "../src/db.ts";
 import { launchChromium, WEB_URL } from "./browser-lib.ts";
@@ -65,7 +65,7 @@ function parseArgs(argv: string[]): Args {
     overview: true,
     reader: false,
     interact: true,
-    interactLimit: 6,
+    interactLimit: 10,
   };
   for (const a of argv) {
     if (a.startsWith("--tasks=")) out.tasks = a.slice(8).split(",").map((s) => s.trim()).filter(Boolean);
@@ -124,24 +124,52 @@ const scanSource = `(patterns) => {
  * 黑名单故意不看 title：说明性 title 里出现「点击展开复查面板」这种名词短语，不该把入口挡掉。
  * 点到会跳转的按钮时整页交互立刻中止（DOM 已经换了，继续点只会扫到别的页面），并如实计数。
  */
-const TOGGLE_OPEN = /(展开|收起|折叠|更多|显示全部|查看全部|帮助|详情)/;
+const TOGGLE_OPEN = /(展开|收起|折叠|更多|显示全部|查看全部|帮助|详情|快捷键)/;
 const TOGGLE_BLOCK =
   /(复查|复核|下载|删除|清空|生成|上传|运行|重跑|续跑|复制|写入|写回|导出|重新解析|校验|核验|标注|保存|提交|新建|发送|启动|停止|归档|打开|跳转|前往)/;
-/** 这些入口必须真的点到，否则「交互覆盖」就是空跑绿：面板没展开，里面的残留永远扫不到 */
-const REQUIRED_TOGGLES: Array<{ label: string; tabs: string[] }> = [{ label: "文号溯源", tabs: ["result", "review"] }];
+/**
+ * 纯布局开关：点开只会**藏起**文本（会话侧栏收起后任务列表整块没了），而且「收起 / 展开」是
+ * 一对 label 不同的开关，去重按 label 挡不住，每页白白吃掉两轮预算。实测 6 轮预算里被它们占掉
+ * 2 轮 + 键盘快捷键 1 轮，剩 3 轮走不到「文号溯源」那条链（查看全部 → 展开其余 33 类 → 折叠全部
+ * → 文号溯源），必需入口一次都没点到。排掉它们，把预算留给真正会长出新文本的面板。
+ */
+const TOGGLE_SKIP = /(会话侧栏)/;
+/**
+ * 这些入口必须真的点到，否则「交互覆盖」就是空跑绿：面板没展开，里面的残留永远扫不到。
+ * 「键盘快捷键」是图标按钮（只有 title，没有文字），此前 OPEN 词汇表里没有它，于是这个浮层的
+ * 内容从来没被扫过一次——实测 34 页 201 次点击、14 类入口，全是带文字的按钮。
+ */
+const REQUIRED_TOGGLES: Array<{ label: string; tabs: string[] }> = [
+  { label: "文号溯源", tabs: ["result", "review"] },
+  { label: "键盘快捷键", tabs: ["timeline", "result", "compare", "review"] },
+];
 
 const listTogglesSource = `(spec) => {
   const open = new RegExp(spec[0]);
   const block = new RegExp(spec[1]);
+  const skip = new RegExp(spec[2]);
   const out = [];
   for (const el of Array.from(document.querySelectorAll('button, [role="button"], summary'))) {
-    const title = (el.getAttribute('title') || '').replace(/\\s+/g, ' ').trim();
-    const text = (el.textContent || '').replace(/\\s+/g, ' ').trim();
-    if (!open.test(title + ' ' + text)) continue;
-    if (block.test(text)) continue;
+    const flat = (s) => (s || '').replace(/\\s+/g, ' ').trim();
+    const title = flat(el.getAttribute('title'));
+    const aria = flat(el.getAttribute('aria-label'));
+    const text = flat(el.textContent);
+    const hay = title + ' ' + aria + ' ' + text;
+    if (!open.test(hay)) continue;
+    // BLOCK 的分寸：有文字就只看文字，没文字（图标按钮）才退回 title / aria-label。
+    // 两边都得防：图标按钮的 text 是空的，只拿 text 试 BLOCK 等于不设防，一个 title 写着
+    // 「更多操作（删除 / 清空）」的图标按钮会因为 OPEN 命中「更多」而被点下去；而有文字的按钮
+    // 不能拿 title 试 BLOCK——title 常常是一整段说明，实测「文号溯源」那个只读面板的 title 里
+    // 写着「已联网复查 N 处…待人工确认 N 处」，一下命中三个 BLOCK 词，必需入口被自己排掉了。
+    if (block.test(text === '' ? hay : text)) continue;
+    if (skip.test(hay)) continue;
     if (el.offsetParent === null) continue;
     el.setAttribute('data-scan-toggle', String(out.length));
-    out.push({ idx: out.length, label: (text.slice(0, 24) || title.slice(0, 24)).trim() });
+    out.push({
+      idx: out.length,
+      label: (text.slice(0, 24) || aria.slice(0, 24) || title.slice(0, 24)).trim(),
+      iconOnly: text === '',
+    });
   }
   return out;
 }`;
@@ -188,6 +216,11 @@ async function main(): Promise<void> {
   let interacted = 0;
   let toggleFailed = 0;
   let navigatedAway = 0;
+  /** 点开过的图标按钮（只有 title / aria-label，没有文字）：为 0 就说明这条路根本没生效 */
+  let iconOnlyClicked = 0;
+  const iconOnlyLabels = new Set<string>();
+  /** 其中扫完成功关回去的次数：关不掉的浮层会一直盖住后面的入口 */
+  let iconOnlyClosed = 0;
   const toggleLabels = new Set<string>();
   let nodesTotal = 0;
   let charsTotal = 0;
@@ -230,6 +263,12 @@ async function main(): Promise<void> {
     return null;
   };
 
+  /** 枚举当前页点得动的折叠入口。每轮都要重新枚举，理由见下面循环里的注释。 */
+  const listToggles = () =>
+    page.evaluate(
+      `(${listTogglesSource})(${JSON.stringify([TOGGLE_OPEN.source, TOGGLE_BLOCK.source, TOGGLE_SKIP.source])})`,
+    ) as Promise<Array<{ idx: number; label: string; iconOnly: boolean }>>;
+
   for (const p of pages) {
     try {
       await page.goto(p.url, { waitUntil: "networkidle", timeout: 30000 });
@@ -247,10 +286,11 @@ async function main(): Promise<void> {
       // 去重按 label：同一个入口展开后文本会变（「展开全部」→「折叠全部」），不会被重复点。
       const clicked = new Set<string>();
       for (let round = 0; round < args.interactLimit; round++) {
-        const toggles = (await page.evaluate(
-          `(${listTogglesSource})(${JSON.stringify([TOGGLE_OPEN.source, TOGGLE_BLOCK.source])})`,
-        )) as Array<{ idx: number; label: string }>;
-        const t = toggles.find((x) => !clicked.has(x.label));
+        const toggles = await listToggles();
+        // 必需入口先点：interactLimit 是每页的点击预算（默认 6），DOM 顺序在前的一堆普通入口
+        // 就能把预算吃光，于是「必须点到」这条断言变成自己无法满足的要求。
+        const pending = toggles.filter((x) => !clicked.has(x.label));
+        const t = pending.find((x) => REQUIRED_TOGGLES.some((r) => x.label.includes(r.label))) ?? pending[0];
         if (!t) break;
         clicked.add(t.label);
         const before = page.url();
@@ -269,6 +309,23 @@ async function main(): Promise<void> {
         interacted += 1;
         toggleLabels.add(t.label);
         await scanOnce(`${p.label} · 展开「${t.label}」`);
+        if (t.iconOnly) {
+          iconOnlyClicked += 1;
+          iconOnlyLabels.add(t.label);
+          // 图标按钮开的是绝对定位浮层，开着会盖住主内容左侧的入口：第一版扫完就留着不关，
+          // 实测 34 次点击被它拦下、必需入口「文号溯源」一次都没点到，扫过的文本节点从
+          // 130789 掉到 117791——为了多扫一个浮层反而少扫了七类面板。扫完立刻点回去关掉。
+          const back = (await listToggles()).find((x) => x.label === t.label);
+          if (back) {
+            try {
+              await page.locator(`[data-scan-toggle="${back.idx}"]`).first().click({ timeout: 2500 });
+              iconOnlyClosed += 1;
+            } catch {
+              toggleFailed += 1;
+            }
+            await page.waitForTimeout(200);
+          }
+        }
       }
     }
     if (args.reader && p.tab === "result") {
@@ -284,6 +341,9 @@ async function main(): Promise<void> {
         (r) => r.tabs.some((t) => args.tabs.includes(t)) && ![...toggleLabels].some((l) => l.includes(r.label)),
       ).map((r) => r.label)
     : [];
+  // 图标按钮一个都没点到 = title / aria-label 那条匹配路径失效了（词汇表被改窄、或组件换了写法），
+  // 这些浮层里的内容会静默退出扫描范围，而扫描照样是绿的。
+  const iconOnlyMissing = args.interact && args.interactLimit > 0 && iconOnlyClicked === 0;
 
   if (args.json) {
     console.log(
@@ -295,6 +355,9 @@ async function main(): Promise<void> {
           toggleFailed,
           navigatedAway,
           toggleLabels: [...toggleLabels],
+          iconOnlyClicked,
+          iconOnlyClosed,
+          iconOnlyLabels: [...iconOnlyLabels],
           requiredMissing,
           nodesTotal,
           charsTotal,
@@ -317,9 +380,15 @@ async function main(): Promise<void> {
     console.log(
       `[scan] 点开的入口：${[...toggleLabels].slice(0, 14).join("；")}${toggleLabels.size > 14 ? "；…" : ""}`,
     );
+    console.log(
+      `[scan] 其中图标按钮（无文字，只靠 title / aria-label 认出来）：点开 ${iconOnlyClicked} 次 · 关回 ${iconOnlyClosed} 次 · ${iconOnlyLabels.size} 类${
+        iconOnlyLabels.size > 0 ? `：${[...iconOnlyLabels].join("；")}` : ""
+      }`,
+    );
     if (requiredMissing.length > 0) {
       console.log(`[scan] 必需入口一次都没点到：${requiredMissing.join("；")}（这些面板里的内容等于没扫）`);
     }
+    if (iconOnlyMissing) console.log("[scan] 一个图标按钮都没点到：这些浮层里的内容等于没扫");
   }
   if (thin.length > 0) console.log(`[scan] 内容过少（可能没渲染出来）：${thin.slice(0, 10).join("；")}`);
   const byPattern = new Map<string, number>();
@@ -332,13 +401,15 @@ async function main(): Promise<void> {
     console.log(`  - [${h.page}] ${h.pattern} :: ${h.text.replace(/\s+/g, " ").slice(0, 90)} :: ${h.chain}`);
   }
   if (allHits.length > 25) console.log(`  …另有 ${allHits.length - 25} 处，用 --json 看全量`);
-  if (args.strict && (allHits.length > 0 || thin.length > 0 || requiredMissing.length > 0)) {
+  if (args.strict && (allHits.length > 0 || thin.length > 0 || requiredMissing.length > 0 || iconOnlyMissing)) {
     console.log(
       allHits.length > 0
         ? "[FAIL] 界面上仍有 Markdown 原文"
         : thin.length > 0
           ? "[FAIL] 有页面没渲染出内容，扫描不算数"
-          : "[FAIL] 必需的折叠入口没点到，交互覆盖是空的",
+          : requiredMissing.length > 0
+            ? "[FAIL] 必需的折叠入口没点到，交互覆盖是空的"
+            : "[FAIL] 一个图标按钮都没点到，浮层覆盖是空的",
     );
     process.exit(1);
   }
