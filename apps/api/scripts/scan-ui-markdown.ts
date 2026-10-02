@@ -29,6 +29,7 @@ import { TEXT_AMOUNT_TOOLS, traceAmounts } from "../../web/src/amount-trace.ts";
 import { percentValue } from "../../web/src/format.ts";
 import { outcomeOf, resolvedCalls } from "../../web/src/tool-outcome.ts";
 import { STATUS_BARS, statusBreakdown } from "../../web/src/status-breakdown.ts";
+import { dayAvgOf, dayBuckets, runDaysOf, TREND_DAYS } from "../../web/src/task-trend.ts";
 import { computePlatformStats } from "../src/services/stats.ts";
 import { listAgents } from "../src/agents.ts";
 import { AGENT_IDS } from "@tax/shared-schemas";
@@ -169,6 +170,25 @@ const BARS_READ = `(() => {
   }
   const m = /共 (\\d+) 件/.exec(document.body.innerText || "");
   return { bars: bars, total: m ? Number(m[1]) : null };
+})()`;
+
+/**
+ * 看板 hero 区：大数字、运行天数徽章、趋势行（日均 / 今日）。
+ * 大数字取 aria-label 而不是 innerText——它每位数字是 0-9 的滚动列，innerText 读出来是
+ * 「0\n1\n…\n9」两串（实测），此前连 aria-label 都没有，所以这个数在文本层压根不存在。
+ */
+const HERO_READ = `(() => {
+  const hero = document.querySelector(".stat-hero");
+  const bt = document.body.innerText || "";
+  const run = /本作品运行 · 第 (\\d+) 天/.exec(bt);
+  const trend = /日均 ([\\d.]+) 件 · 今日 (\\d+) 件/.exec(bt);
+  return {
+    aria: hero ? hero.getAttribute("aria-label") : null,
+    hasHero: Boolean(hero),
+    runDays: run ? Number(run[1]) : null,
+    dayAvg: trend ? trend[1] : null,
+    today: trend ? Number(trend[2]) : null,
+  };
 })()`;
 
 interface Args {
@@ -353,8 +373,8 @@ async function main(): Promise<void> {
   // 就是为了不在这里再抄一遍四个字段名——抄错一个，成功率的分母就悄悄换了）。
   const boardOutcome = outcomeOf(board);
   const kpiWant: Array<{ label: string; value: string; unit: string }> = [
-    { label: "累计任务", value: board.tasks.toLocaleString("zh-CN"), unit: "个" },
-    { label: "已完成", value: board.completed.toLocaleString("zh-CN"), unit: "个" },
+    { label: "平台累计任务", value: board.tasks.toLocaleString("zh-CN"), unit: "个" },
+    { label: "平台已完成", value: board.completed.toLocaleString("zh-CN"), unit: "个" },
     { label: "工具成功率", value: percentValue(board.toolOk, resolvedCalls(boardOutcome)), unit: "%" },
     { label: "底稿产物", value: board.artifacts.toLocaleString("zh-CN"), unit: "份" },
     {
@@ -375,13 +395,28 @@ async function main(): Promise<void> {
   // 看板「任务状态分布」的期望值：与 App.tsx 同一份 statusBreakdown、同一份 STATUS_BARS 名单，
   // 任务清单走 listTasks(agentId)——interrupted 是它按 error 文本算出来的，不是库里的一列，
   // 自己写 SQL 数就会把「服务重启打断的」重新混回「执行失败」，正是界面刻意分开的那两类。
-  const barsWant = new Map<string, { total: number; bars: Array<{ label: string; value: string }> }>();
+  type AgentWant = {
+    total: number;
+    bars: Array<{ label: string; value: string }>;
+    /** hero 那个大数字的文本（与界面同一个 toLocaleString） */
+    hero: string;
+    runDays: number;
+    dayAvg: string;
+    today: string;
+  };
+  const agentWant = new Map<string, AgentWant>();
   for (const agentId of AGENT_IDS) {
     const list = listTasks(agentId);
     const bd = statusBreakdown(list);
-    barsWant.set(agentId, {
+    const createdAts = list.map((t) => t.createdAt);
+    const buckets = dayBuckets(createdAts);
+    agentWant.set(agentId, {
       total: list.length,
       bars: STATUS_BARS.map((b) => ({ label: b.label, value: String(bd[b.key]) })),
+      hero: list.length.toLocaleString("zh-CN"),
+      runDays: runDaysOf(createdAts),
+      dayAvg: dayAvgOf(buckets).toFixed(1),
+      today: String(buckets[TREND_DAYS - 1] ?? 0),
     });
   }
   // 用 shortName：界面与导出（ledgerMarkdown / ledgerCsv）传的是同一个 agentName 函数，取的是
@@ -502,6 +537,8 @@ async function main(): Promise<void> {
   let kpiChecks = 0;
   /** 看板「任务状态分布」核对：核到的项数（每条算标签 + 件数，外加合计与「共 N 件」） */
   let barsChecks = 0;
+  /** 看板 hero 区核对：大数字 / 口径标签 / 运行天数 / 日均 / 今日 */
+  let heroChecks = 0;
   /**
    * 枚举时**见过**的入口（点没点到另说）。「必需入口」的判据是「范围内出现过就必须点到」，
    * 不是「任何时候都必须点到」：窄范围跑（--tasks 指定几个任务、--no-overview）时，
@@ -906,7 +943,7 @@ async function main(): Promise<void> {
         bars: Array<{ label: string; value: string }>;
         total: number | null;
       };
-      const bw = barsWant.get(p.agentId);
+      const bw = agentWant.get(p.agentId);
       if (bw) {
         barsChecks += 1;
         if (barsUi.total !== bw.total) {
@@ -943,6 +980,44 @@ async function main(): Promise<void> {
           numFails.push(
             `${p.label} 状态分布 ${bw.bars.length} 条合计 ${barSum} ≠ 该作品任务数 ${bw.total}（有状态被漏计，看板右上角那个数与分布对不上）`,
           );
+        }
+      }
+      // hero 区：大数字、口径标签、运行天数、日均 / 今日。这一块此前不但没被核对过，
+      // 那个大数字在文本层还压根读不出来（每位是 0-9 的滚动列，实测 innerText 是两串 0-9，
+      // aria-label / title / role 全空），所以读屏、复制、门禁三种消费者都拿不到它。
+      const heroUi = (await page.evaluate(HERO_READ)) as {
+        aria: string | null;
+        hasHero: boolean;
+        runDays: number | null;
+        dayAvg: string | null;
+        today: number | null;
+      };
+      const aw = agentWant.get(p.agentId);
+      if (aw) {
+        heroChecks += 1;
+        if (!heroUi.hasHero) {
+          numFails.push(`${p.label} 没找到 hero 大数字（.stat-hero）`);
+        } else if (heroUi.aria !== aw.hero) {
+          numFails.push(
+            `${p.label} hero 大数字 aria-label「${heroUi.aria ?? "(空)"}」≠ 该作品任务数「${aw.hero}」（读屏与复制此前拿到的都是 0-9 两串）`,
+          );
+        }
+        // 口径标签必须在：hero 是本作品的数，下面那排 KPI 卡是全平台的，标签不写清就会被当成同一个
+        heroChecks += 1;
+        if (!bodyText.includes("本作品累计任务")) {
+          numFails.push(
+            `${p.label} hero 的标签不是「本作品累计任务」（值 ${aw.hero}，全平台是 ${board.tasks}，不写口径就会被读成全平台）`,
+          );
+        }
+        for (const [name, gotV, wantV] of [
+          ["运行天数", heroUi.runDays === null ? "(没读到)" : String(heroUi.runDays), String(aw.runDays)],
+          ["近 14 天日均", heroUi.dayAvg ?? "(没读到)", aw.dayAvg],
+          ["今日件数", heroUi.today === null ? "(没读到)" : String(heroUi.today), aw.today],
+        ] as Array<[string, string, string]>) {
+          heroChecks += 1;
+          if (gotV !== wantV) {
+            numFails.push(`${p.label} hero 区「${name}」界面「${gotV}」≠ 取数「${wantV}」`);
+          }
         }
       }
       const LEDGER_TOTAL =
@@ -1244,8 +1319,10 @@ async function main(): Promise<void> {
   if (args.overview) console.log(`[scan] 看板 KPI 卡核对：${kpiChecks} 项（期望每张卡 3 项 × ${kpiWant.length} 张 × 总览页数）`);
   const barsMissing = args.overview && barsChecks === 0;
   if (args.overview) console.log(`[scan] 看板状态分布核对：${barsChecks} 项（${STATUS_BARS.length} 条 × 2 项 + 条数 + 共 N 件 + 合计，× 总览页数）`);
+  const heroMissing = args.overview && heroChecks === 0;
+  if (args.overview) console.log(`[scan] 看板 hero 区核对：${heroChecks} 项（大数字 + 口径标签 + 运行天数 + 日均 + 今日，× 总览页数）`);
   console.log(
-    `[scan] 界面数字与库取数核对：${numChecks} 项 + 台账单元格 ${ledgerCellChecks} 个 + 比对页 ${cmpChecks} 项 + 看板 KPI ${kpiChecks} 项 + 状态分布 ${barsChecks} 项（不一致 ${ledgerCellBad} 个）· 合计不一致 ${numFails.length} 处`,
+    `[scan] 界面数字与库取数核对：${numChecks} 项 + 台账单元格 ${ledgerCellChecks} 个 + 比对页 ${cmpChecks} 项 + 看板 KPI ${kpiChecks} 项 + 状态分布 ${barsChecks} 项 + hero 区 ${heroChecks} 项（不一致 ${ledgerCellBad} 个）· 合计不一致 ${numFails.length} 处`,
   );
   for (const f of numFails.slice(0, 10)) console.log(`  - ${f}`);
   if (numFails.length > 10) console.log(`  …另有 ${numFails.length - 10} 处`);
@@ -1261,7 +1338,8 @@ async function main(): Promise<void> {
       numbersMissing ||
       compareMissing ||
       kpiMissing ||
-      barsMissing)
+      barsMissing ||
+      heroMissing)
   ) {
     console.log(
       allHits.length > 0
@@ -1280,7 +1358,9 @@ async function main(): Promise<void> {
                     ? "[FAIL] 一张看板 KPI 卡都没核对到，这项覆盖是空的"
                     : barsMissing
                       ? "[FAIL] 看板状态分布一条都没核对到，这项覆盖是空的"
-                      : "[FAIL] 界面上的数字与库里的取数对不上",
+                      : heroMissing
+                        ? "[FAIL] 看板 hero 区一个数都没核对到，这项覆盖是空的"
+                        : "[FAIL] 界面上的数字与库里的取数对不上",
     );
     process.exit(1);
   }

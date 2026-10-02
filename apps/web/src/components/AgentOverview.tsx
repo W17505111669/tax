@@ -32,6 +32,7 @@ import {
 } from "../tool-outcome.ts";
 import { failureSummary, groupFailures } from "../tool-failures.ts";
 import { STATUS_BARS, type StatusBreakdown } from "../status-breakdown.ts";
+import { dayAvgOf, dayBuckets, runDaysOf, TREND_DAYS, weekHalves } from "../task-trend.ts";
 import { UNTRACED_ORIGIN_HINT, UNTRACED_ORIGIN_TEXT } from "../amount-trace.ts";
 
 /** 大数字 odometer：每位数字独立滚轮到目标值，对齐参考片数据页质感。 */
@@ -75,7 +76,10 @@ function Odometer({ value }: { value: number }) {
   }, []);
   const text = value.toLocaleString("zh-CN");
   return (
-    <span className="stat-hero inline-flex">
+    // role="img" + aria-label：数字位是 0-9 的滚动列，文本层读出来是「0\n1\n…\n9」两串，不是这个数
+    //（实测 innerText 就是两串 0-9，aria-label / title / role 三个全为空）。读屏与任何按文本取数的
+    // 消费者（含 scan:uimd 的数字核对）都靠 aria-label 拿真值；select-none 免得复制页面时把两串数字带走。
+    <span className="stat-hero inline-flex select-none" role="img" aria-label={text}>
       {text.split("").map((ch, i) =>
         /\d/.test(ch) ? (
           <span key={i} className="inline-block h-[1em] overflow-hidden">
@@ -193,34 +197,28 @@ export function AgentOverview({
   const agentName = (id: string) => agents.find((a) => a.id === id)?.shortName ?? id;
   // 缺口任务自身的未复核项合计（与「全平台待复核合计」不同：后者还包含待复核态任务）
   const backlogPending = (p?.reviewBacklog ?? []).reduce((s, b) => s + b.pending, 0);
-  const heroValue = p?.tasks ?? stats.tasks;
+  // hero 是这个作品自己的任务数。此前取 p?.tasks（全平台 40），于是同一屏上「累计审查任务 40」
+  // 对着状态分布的「共 29 件」，右边「日均 2.1 件」又是 29/14——三个数两种口径，谁也对不上谁，
+  // 而作品说明里写的「累计任务 29 个」跟这三个都不一样。全平台那个数在下面「平台应用效果」
+  // 那排卡片里，标签已改成「平台累计任务」，两处不再共用一个说法。
+  const heroValue = stats.tasks;
   // 条目与顺序取自 STATUS_BARS：分成两行是有意的（服务重启打断的续跑就行，与 Agent 执行报错
   // 混在一行会让人去查错方向），文案与顺序都只在那一份名单里存着
   const bars = STATUS_BARS.map((b) => ({ label: b.label, value: breakdown[b.key], hint: b.hint }));
   const barMax = Math.max(1, ...bars.map((b) => b.value));
-  // 近 14 天任务创建分布（按本地日桶）
-  const days = useMemo(() => {
-    const buckets = Array.from({ length: 14 }, () => 0);
-    const now = new Date();
-    const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
-    for (const c of createdAts) {
-      const d = new Date(c);
-      const diff = Math.floor((today - Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())) / 86400000);
-      if (diff >= 0 && diff < 14) buckets[13 - diff] = (buckets[13 - diff] ?? 0) + 1;
-    }
-    return buckets;
-  }, [createdAts]);
+  // 近 14 天任务创建分布（按本地日桶）：口径收在 task-trend.ts，门禁算期望值用的是同一份，
+  // 窗口长度也只在那一处写着（此前 14 / 13 / 7 三个魔数散在下面五六处）
+  const days = useMemo(() => dayBuckets(createdAts), [createdAts]);
   const dayMax = Math.max(1, ...days);
-  const dayAvg = days.reduce((a, b) => a + b, 0) / 14;
-  const runDays = useMemo(() => {
-    if (createdAts.length === 0) return 0;
-    const first = Math.min(...createdAts.map((c) => Date.parse(c)));
-    return Math.floor((Date.now() - first) / 86400000) + 1;
-  }, [createdAts]);
-  const sparkPts = days.map((v, i) => `${((i / 13) * 100).toFixed(2)},${(28 - (v / dayMax) * 24).toFixed(2)}`).join(" ");
-  const weekNow = days.slice(7).reduce((a, b) => a + b, 0);
-  const weekPrev = days.slice(0, 7).reduce((a, b) => a + b, 0);
-  const weekDelta = weekNow - weekPrev;
+  const dayAvg = dayAvgOf(days);
+  const runDays = useMemo(() => runDaysOf(createdAts), [createdAts]);
+  const sparkPts = days
+    .map((v, i) => `${((i / (TREND_DAYS - 1)) * 100).toFixed(2)},${(28 - (v / dayMax) * 24).toFixed(2)}`)
+    .join(" ");
+  const week = weekHalves(days);
+  const weekNow = week.now;
+  const weekPrev = week.prev;
+  const weekDelta = week.delta;
   const [sparkHover, setSparkHover] = useState<number | null>(null);
   const [toolSort, setToolSort] = useState(false);
   const [capsOpen, setCapsOpen] = useState(false);
@@ -392,7 +390,7 @@ export function AgentOverview({
       "# 平台应用效果快照",
       "",
       `- 日期：${stamp}`,
-      `- 累计任务：${p.tasks}（已完成 ${p.completed}）`,
+      `- 平台累计任务：${p.tasks}（已完成 ${p.completed}）`,
       `- ${outcomeLine(outcomeOf(p))}`,
       `- 底稿产物：${p.artifacts} 份`,
       `- 记录级比对·与人工参考底稿的同行评审（共 ${p.compareRuns} 次，每任务取最近一次合计）：一致率 ${percentFrom(
@@ -441,7 +439,9 @@ export function AgentOverview({
     const lines = [
       `# 平台概览快照 · ${agent.shortName}`,
       "",
-      `- 累计审查任务：${heroValue}（日均 ${dayAvg.toFixed(1)} 件 · 今日 ${days[13] ?? 0} 件）`,
+      `- 本作品累计任务：${heroValue} 件（近 ${TREND_DAYS} 天日均 ${dayAvg.toFixed(
+        1,
+      )} 件 · 今日 ${days[TREND_DAYS - 1] ?? 0} 件）`,
       `- 周环比：${weekDelta > 0 ? `+${weekDelta}` : weekDelta}（本周 ${weekNow} / 上周 ${weekPrev}）`,
       `- 状态分布：${bars.map((b) => `${b.label} ${b.value}`).join(" / ")}`,
       `- 近 14 天日桶：${days.join(", ")}`,
@@ -579,11 +579,11 @@ export function AgentOverview({
           <div>
             <Odometer value={heroValue} />
             <div className="mt-1.5 text-[13px] font-medium text-mist-100">
-              累计审查任务
+              本作品累计任务
               <span className="ml-2 text-[11px] font-normal text-mist-600">逐条 OCR · 行级定位</span>
               {runDays > 0 && (
                 <span className="ml-2 rounded-full border border-line bg-night-850 px-2 py-0.5 text-[10px] font-normal text-mist-500">
-                  平台运行 · 第 {runDays} 天
+                  本作品运行 · 第 {runDays} 天
                 </span>
               )}
               {weekDelta !== 0 && (
@@ -624,7 +624,7 @@ export function AgentOverview({
                 <span>
                   {sparkHover !== null
                     ? `${sparkDate(sparkHover)} · ${days[sparkHover] ?? 0} 件`
-                    : `日均 ${dayAvg.toFixed(1)} 件 · 今日 ${days[13] ?? 0} 件`}
+                    : `日均 ${dayAvg.toFixed(1)} 件 · 今日 ${days[TREND_DAYS - 1] ?? 0} 件`}
                 </span>
               </div>
               <svg
@@ -792,8 +792,8 @@ export function AgentOverview({
             {/* data-kpi-grid：scan:uimd 靠它定位这一排卡片，逐个核对数字与单位串 */}
             <div className="mt-2 grid gap-3 sm:grid-cols-2 xl:grid-cols-6" data-kpi-grid="1">
               {[
-                { label: "累计任务", key: "tasks", value: stats.platform.tasks.toLocaleString("zh-CN"), unit: "个", desc: "全平台已创建任务总数（含未完成）" },
-                { label: "已完成", key: "completed", value: stats.platform.completed.toLocaleString("zh-CN"), unit: "个", desc: "状态为 completed 的任务数" },
+                { label: "平台累计任务", key: "tasks", value: stats.platform.tasks.toLocaleString("zh-CN"), unit: "个", desc: "全平台已创建任务总数（含未完成）；本作品的任务数见页首 hero 与「任务状态分布 · 共 N 件」" },
+                { label: "平台已完成", key: "completed", value: stats.platform.completed.toLocaleString("zh-CN"), unit: "个", desc: "全平台状态为 completed 的任务数；本作品的已完成数见「任务状态分布」第一条" },
                 {
                   label: "工具成功率",
                   desc: `有返回结果的工具调用中 ok=1 的占比，分母 ${resolvedCalls(
