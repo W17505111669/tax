@@ -29,7 +29,7 @@ import { TEXT_AMOUNT_TOOLS, traceAmounts } from "../../web/src/amount-trace.ts";
 import { percentValue } from "../../web/src/format.ts";
 import { outcomeOf, resolvedCalls } from "../../web/src/tool-outcome.ts";
 import { STATUS_BARS, statusBreakdown } from "../../web/src/status-breakdown.ts";
-import { dayAvgOf, dayBuckets, runDaysOf, TREND_DAYS } from "../../web/src/task-trend.ts";
+import { dayAvgOf, dayBuckets, runDaysOf, TREND_DAYS, weekHalves } from "../../web/src/task-trend.ts";
 import { computePlatformStats } from "../src/services/stats.ts";
 import { listAgents } from "../src/agents.ts";
 import { AGENT_IDS } from "@tax/shared-schemas";
@@ -189,6 +189,38 @@ const HERO_READ = `(() => {
     dayAvg: trend ? trend[1] : null,
     today: trend ? Number(trend[2]) : null,
   };
+})()`;
+
+/** 看板「本周 / 上周」两行对比条：标签 + 件数（本周那格还可能跟一个环比增量） */
+const WEEK_READ = `(() => {
+  const g = document.querySelector("[data-week-compare]");
+  const rows = [];
+  if (g) {
+    for (let i = 0; i + 2 < g.children.length; i += 3) {
+      const cell = g.children[i + 2];
+      // 件数与环比增量在同一个格子里：增量那个 span 用 ml-1 拉开距离，innerText 里**没有空格**
+      //（实测「24+19」），按空格切是切不开的。件数取第一个文本节点、增量取第一个子元素。
+      let value = "";
+      let delta = "";
+      if (cell) {
+        const nodes = cell.childNodes;
+        for (let k = 0; k < nodes.length; k++) {
+          if (nodes[k].nodeType === 3 && (nodes[k].textContent || "").trim() !== "") {
+            value = (nodes[k].textContent || "").trim();
+            break;
+          }
+        }
+        const sub = cell.firstElementChild;
+        if (sub) delta = (sub.innerText || "").replace(/\\s+/g, " ").trim();
+      }
+      rows.push({
+        label: ((g.children[i] && g.children[i].innerText) || "").trim(),
+        value: value,
+        delta: delta,
+      });
+    }
+  }
+  return { rows: rows };
 })()`;
 
 interface Args {
@@ -411,6 +443,8 @@ async function main(): Promise<void> {
     runDays: number;
     dayAvg: string;
     today: string;
+    /** 周环比：本周 / 上周件数与增量文本（增量为 0 时界面上不渲染那个角标） */
+    week: { now: string; prev: string; delta: string };
   };
   const agentWant = new Map<string, AgentWant>();
   for (const agentId of AGENT_IDS) {
@@ -418,6 +452,7 @@ async function main(): Promise<void> {
     const bd = statusBreakdown(list);
     const createdAts = list.map((t) => t.createdAt);
     const buckets = dayBuckets(createdAts);
+    const wk = weekHalves(buckets);
     agentWant.set(agentId, {
       total: list.length,
       bars: STATUS_BARS.map((b) => ({ label: b.label, value: String(bd[b.key]) })),
@@ -425,8 +460,17 @@ async function main(): Promise<void> {
       runDays: runDaysOf(createdAts),
       dayAvg: dayAvgOf(buckets).toFixed(1),
       today: String(buckets[TREND_DAYS - 1] ?? 0),
+      week: {
+        now: String(wk.now),
+        prev: String(wk.prev),
+        delta: wk.delta === 0 ? "" : wk.delta > 0 ? `+${wk.delta}` : String(wk.delta),
+      },
     });
   }
+  // 复核缺口卡上并排写着两个数：「N 个已完成任务仍有 X 项问题未复核（全平台待复核合计 Y 项）」。
+  // X 是 Y 的子集（Y 还含待复核态任务），所以 X ≤ Y 必须成立；这条不变量在 verify:stats 里也钉了一份
+  //（那边不需要浏览器），这里核的是界面真把这三个数渲染出来了。
+  const backlogPending = board.reviewBacklog.reduce((a, b) => a + b.pending, 0);
   // 用 shortName：界面与导出（ledgerMarkdown / ledgerCsv）传的是同一个 agentName 函数，取的是
   // shortName；第一版拿 displayName 当期望值，「作品」列 40 行全部报不一致，报的是我自己的错。
   const agentNameOf = (id: string): string => agents.find((a) => a.id === id)?.shortName ?? id;
@@ -547,6 +591,8 @@ async function main(): Promise<void> {
   let barsChecks = 0;
   /** 看板 hero 区核对：大数字 / 口径标签 / 运行天数 / 日均 / 今日 */
   let heroChecks = 0;
+  /** 看板周环比两行 + 复核缺口卡三个数 */
+  let weekChecks = 0;
   /**
    * 枚举时**见过**的入口（点没点到另说）。「必需入口」的判据是「范围内出现过就必须点到」，
    * 不是「任何时候都必须点到」：窄范围跑（--tasks 指定几个任务、--no-overview）时，
@@ -1059,6 +1105,66 @@ async function main(): Promise<void> {
           }
         }
       }
+      // 周环比两行与复核缺口卡：这两块也是对外数字（导出概览 MD 里同样写着「周环比：+19（本周 X / 上周 Y）」
+      // 与「待复核问题合计 Y 项；已完成但仍有未复核问题的任务 N 个」），此前界面上一个都没核过。
+      const weekUi = (await page.evaluate(WEEK_READ)) as {
+        rows: Array<{ label: string; value: string; delta: string }>;
+      };
+      if (aw) {
+        const wantRows = [
+          { label: "本周", value: aw.week.now, delta: aw.week.delta },
+          { label: "上周", value: aw.week.prev, delta: "" },
+        ];
+        weekChecks += 1;
+        if (weekUi.rows.length !== wantRows.length) {
+          numFails.push(
+            `${p.label} 周环比渲染了 ${weekUi.rows.length} 行，应该是 ${wantRows.length} 行（本周 / 上周）`,
+          );
+        }
+        wantRows.forEach((w, i) => {
+          const g = weekUi.rows[i];
+          weekChecks += 1;
+          if (!g) {
+            numFails.push(`${p.label} 周环比少了「${w.label}」这一行`);
+            return;
+          }
+          for (const [field, wantV, gotV] of [
+            ["标签", w.label, g.label],
+            ["件数", w.value, g.value],
+            ["环比增量", w.delta, g.delta],
+          ] as Array<[string, string, string]>) {
+            weekChecks += 1;
+            if (wantV !== gotV) {
+              numFails.push(`${p.label} 周环比「${w.label}」${field}「${gotV || "(空)"}」≠ 取数「${wantV}」`);
+            }
+          }
+        });
+      }
+      const BACKLOG = /(\d+) 个已完成任务仍有 (\d+) 项问题未复核（全平台待复核合计 (\d+) 项）/;
+      const bm = BACKLOG.exec(bodyText);
+      weekChecks += 1;
+      if (board.reviewBacklog.length > 0) {
+        if (!bm) {
+          numFails.push(
+            `${p.label} 取数里有 ${board.reviewBacklog.length} 个已完成任务仍有未复核问题，界面上却没有「全平台复核闭环缺口」那张卡`,
+          );
+        } else {
+          for (const [name, gotV, wantV] of [
+            ["缺口任务数", bm[1] ?? "", String(board.reviewBacklog.length)],
+            ["缺口未复核项", bm[2] ?? "", String(backlogPending)],
+            ["全平台待复核合计", bm[3] ?? "", String(board.reviewPendingIssues)],
+          ] as Array<[string, string, string]>) {
+            weekChecks += 1;
+            if (gotV !== wantV) {
+              numFails.push(`${p.label} 复核缺口卡「${name}」界面「${gotV}」≠ 取数「${wantV}」`);
+            }
+          }
+        }
+      } else if (bm) {
+        numFails.push(
+          `${p.label} 取数里没有已完成任务留未复核问题，界面却写着「${bm[1]} 个任务 ${bm[2]} 项」`,
+        );
+      }
       const LEDGER_TOTAL =
         /全平台证据核对台账（(\d+) 个任务）文号 (\d+)\/(\d+) 有出处（其中复查取得 (\d+) · 仅正文提到 (\d+)）· 待复查 (\d+)（已标注 (\d+)） · 引用 (\d+) 条（官方 (\d+) · 弱 (\d+)，待处置 (\d+)）· 金额待确认 (\d+)（引自联网正文 (\d+) · 三处均无出处 (\d+)） · 欠账任务 (\d+) 个/;
       const m = LEDGER_TOTAL.exec(bodyText);
@@ -1367,8 +1473,10 @@ async function main(): Promise<void> {
   if (args.overview) console.log(`[scan] 看板状态分布核对：${barsChecks} 项（${STATUS_BARS.length} 条 × 2 项 + 条数 + 共 N 件 + 合计，× 总览页数）`);
   const heroMissing = args.overview && heroChecks === 0;
   if (args.overview) console.log(`[scan] 看板 hero 区核对：${heroChecks} 项（大数字 + 口径标签 + 运行天数 + 日均 + 今日，× 总览页数）`);
+  const weekMissing = args.overview && weekChecks === 0;
+  if (args.overview) console.log(`[scan] 看板周环比 + 复核缺口核对：${weekChecks} 项`);
   console.log(
-    `[scan] 界面数字与库取数核对：${numChecks} 项 + 台账单元格 ${ledgerCellChecks} 个 + 比对页 ${cmpChecks} 项 + 看板 KPI ${kpiChecks} 项 + 状态分布 ${barsChecks} 项 + hero 区 ${heroChecks} 项（不一致 ${ledgerCellBad} 个）· 合计不一致 ${numFails.length} 处`,
+    `[scan] 界面数字与库取数核对：${numChecks} 项 + 台账单元格 ${ledgerCellChecks} 个 + 比对页 ${cmpChecks} 项 + 看板 KPI ${kpiChecks} 项 + 状态分布 ${barsChecks} 项 + hero 区 ${heroChecks} 项 + 周环比与缺口 ${weekChecks} 项（不一致 ${ledgerCellBad} 个）· 合计不一致 ${numFails.length} 处`,
   );
   for (const f of numFails.slice(0, 10)) console.log(`  - ${f}`);
   if (numFails.length > 10) console.log(`  …另有 ${numFails.length - 10} 处`);
@@ -1385,7 +1493,8 @@ async function main(): Promise<void> {
       compareMissing ||
       kpiMissing ||
       barsMissing ||
-      heroMissing)
+      heroMissing ||
+      weekMissing)
   ) {
     console.log(
       allHits.length > 0
@@ -1406,7 +1515,9 @@ async function main(): Promise<void> {
                       ? "[FAIL] 看板状态分布一条都没核对到，这项覆盖是空的"
                       : heroMissing
                         ? "[FAIL] 看板 hero 区一个数都没核对到，这项覆盖是空的"
-                        : "[FAIL] 界面上的数字与库里的取数对不上",
+                        : weekMissing
+                          ? "[FAIL] 看板周环比与复核缺口一个数都没核对到，这项覆盖是空的"
+                          : "[FAIL] 界面上的数字与库里的取数对不上",
     );
     process.exit(1);
   }

@@ -9,6 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { computePlatformStats } from "../src/services/stats.ts";
 import { db } from "../src/db.ts";
+import { pendingReviewCount } from "../src/services/issues.ts";
 import { dirs } from "../src/config.ts";
 import { compareRates } from "@tax/document-tools";
 import {
@@ -498,6 +499,39 @@ for (const f of materialDocs) {
   }
 }
 
+// 5) 复核闭环缺口：看板那张卡与导出概览都写着「N 个已完成任务仍有 X 项问题未复核
+//（全平台待复核合计 Y 项）」。用 SQL 取「已完成」名单 + pendingReviewCount 逐任务重列一遍，
+// 核清单不漏不多；X 是 Y 的子集（Y 还含待复核态任务），所以 X ≤ Y 必须成立，否则那句话自相矛盾。
+const backlogSum = s.reviewBacklog.reduce((a, b) => a + b.pending, 0);
+const completedWithPending = (
+  db.prepare(`SELECT id FROM tasks WHERE status = 'completed'`).all() as unknown as Array<{ id: string }>
+)
+  .map((r) => r.id)
+  .filter((id) => pendingReviewCount(id) > 0)
+  .sort();
+expect(
+  "缺口清单 = 全部「已完成但仍有未复核项」的任务（不漏不多）",
+  s.reviewBacklog.map((b) => b.id).sort(),
+  completedWithPending,
+);
+expect(
+  "缺口清单每条的未复核项数与逐任务重算一致",
+  s.reviewBacklog.map((b) => b.pending).sort((a, c) => a - c),
+  completedWithPending.map((id) => pendingReviewCount(id)).sort((a, c) => a - c),
+);
+expect("缺口未复核项合计不超过全平台待复核合计", backlogSum <= s.reviewPendingIssues, true);
+expect("缺口清单里没有 pending=0 的条目", s.reviewBacklog.every((b) => b.pending > 0), true);
+// 上面两条清单断言在「缺口清单为空」时是空跑的（实测本轮就是空的：43 项待复核全挂在待复核态
+// 任务上，已完成任务一个都没留问题）。真正扛事的是这条：全平台待复核合计逐任务重算一遍，
+// 它同时是缺口卡与导出概览里那个「全平台待复核合计 Y 项」的取数。
+const pendingAll = (db.prepare(`SELECT id FROM tasks`).all() as unknown as Array<{ id: string }>)
+  .map((r) => pendingReviewCount(r.id))
+  .reduce((a, b) => a + b, 0);
+expect("全平台待复核合计与逐任务重算一致", s.reviewPendingIssues, pendingAll);
+
+console.log(
+  `[verify] 复核闭环缺口走查：清单 ${s.reviewBacklog.length} 个任务 / 未复核 ${backlogSum} 项 · 全平台待复核合计 ${s.reviewPendingIssues} 项 · 用 SQL + pendingReviewCount 独立重列 ${completedWithPending.length} 个`,
+);
 console.log(
   `[verify] 平台统计检查项=${checks} 失败=${failures.length}（比对 ${runs} 次：最近 ${s.compareAccuracy ?? "n/a"}% / 累计 ${
     s.compareAccuracyOverall ?? "n/a"

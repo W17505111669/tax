@@ -678,7 +678,8 @@ export function AgentOverview({
                   />
                 )}
               </svg>
-              <div className="mt-3 grid grid-cols-[52px_1fr_40px] items-center gap-x-3 gap-y-1.5">
+              {/* data-week-compare：scan:uimd 靠它定位本周 / 上周两行，核对件数与环比增量 */}
+              <div className="mt-3 grid grid-cols-[52px_1fr_40px] items-center gap-x-3 gap-y-1.5" data-week-compare="1">
                 <span className="text-[11px] text-mist-500">本周</span>
                 <span className="bar-track">
                   <span
