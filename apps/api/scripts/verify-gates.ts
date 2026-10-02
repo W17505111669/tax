@@ -39,8 +39,13 @@ const empty = fs.mkdtempSync(path.join(os.tmpdir(), "tax-gates-empty-"));
  * 只认 import 语句，不认标识符：第一版按 `listTasks|computePlatformStats|src/db.ts` 这些字样匹配，
  * 结果把**本脚本自己**也算成了「走真实数据」——它的文档注释里正好写着这几个词。于是自己跑自己，
  * 空库下当然是绿的，报出一条谁也修不了的失败。判据要盯着「从哪儿取数」，不是「提到了什么词」。
+ *
+ * 名单也不能只列几个熟脸：第二版写的是 `services/(task-store|stats)`，于是 verify-doc-source.ts
+ * 从 `services/ref-checks.ts` 取数却被归到「纯函数脚本」，从来没被空库复跑过——而它的三条
+ * `every(...)` 在空索引上恰恰全部通过。改成认整个 `services/` 与 `routes/` 目录：判据是「有没有
+ * 从服务端取数」，不是「从哪个文件取数」。
  */
-const READS_DB = /from "\.\.\/src\/(?:db|services\/(?:task-store|stats))\.ts"|from "\.\/docref-lib\.ts"/;
+const READS_DB = /from "\.\.\/src\/(?:db|services\/[a-z-]+|routes\/[a-z-]+)\.ts"|from "\.\/docref-lib\.ts"/;
 const SELF = "verify-gates.ts";
 const files = fs.readdirSync(here).filter((f) => /^verify-.*\.ts$/.test(f)).sort();
 const srcOf = (f: string): string => fs.readFileSync(path.join(here, f), "utf8");
@@ -51,6 +56,13 @@ expect("确实找到了 verify 脚本（不是目录空了在这儿空跑）", f
 expect("确实找到了走真实数据的脚本", real.length >= 15, true);
 expect("确实有不读库的纯函数脚本（两类分得开）", pure.length >= 10, true);
 
+// 走真实数据的脚本必须自带防空跑断言。下面的空库复跑查的是「判据能不能被空输入骗过」，查不出
+// 「真实数据这一侧压根没走到」——例如全库都没有某类记录时，`every(...)` 与「全部满足」这类断言
+// 会齐齐通过。约定：这类脚本的源码里必须出现「空跑 / 确实 / >= 1」字样的断言（本项目一直这么写，
+// 这里把它变成硬要求）。实测此前 28 个走真实数据的脚本里有 1 个不符合，就是上面那个 doc-source。
+const GUARD = /空跑|确实|>=\s*1\b|>=\s*2\b/;
+const unguarded = real.filter((f) => !GUARD.test(srcOf(f)));
+expect("走真实数据的脚本都自带防空跑断言", unguarded, []);
 const fooled: string[] = [];
 const crashed: string[] = [];
 let red = 0;

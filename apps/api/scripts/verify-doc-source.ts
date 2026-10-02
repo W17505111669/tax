@@ -135,6 +135,21 @@ expect(
   [...idx.values()].every((v) => v.evidence.grade === "official"),
   true,
 );
+// 防空跑：上面三条都是 every(...)，索引一空它们就齐齐「通过」。而这份索引是跨任务复用官方原文的
+// 唯一来源（复查时「按平台已核实的唯一同字号原文复用」走的就是它），空了等于那个功能静默失效。
+// 本脚本此前还被 verify:gates 当成「纯函数脚本」——它从 services/ref-checks.ts 取数，而那份名单
+// 只认 db / task-store / stats / docref-lib，于是连空库复跑都没跑过，这个洞一直没人看见。
+expect("索引确实有内容（否则上面三条 every 是在空集合上通过的）", idx.size >= 1, true);
+let titled = 0;
+for (const [docNum, v] of idx) {
+  const title = String(v.evidence.title ?? "").trim();
+  checks += 1;
+  if (title === "") failures.push(`${docNum} 的原文标题为空：侧边阅读器标签与修订指令都要用它`);
+  else titled += 1;
+  checks += 1;
+  if (!/^https?:\/\//.test(v.evidence.url)) failures.push(`${docNum} 的原文地址不是 http(s)：${v.evidence.url}`);
+}
+expect("每条都取到了非空标题", titled, idx.size);
 console.log(`[verify] 已核实官方原文索引 ${idx.size} 条（全部为政策法规库文档树原文页）`);
 
 // 4) 逐页实网核对：确认「本页即该文件」，而不只是「页面里出现过这个字号」
