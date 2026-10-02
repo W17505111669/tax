@@ -63,6 +63,7 @@ import { buildManifest } from "../manifest.ts";
 import { DOC_REF_TABLE_LIMIT, SOURCE_VIA_HINT, SOURCE_VIA_TEXT, traceDocRefs } from "../policy-trace.ts";
 import { docRefSection } from "../delivery-docref.ts";
 import { amountSection } from "../delivery-amount.ts";
+import { citeSection } from "../delivery-cite.ts";
 import { gradeCitation, GRADE_HINT, GRADE_TEXT, summarizeGrades } from "../citation-grade.ts";
 import { offTopicCitationTitles } from "../ref-check.ts";
 import { isInterruptedOnRestart, taskStatusLabel } from "../task-status.ts";
@@ -1456,70 +1457,23 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     "",
     finalResult,
     "",
-    "## 联网引用",
-    "",
-    ...(revImpact
-      ? [
-          `- 本次修订对证据的影响：${deltaText(revImpact)}`,
-          `- 对比口径：只统计结论正文里的引用地址（按证据力分级）与政策文号数；工具留存跨运行累积，不参与对比`,
-          "",
-        ]
-      : []),
-    ...(allCitations.length > 0
-      ? [
-          `- 证据力分级：官方来源 ${citationGrades.official} 条 · 专业来源 ${citationGrades.professional} 条 · 证据力弱 ${citationGrades.weak} 条${
-            weakDisclaimedUrls.size > 0 ? `（其中 ${weakDisclaimedUrls.size} 条已在结论中声明为背景参考）` : ""
-          }${weakUncited > 0 ? `（${weakUncited} 条只在检索留存里、未进入结论正文）` : ""}`,
-          ...(weakOpen > 0
-            ? ["- 证据力弱的引用指向门户首页、百科词条或检索结果页，不能替代政策原文，交付前请替换为具体文件页"]
-            : []),
-          ...(searches.metadataOnly > 0
-            ? [
-                `- 另有 ${searches.metadataOnly} 次联网检索只留存查询元数据（${searches.tools.join(" / ")}），未留存标题与 URL，未计入上方清单`,
-              ]
-            : []),
-          "",
-          ...allCitations.map(
-            (c, i) => `${i + 1}. ${c.title}\n   ${c.url}\n   证据力：${GRADE_TEXT[c.grade]}（${c.gradeReason}）`,
-          ),
-          ...(citationSummary.total > 0
-            ? [
-                "",
-                `- 弱证据引用替代来源检索：已检索 ${citationSummary.total} 条 · 找到官方原文 ${citationSummary.matched} 条 · 候选待确认 ${citationSummary.candidate} 条 · 未找到 ${
-                  citationSummary.empty + citationSummary.error
-                } 条（替代来源需人工确认后写回结论并重新打包）`,
-                "",
-                "| # | 原弱证据引用 | 判定 | 替代来源 |",
-                "| --- | --- | --- | --- |",
-                ...citationCheckList.map(
-                  (c, i) =>
-                    `| ${i + 1} | ${mdCell(c.text)}${c.subjectUrl ? `<br>${mdCell(c.subjectUrl)}` : ""} | ${
-                      REF_VERDICT_TEXT[c.verdict]
-                    } | ${
-                      c.evidence ? `[${mdCell(c.evidence.title)}](${c.evidence.url})` : "—"
-                    } |`,
-                ),
-              ]
-            : []),
-        ]
-      : [searchNote ?? "（本次任务无联网引用）"]),
-    "",
-    ...(linkCheckedAt
-      ? [
-          `- 链接核验：${new Date(linkCheckedAt).toLocaleString("zh-CN", { hour12: false })} · 可访问 ${
-            linkSummary.ok
-          }/${linkSummary.total} · 失效 ${linkSummary.dead} · 拒绝自动访问 ${linkSummary.blocked} · 无法核验 ${
-            linkSummary.unreachable
-          }`,
-          ...liveChecks
-            .filter((r) => linkVerdict(r) !== "ok")
-            .map(
-              (r) =>
-                `  - ${VERDICT_TEXT[linkVerdict(r)]}：${r.url}（${r.status ?? r.error ?? "无响应"}，耗时 ${r.ms} ms）`,
-            ),
-          "",
-        ]
-      : []),
+    // 「联网引用」整节搬到 delivery-cite.ts：留在组件闭包里就没法单测，而它是对外声称数字最密的
+    // 一节（证据力分级三类 + 弱证据两类 + 仅元数据检索次数 + 替代来源检索四类 + 链接核验五类）。
+    // 链接核验的汇总行与明细行在模块里由同一份 liveChecks 就地算出，两者不可能再各说一套。
+    ...citeSection({
+      revImpact,
+      citations: allCitations,
+      grades: citationGrades,
+      weakDisclaimed: weakDisclaimedUrls.size,
+      weakUncited,
+      weakOpen,
+      searches: { metadataOnly: searches.metadataOnly, tools: searches.tools },
+      emptyNote: searchNote,
+      citeSummary: citationSummary,
+      citeChecks: citationCheckList,
+      linkCheckedAt,
+      linkChecks: liveChecks,
+    }),
     "## 业务资料清单",
     "",
     ...fileTable(files, fileParsed),

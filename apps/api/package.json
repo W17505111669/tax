@@ -36,6 +36,7 @@
     "verify:policytrace": "tsx scripts/verify-policy-trace.ts",
     "verify:docrefmd": "tsx scripts/verify-delivery-docref.ts",
     "verify:delivamount": "tsx scripts/verify-delivery-amount.ts",
+    "verify:delivcite": "tsx scripts/verify-delivery-cite.ts",
     "verify:runcmd": "tsx scripts/verify-run-cmd.ts",
     "scan:deliverables": "tsx scripts/scan-deliverables.ts",
     "verify:promptreg": "tsx scripts/verify-prompt-regression.ts",

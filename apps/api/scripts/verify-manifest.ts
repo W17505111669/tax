@@ -16,10 +16,11 @@ import {
   UNTRACED_ORIGIN_TEXT,
 } from "../../web/src/amount-trace.ts";
 import { amountSection, AMOUNT_TABLE_LIMIT } from "../../web/src/delivery-amount.ts";
+import { citeSection } from "../../web/src/delivery-cite.ts";
 import { parseDetail, parsedByFileName } from "../../web/src/file-parse.ts";
 import { reviewCounts } from "../../web/src/review-export.ts";
 import { normalizeRef, traceDocRefs } from "../../web/src/policy-trace.ts";
-import { gradeCitation, summarizeGrades } from "../../web/src/citation-grade.ts";
+import { gradeCitation, summarizeGrades, type CitationGrade } from "../../web/src/citation-grade.ts";
 import {
   extractCitations,
   extractTextCitations,
@@ -27,10 +28,12 @@ import {
   mergeCitations,
   SEARCH_TOOL_NAMES,
   searchEvidence,
+  searchEvidenceNote,
 } from "../../web/src/search-evidence.ts";
 import {
   disclaimedWeakUrls,
   offTopicCitationTitles,
+  settledWeakUrls,
   summarizeRefChecks,
   uncitedWeakItems,
 } from "../../web/src/ref-check.ts";
@@ -402,6 +405,10 @@ let linkStaleTotal = 0;
 let citesWithVerdict = 0;
 /** 真的被组装进 manifest 的链接核验汇总条数：为 0 说明这一节又被写回 null 了，自校验会静默跳过 */
 let manifestLinkSummaries = 0;
+/** 交付 MD 联网引用节的真实走查规模：任一为 0 都说明对应那组断言是在空集合上通过的 */
+let citeMdTasks = 0;
+let citeMdTableTasks = 0;
+let citeMdLinkTasks = 0;
 /**
  * 交叉核对：manifest 走的是「前端交付路径」（web 侧纯函数 + 自己从库取数），看板与台账走的是
  * 「服务端聚合路径」（stats.ts）。两条路径各算一遍同一批指标，此前从来没有逐项对过——
@@ -429,6 +436,7 @@ const cross = {
   amountPendingUnexplained: 0,
   mdChecked: 0,
   mdAmountChecked: 0,
+  mdCiteChecked: 0,
 };
 let rowsCompared = 0;
 let pairChecks = 0;
@@ -853,6 +861,126 @@ for (const t of listTasks()) {
       failures.push(`${t.id.slice(0, 8)} 交付 MD 的文号节没写出「${frag}」，实际是：${mdHead.slice(0, 90)}`);
     }
   }
+
+  // ---- 交叉核对之二·补：交付 MD 的联网引用节 ----
+  // 这一节是对外声称数字最密的一节（分级三类 + 弱证据两类 + 仅元数据检索 + 替代来源四类 +
+  // 链接核验五类），此前只在 verify:delivcite 里喂假数据验形状，真实任务上一个数字都没对过。
+  // 取数全部复用上面已经算好的那一份，不抄第二处口径。
+  cross.mdCiteChecked += 1;
+  const citeMd = citeSection({
+    revImpact: rev ? rev.delta : null,
+    citations: cites.map((c) => ({
+      title: c.title,
+      url: c.url,
+      grade: c.grade as CitationGrade,
+      gradeReason: c.gradeReason,
+    })),
+    grades,
+    weakDisclaimed: disclaimedLocal.size,
+    weakUncited: uncitedLocal.length,
+    weakOpen: Math.max(0, grades.weak - settledWeakUrls(cites, detail?.result ?? "").size),
+    searches: { metadataOnly: searches.metadataOnly, tools: searches.tools },
+    emptyNote: searchEvidenceNote(searches, cites.length),
+    citeSummary: citeCheckSum,
+    citeChecks: refRecs.filter((r) => r.kind === "citation"),
+    linkCheckedAt: lcAt,
+    linkChecks: lcLive,
+  });
+  checks += 1;
+  if (citeMd[0] !== "## 联网引用") failures.push(`${t.id.slice(0, 8)} 联网引用节标题不是「联网引用」：${citeMd[0]}`);
+  const citeHead = citeMd.find((l) => l.startsWith("- 证据力分级：")) ?? "";
+  if (cites.length > 0) {
+    citeMdTasks += 1;
+    for (const frag of [
+      `官方来源 ${grades.official} 条`,
+      `专业来源 ${grades.professional} 条`,
+      `证据力弱 ${grades.weak} 条`,
+    ]) {
+      checks += 1;
+      if (!citeHead.includes(frag)) {
+        failures.push(`${t.id.slice(0, 8)} 交付 MD 的联网引用节没写出「${frag}」，实际是：${citeHead.slice(0, 90)}`);
+      }
+    }
+    // 清单条数必须等于结构化引用条数：界面胶囊会截断，交付 MD 不截断，两边不该混用
+    checks += 1;
+    const listed = citeMd.filter((l) => /^\d+\. /.test(l)).length;
+    if (listed !== cites.length) {
+      failures.push(`${t.id.slice(0, 8)} 交付 MD 引用清单 ${listed} 条 ≠ 结构化 ${cites.length} 条`);
+    }
+  } else {
+    checks += 1;
+    if (citeHead !== "") failures.push(`${t.id.slice(0, 8)} 没有引用却写出了证据力分级行`);
+  }
+  if (disclaimedLocal.size > 0) {
+    checks += 1;
+    if (!citeHead.includes(`其中 ${disclaimedLocal.size} 条已在结论中声明为背景参考`)) {
+      failures.push(`${t.id.slice(0, 8)} 联网引用节没写出已声明为背景参考的 ${disclaimedLocal.size} 条`);
+    }
+  }
+  if (uncitedLocal.length > 0) {
+    checks += 1;
+    if (!citeHead.includes(`${uncitedLocal.length} 条只在检索留存里、未进入结论正文`)) {
+      failures.push(`${t.id.slice(0, 8)} 联网引用节没写出未进结论正文的 ${uncitedLocal.length} 条`);
+    }
+  }
+  // 「只留存查询元数据」这件事必须交代，但交代法按有没有引用分两种：有引用时在分级行下面补一行
+  // 「另有 N 次…」，一条引用都没有时整节换成 searchEvidenceNote 那段说明（措辞不同、事实同一件）。
+  // 第一版只认前一种措辞，实测 26f91720（0 条引用 / 1 次仅元数据检索）被误报成缺陷。
+  if (searches.metadataOnly > 0) {
+    checks += 1;
+    const disclosed =
+      cites.length > 0
+        ? citeMd.some((l) => l.includes(`另有 ${searches.metadataOnly} 次联网检索只留存查询元数据`))
+        : citeMd.some((l) => l.includes("只把查询元数据写回工具结果"));
+    if (!disclosed) {
+      failures.push(`${t.id.slice(0, 8)} 联网引用节没交代仅元数据检索的 ${searches.metadataOnly} 次`);
+    }
+  }
+  if (citeCheckSum.total > 0) {
+    citeMdTableTasks += 1;
+    const citeHeader = "| # | 原弱证据引用 | 判定 | 替代来源 |";
+    const at2 = citeMd.indexOf(citeHeader);
+    checks += 1;
+    if (at2 < 0) failures.push(`${t.id.slice(0, 8)} 联网引用节缺替代来源表`);
+    let citeRows = 0;
+    for (let i = at2 + 2; i < citeMd.length && (citeMd[i] ?? "").startsWith("|"); i++) citeRows += 1;
+    checks += 1;
+    const wantCiteRows = refRecs.filter((r) => r.kind === "citation").length;
+    if (at2 >= 0 && citeRows !== wantCiteRows) {
+      failures.push(`${t.id.slice(0, 8)} 替代来源表 ${citeRows} 行 ≠ 引用类复查 ${wantCiteRows} 条`);
+    }
+    const citeSumLine = citeMd.find((l) => l.startsWith("- 弱证据引用替代来源检索：")) ?? "";
+    for (const frag of [
+      `已检索 ${citeCheckSum.total} 条`,
+      `找到官方原文 ${citeCheckSum.matched} 条`,
+      `候选待确认 ${citeCheckSum.candidate} 条`,
+      `未找到 ${citeCheckSum.empty + citeCheckSum.error} 条`,
+    ]) {
+      checks += 1;
+      if (!citeSumLine.includes(frag)) failures.push(`${t.id.slice(0, 8)} 替代来源检索汇总没写出「${frag}」`);
+    }
+  }
+  if (lcAt) {
+    citeMdLinkTasks += 1;
+    const linkLine = citeMd.find((l) => l.startsWith("- 链接核验：")) ?? "";
+    for (const frag of [
+      `可访问 ${lcSum.ok}/${lcSum.total}`,
+      `失效 ${lcSum.dead}`,
+      `拒绝自动访问 ${lcSum.blocked}`,
+      `无法核验 ${lcSum.unreachable}`,
+    ]) {
+      checks += 1;
+      if (!linkLine.includes(frag)) {
+        failures.push(`${t.id.slice(0, 8)} 联网引用节的核验行没写出「${frag}」，实际是：${linkLine.slice(0, 90)}`);
+      }
+    }
+    // 上一轮的真缺陷就在这里：汇总按当前引用清单过滤、明细不过滤，同一份 MD 自相矛盾（实测 3 个任务）
+    checks += 1;
+    const detailRows = citeMd.filter((l) => l.startsWith("  - ")).length;
+    if (detailRows !== lcSum.total - lcSum.ok) {
+      failures.push(`${t.id.slice(0, 8)} 核验明细 ${detailRows} 行 ≠ 汇总非可访问 ${lcSum.total - lcSum.ok} 条`);
+    }
+  }
 }
 
 // ---- 交叉核对之三：平台级，看板聚合 vs 交付路径逐任务累加 ----
@@ -891,6 +1019,12 @@ if (cross.mdChecked < 1) failures.push("交付 MD 的文号节一处都没核对
 checks += 1;
 if (cross.mdAmountChecked < 1) failures.push("交付 MD 的金额节一处都没核对到");
 checks += 1;
+if (cross.mdCiteChecked < 1) failures.push("交付 MD 的联网引用节一处都没核对到");
+checks += 1;
+if (citeMdTasks < 1) failures.push("一个有引用的真实任务都没走到，联网引用节的分级断言等于空跑");
+checks += 1;
+if (citeMdLinkTasks < 1) failures.push("一个带链接核验的真实任务都没走到，核验汇总与明细同源的断言等于空跑");
+checks += 1;
 if (linkTasks < 1) failures.push("一个带链接核验记录的真实任务都没走到，manifest 的链接核验一节等于没验");
 checks += 1;
 if (citesWithVerdict < 1) failures.push("真实数据里一条带核验结论的引用都没有，verdict 这一列等于没验");
@@ -914,6 +1048,9 @@ console.log(
 );
 console.log(
   `[verify] 链接核验走查：${linkTasks} 个任务共 ${linkRowsTotal} 行（陈旧 ${linkStaleTotal} 行不计入）· 带核验结论的引用 ${citesWithVerdict} 条`,
+);
+console.log(
+  `[verify] 交付 MD 联网引用节走查：${cross.mdCiteChecked} 个任务（有引用 ${citeMdTasks} · 带替代来源表 ${citeMdTableTasks} · 带链接核验 ${citeMdLinkTasks}）`,
 );
 if (skippedTasks > 0) {
   console.log(
