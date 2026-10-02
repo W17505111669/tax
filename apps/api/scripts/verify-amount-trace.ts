@@ -13,8 +13,12 @@ import {
   TEXT_AMOUNT_TOOLS,
   traceAmounts,
 } from "../../web/src/amount-trace.ts";
+import { retentionStats, SEARCH_TOOL_NAMES } from "../../web/src/search-evidence.ts";
 import { db } from "../src/db.ts";
 import { getTask, listTasks } from "../src/services/task-store.ts";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { listAmountChecks, setAmountCheck } from "../src/services/amount-checks.ts";
 
 const failures: string[] = [];
@@ -124,6 +128,10 @@ let total = 0;
 let explained = 0;
 let tasks = 0;
 const worst: string[] = [];
+/** 待确认金额的两类构成，以及「三处均无出处」里有多少其实是无从核对（所在任务没有任何留存正文） */
+let webTotal = 0;
+let unexplainedTotal = 0;
+let unexplainedNoRetention = 0;
 for (const t of listTasks()) {
   const detail = getTask(t.id);
   const text2 = detail?.result ?? "";
@@ -147,6 +155,31 @@ for (const t of listTasks()) {
   total += res.total;
   explained += res.traced + res.fromInput;
   if (res.untraced.length > 0) worst.push(`${t.id.slice(0, 8)}:${res.untraced.length}/${res.total}`);
+  // 两类构成按产品同一口径算：检索结果池不按 ok 过滤（与 stats.ts、任务页一致）
+  const allCalls = (
+    db.prepare(`SELECT tool_name, result FROM tool_calls WHERE task_id = ?`).all(t.id) as Array<{
+      tool_name: string;
+      result: string | null;
+    }>
+  ).map((r) => {
+    let v: unknown = null;
+    try {
+      v = r.result ? JSON.parse(r.result) : null;
+    } catch {
+      v = null;
+    }
+    return { toolName: r.tool_name, result: v };
+  });
+  const split = classifyUntraced(
+    res.untraced,
+    allCalls.filter((c) => SEARCH_TOOL_NAMES.has(c.toolName)).map((c) => c.result),
+  );
+  webTotal += split.web.length;
+  unexplainedTotal += split.unexplained.length;
+  // 「三处均无出处」这一档的说明自己就写着它混了两种情况：模型口算，以及该任务运行时平台还没
+  // 留存网页正文因而无从核对。后者不是靠猜——留存条数为 0 就是结构性的无从核对（联网正文那一路
+  // 压根是空的）。实测 24 处里 23 处属于后者，只有 1 处是真正要逐条看的。
+  if (retentionStats(allCalls).retainedCalls === 0) unexplainedNoRetention += split.unexplained.length;
   checks += 1;
   const badMatch = res.untraced.filter((u) => !text2.includes(u.match)).length;
   if (badMatch > 0) failures.push(`${t.id} 有 ${badMatch} 处待确认金额的原文片段不是结论子串（标注会失效）`);
@@ -160,6 +193,15 @@ console.log(
   ).toFixed(1)}%`,
 );
 if (worst.length > 0) console.log(`[verify] 含待确认金额的任务：${worst.join(" ")}`);
+expect("两类构成加起来等于待确认总数", webTotal + unexplainedTotal, total - explained);
+expect(
+  "「三处均无出处」里确实有属于无从核对的（所在任务一条留存正文都没有，不能算成模型口算）",
+  unexplainedNoRetention >= 1,
+  true,
+);
+console.log(
+  `[verify] 待确认构成：引自联网正文 ${webTotal} · 三处均无出处 ${unexplainedTotal}（其中 ${unexplainedNoRetention} 处所在任务没有任何留存正文，属无从核对而非口算）`,
+);
 
 // 5) 人工核对标记的读写：写入 → 修订备注（upsert）→ 撤销；用合成任务 id，结束即清理
 const TMP_TASK = "verify-amount-checks-tmp";
@@ -219,6 +261,41 @@ for (const k of ["web", "unexplained"] as UntracedOrigin[]) {
   expect(`${k} 的依据说明非空`, UNTRACED_ORIGIN_HINT[k].trim() !== "", true);
   expect(`${k} 的依据说明不含 Markdown 记号`, MD_MARK.test(UNTRACED_ORIGIN_HINT[k]), false);
 }
+// 消费点同源：这几处说的是同一件事，只允许有一份来源。看板那段 tooltip 此前是手写副本，而且
+// 已经与共享表漂了——共享表写「工具结果、客户指令与联网正文都找不到…但这正是需要人逐条看的
+// 那一类」，看板写成「客户指令、联网正文都找不到」并少了后半句；web 那一类也少了「不是模型
+// 有没有口算」。同一件事写两遍，改一处忘一处，看板与任务页就各说一套。
+const here = path.dirname(fileURLToPath(import.meta.url));
+const webSrc = path.resolve(here, "..", "..", "web", "src");
+const consumers: Array<[string, string]> = [
+  ["看板 AgentOverview", fs.readFileSync(path.join(webSrc, "components", "AgentOverview.tsx"), "utf8")],
+  ["复核页 ReviewView", fs.readFileSync(path.join(webSrc, "components", "ReviewView.tsx"), "utf8")],
+  ["任务页 TaskWorkbench", fs.readFileSync(path.join(webSrc, "components", "TaskWorkbench.tsx"), "utf8")],
+];
+for (const [name, src] of consumers) {
+  checks += 1;
+  if (!src.includes("UNTRACED_ORIGIN_TEXT")) failures.push(`${name} 没有引用共享的两类文案表`);
+  checks += 1;
+  if (!src.includes("UNTRACED_ORIGIN_HINT")) failures.push(`${name} 没有引用共享的依据说明表`);
+  // 漂过的那份措辞不许再出现在任何组件里（它比共享表少了半句判据说明）
+  checks += 1;
+  if (src.includes("客户指令、联网正文都找不到")) failures.push(`${name} 里仍有手写副本的措辞（已与共享表漂开）`);
+}
+expect(
+  "看板 tooltip 由共享表拼出（不是又抄一遍）",
+  consumers[0]![1].includes("${UNTRACED_ORIGIN_HINT.web}") && consumers[0]![1].includes("${UNTRACED_ORIGIN_HINT.unexplained}"),
+  true,
+);
+expect(
+  "复核页徽章 title 取自共享说明表",
+  consumers[1]![1].includes("UNTRACED_ORIGIN_HINT[a.origin]"),
+  true,
+);
+expect(
+  "任务页就地标注取自共享说明表",
+  consumers[2]![1].includes("UNTRACED_ORIGIN_HINT[amountOrigin.get(key)"),
+  true,
+);
 // 分类必须真的分到了东西：两档都为空的话，界面上的徽章全归一类也没人发现
 expect("样例里两类都确实出现了", [SPLIT.web.length > 0, SPLIT.unexplained.length > 0], [true, true]);
 // 关键：分类**不改变**溯源判定。联网正文依然不进可溯源池，否则任何金额都能声称有出处
