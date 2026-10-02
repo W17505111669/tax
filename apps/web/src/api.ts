@@ -160,9 +160,10 @@ export const api = {
     request<{ sheets: import("./types.ts").SheetPreview[] }>(url).then((r) => r.sheets),
 
   listCompares: (taskId: string) =>
-    request<{ compares: import("./types.ts").CompareRecord[] }>(`/api/tasks/${taskId}/compares`).then(
-      (r) => r.compares,
-    ),
+    request<{
+      compares: import("./types.ts").CompareRecord[];
+      unusable: import("./types.ts").UnusableCompare[];
+    }>(`/api/tasks/${taskId}/compares`),
 
   listIssues: (taskId: string) =>
     request<{

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { CompareDiff, CompareRecord, CompareRef } from "../types.ts";
+import type { CompareDiff, CompareRecord, CompareRef, UnusableCompare } from "../types.ts";
 import { IconAlert, IconCheck, IconCopy, IconDownload } from "./Icons.tsx";
 import { downloadCsv, downloadText } from "../download.ts";
 import { dayStamp } from "../time-format.ts";
@@ -23,12 +23,14 @@ function fmt(v: string | number | null): string {
 /** 底稿比对视图：准确率 KPI + 差异高亮表，服务交付质检与答辩展示。 */
 interface Props {
   compares: CompareRecord[];
+  /** 记为成功却没留下结构化结果的比对：次数计入标签，正文如实列出而不是静默不渲染 */
+  unusable?: UnusableCompare[];
   onOpenTarget: (ref: CompareRef) => void;
   /** 两份底稿都存在时优先走这里：A 进主栏、B 进副栏并自动开启双栏对照 */
   onOpenPair?: (a: CompareRef, b: CompareRef) => void;
 }
 
-export function CompareView({ compares, onOpenTarget, onOpenPair }: Props) {
+export function CompareView({ compares, unusable = [], onOpenTarget, onOpenPair }: Props) {
   const [sel, setSel] = useState<number | null>(null);
   const [kindFilter, setKindFilter] = useState<CompareKind>(() => readEnum(KEYS.compareKind, COMPARE_KINDS, "all"));
   const [trendHover, setTrendHover] = useState<number | null>(null);
@@ -97,7 +99,10 @@ export function CompareView({ compares, onOpenTarget, onOpenPair }: Props) {
       `- 模式：${rec.result.sheets[0]?.mode === "address" ? "地址级" : "记录级"}`,
       `- 系统底稿 (A)：${rec.result.a?.name ?? "—"}`,
       `- 人工底稿 (B)：${rec.result.b?.name ?? "—"}`,
+      `- 一致率：${rec.rates.matchRateText}（只看两边都有的项，回答「填得对不对」）`,
+      `- 覆盖率：${rec.rates.coverageText}（人工底稿有的项里自动填到多少，回答「填得全不全」）`,
       `- 总准确率：${t.accuracyPercent}%（比对 ${t.compared}：一致 ${t.matched}、差异 ${t.mismatched}、仅A ${t.onlyA}、仅B ${t.onlyB}）`,
+      `- 口径说明：总准确率的分母把「填错」与「只有一侧有」混在一起，单看它分不清问题在填列逻辑还是在两份底稿的口径范围，必须与上面两个比率一起读；作品说明的累计口径已不再报总准确率，此处保留是为了能与这一次比对的原始计数对上`,
       "",
     ];
     for (const s of rec.result.sheets) {
@@ -121,7 +126,7 @@ export function CompareView({ compares, onOpenTarget, onOpenPair }: Props) {
   const copySummary = (rec: CompareRecord) => {
     const t = rec.result.totals;
     const lines = [
-      `比对准确率 ${t.accuracyPercent}%（比对 ${t.compared}：一致 ${t.matched}、差异 ${t.mismatched}、仅A ${t.onlyA}、仅B ${t.onlyB}）`,
+      `比对准确率 ${t.accuracyPercent}%（比对 ${t.compared}：一致 ${t.matched}、差异 ${t.mismatched}、仅A ${t.onlyA}、仅B ${t.onlyB}）· 一致率 ${rec.rates.matchRateText} · 覆盖率 ${rec.rates.coverageText}`,
     ];
     for (const s of rec.result.sheets) {
       for (const d of s.diffs) {
@@ -210,21 +215,51 @@ export function CompareView({ compares, onOpenTarget, onOpenPair }: Props) {
   const exportCsvFiltered = (rec: CompareRecord) =>
     downloadCsv(`底稿比对差异-筛选-${dayStamp(rec.at ?? "")}.csv`, diffRows(rec, matchFilter));
 
+  // 工具记为成功却没留下结构化结果的比对。此前这些记录混在 compares 里，渲染时 `if (!t) return null`
+  // 直接跳过：标签上写着「2」、正文一片空白，用户看不到任何解释（实测那 2 条留存是空对象 {}）。
+  const unusableNote =
+    unusable.length > 0 ? (
+      <div className="glow-card px-5 py-4">
+        <div className="flex items-center gap-2">
+          <IconAlert className="h-4 w-4 text-amber-300" />
+          <span className="text-[13px] font-medium text-mist-100">
+            另有 {unusable.length} 次比对没有留下结构化结果
+          </span>
+        </div>
+        <p className="mt-2 text-[12px] leading-5 text-mist-500">
+          这几次调用记为成功，但留存的结果里没有 totals（实测留存是空对象），准确率、一致率、覆盖率与差异表都无从算起。次数仍计入标签上的比对次数，此处如实列出，不静默丢掉。
+        </p>
+        <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11.5px] text-mist-600">
+          {unusable.map((u) => (
+            <li key={u.id} className="font-mono">
+              #{u.id.slice(0, 8)}
+              {u.at ? ` · ${new Date(u.at).toLocaleString("zh-CN", { hour12: false })}` : ""}
+            </li>
+          ))}
+        </ul>
+      </div>
+    ) : null;
+
   if (compares.length === 0) {
     return (
-      <div className="glow-card px-5 py-6">
-        <div className="flex items-center gap-2">
-          <IconAlert className="h-4 w-4 text-glow-400" />
-          <span className="text-[13px] font-medium text-mist-100">暂无比对记录</span>
+      <div className="space-y-4">
+        {unusableNote}
+        <div className="glow-card px-5 py-6">
+          <div className="flex items-center gap-2">
+            <IconAlert className="h-4 w-4 text-glow-400" />
+            <span className="text-[13px] font-medium text-mist-100">
+              {unusable.length > 0 ? "没有可用的比对结果" : "暂无比对记录"}
+            </span>
+          </div>
+          <ol className="mt-3 list-decimal space-y-1.5 pl-5 text-[12px] leading-5 text-mist-500">
+            <li>让 Agent 解析资料并生成系统底稿（generate_workpaper / fill_land_vat_workpaper）；</li>
+            <li>上传或指定人工底稿后调用 compare_workpapers 执行记录级 / 地址级比对；</li>
+            <li>准确率、差异表与趋势图将自动出现在本页，并可联动阅读器高亮定位。</li>
+          </ol>
+          <p className="mt-3 text-[11px] text-mist-600">
+            提示：在新任务指令中写明「请比对系统底稿与人工底稿并输出准确率」即可触发比对闭环。
+          </p>
         </div>
-        <ol className="mt-3 list-decimal space-y-1.5 pl-5 text-[12px] leading-5 text-mist-500">
-          <li>让 Agent 解析资料并生成系统底稿（generate_workpaper / fill_land_vat_workpaper）；</li>
-          <li>上传或指定人工底稿后调用 compare_workpapers 执行记录级 / 地址级比对；</li>
-          <li>准确率、差异表与趋势图将自动出现在本页，并可联动阅读器高亮定位。</li>
-        </ol>
-        <p className="mt-3 text-[11px] text-mist-600">
-          提示：在新任务指令中写明「请比对系统底稿与人工底稿并输出准确率」即可触发比对闭环。
-        </p>
       </div>
     );
   }
@@ -399,7 +434,8 @@ export function CompareView({ compares, onOpenTarget, onOpenPair }: Props) {
                 return el;
               })}
             </svg>
-            <ul className="space-y-1 text-[11px] text-mist-500">
+            {/* data-compare-donut：scan:uimd 靠它定位这张汇总环图的图例，核对四个计数与百分比 */}
+            <ul className="space-y-1 text-[11px] text-mist-500" data-compare-donut="1">
               {segs.map((s) => (
                 <li key={s.label} className="flex items-center gap-2">
                   <span className="h-2 w-2 rounded-sm" style={{ background: s.c }} />
@@ -412,6 +448,7 @@ export function CompareView({ compares, onOpenTarget, onOpenPair }: Props) {
           </div>
         );
       })()}
+      {unusableNote}
       {shownCompares.map((rec, ri) => {
         const t = rec.result?.totals;
         if (!t) return null;
@@ -506,9 +543,9 @@ export function CompareView({ compares, onOpenTarget, onOpenPair }: Props) {
               </span>
             </div>
 
-            <div className="mt-3 grid gap-3 sm:grid-cols-3 xl:grid-cols-6">
+            <div className="mt-3 grid gap-3 sm:grid-cols-3 xl:grid-cols-4">
               {baseT && (
-                <div className="sm:col-span-3 xl:col-span-6">
+                <div className="sm:col-span-3 xl:col-span-4">
                   <span className="rounded border border-glow-500/35 bg-glow-500/10 px-2 py-1 text-[11px] text-glow-300">
                     较基准：准确率 {t.accuracyPercent - baseT.accuracyPercent >= 0 ? "+" : ""}
                     {t.accuracyPercent - baseT.accuracyPercent}pp · 差异 {t.mismatched - baseT.mismatched >= 0 ? "+" : ""}
@@ -518,7 +555,10 @@ export function CompareView({ compares, onOpenTarget, onOpenPair }: Props) {
                   </span>
                 </div>
               )}
-              <div className="glow-card glow-ring px-4 py-3">
+              <div
+                className="glow-card glow-ring px-4 py-3"
+                title="一致 /（一致 + 差异 + 仅系统 + 仅人工）。分母把「填错」与「只有一侧有」混在一起，单看它分不清问题在填列逻辑还是在两份底稿的口径范围，必须与一致率、覆盖率一起读"
+              >
                 <div className="text-[11px] text-mist-600">总准确率</div>
                 <div className="mt-1 text-[26px] font-semibold tracking-tight text-glow-300">
                   {t.accuracyPercent}
@@ -533,6 +573,26 @@ export function CompareView({ compares, onOpenTarget, onOpenPair }: Props) {
                   )}
                 </div>
               </div>
+              {/* 一致率 / 覆盖率：与工具返回文本、看板、作品说明同一个 compareRates 现算，
+                  文案由服务端下发（rateText），算不出来时如实写「无可比对项」。总准确率的分母
+                  含「只有一侧有」的格子，单看它分不清问题在填列逻辑还是在两份底稿的口径范围。 */}
+              {[
+                {
+                  label: "一致率",
+                  text: rec.rates.matchRateText,
+                  hint: "一致 /（一致 + 差异），只看两边都有的项，回答「填得对不对」",
+                },
+                {
+                  label: "覆盖率",
+                  text: rec.rates.coverageText,
+                  hint: "一致 /（一致 + 仅系统），人工底稿有的项里自动填到多少，回答「填得全不全」",
+                },
+              ].map((kpi) => (
+                <div key={kpi.label} className="glow-card px-4 py-3" title={kpi.hint}>
+                  <div className="text-[11px] text-mist-600">{kpi.label}</div>
+                  <div className="mt-1 text-[20px] font-semibold tracking-tight text-mist-100">{kpi.text}</div>
+                </div>
+              ))}
               {[
                 { label: "比对项", value: t.compared, tone: "text-mist-100" },
                 { label: "一致", value: t.matched, tone: "text-jade-400" },

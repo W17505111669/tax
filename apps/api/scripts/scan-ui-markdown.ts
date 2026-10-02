@@ -28,6 +28,8 @@ import { loadTaskDocRefs } from "./docref-lib.ts";
 import { TEXT_AMOUNT_TOOLS, traceAmounts } from "../../web/src/amount-trace.ts";
 import { computePlatformStats } from "../src/services/stats.ts";
 import { listAgents } from "../src/agents.ts";
+import { listStoredCompares, type StoredCompare } from "../src/services/compare-stats.ts";
+import { listToolCalls } from "../src/services/task-store.ts";
 import {
   ledgerCells,
   ledgerSort,
@@ -55,6 +57,76 @@ const PATTERNS: Array<[string, string]> = [
 // 真正的原文泄漏一定伴随更强的记号（# | ` ** > ```），靠那些就够。
 
 type Hit = { page: string; pattern: string; text: string; chain: string };
+
+/** 比对页在界面上读到的东西：每条记录一张卡片区 + 工作表行，外加汇总环图与「没留下结果」提示 */
+type CmpUi = {
+  recs: Array<{
+    id: string;
+    kpi: Record<string, string>;
+    sheets: Array<{ name: string; acc: number; matched: number; compared: number; skipped: number }>;
+  }>;
+  unusableShown: number;
+  heading: string;
+  ids: string[];
+  donut: Array<{ label: string; v: number; pct: number }>;
+};
+
+/**
+ * 在页面里读出比对页的结构化数字。用 DOM 结构而不是整页 innerText 正则：差异表的「类型」列里
+ * 也有「差异 / 仅系统 / 仅人工」这几个词，按行配对会把表格单元格的值当成 KPI 卡的值。
+ */
+const CMP_READ = `(() => {
+  const LABELS = ["总准确率", "一致率", "覆盖率", "比对项", "一致", "差异", "仅系统", "仅人工"];
+  const recs = [];
+  const secs = document.querySelectorAll("section.glow-card");
+  for (let i = 0; i < secs.length; i++) {
+    const sec = secs[i];
+    const grid = sec.querySelector("div.grid");
+    const kpi = {};
+    if (grid) {
+      for (let j = 0; j < grid.children.length; j++) {
+        const card = grid.children[j];
+        const lab = ((card.children[0] && card.children[0].innerText) || "").trim();
+        if (LABELS.indexOf(lab) >= 0) {
+          kpi[lab] = ((card.children[1] && card.children[1].innerText) || "").replace(/\\s+/g, " ").trim();
+        }
+      }
+    }
+    const text = sec.innerText || "";
+    const idm = /#([0-9a-f]{8})/.exec(text);
+    const sheets = [];
+    const re = /工作表「([^」]+)」[\\s\\S]*?准确率\\s*([0-9.]+)%\\s*·\\s*一致\\s*(\\d+)\\/(\\d+)\\s*·\\s*跳过公式格\\s*(\\d+)/g;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      sheets.push({
+        name: m[1],
+        acc: Number(m[2]),
+        matched: Number(m[3]),
+        compared: Number(m[4]),
+        skipped: Number(m[5]),
+      });
+    }
+    recs.push({ id: idm ? idm[1] : "", kpi: kpi, sheets: sheets });
+  }
+  const bt = document.body.innerText || "";
+  const um = /另有 (\\d+) 次比对没有留下结构化结果/.exec(bt);
+  const donut = [];
+  const du = document.querySelector("[data-compare-donut]");
+  if (du) {
+    for (let k = 0; k < du.children.length; k++) {
+      const t = (du.children[k].innerText || "").replace(/\\s+/g, " ").trim();
+      const dm = /^(\\S+) (\\d+) (\\d+)%$/.exec(t);
+      if (dm) donut.push({ label: dm[1], v: Number(dm[2]), pct: Number(dm[3]) });
+    }
+  }
+  return {
+    recs: recs,
+    unusableShown: um ? Number(um[1]) : 0,
+    heading: /没有可用的比对结果/.test(bt) ? "unusable" : /暂无比对记录/.test(bt) ? "none" : "",
+    ids: (bt.match(/#[0-9a-f]{8}/g) || []).map((s) => s.slice(1)),
+    donut: donut,
+  };
+})()`;
 
 interface Args {
   tasks?: string[];
@@ -205,13 +277,23 @@ async function main(): Promise<void> {
     .all() as unknown as Array<{ id: string; title: string; agentId: string; status: string; rlen: number }>;
 
   let targets = rows;
+  /**
+   * 范围内的全部任务（含没有结论的那几个）。逐页扫的仍是 targets，但**不依赖结论**的判据
+   *（比对页就是）要用 scoped：--all 时 targets 按 rlen>0 过滤，实测 4bb22d34 那 2 次比对留存
+   * 是空对象、正是「没有可用结果」这条路径唯一的真实样本，它没有结论，于是不在 targets 里，
+   * 全库跑压根走不到它——判据留着也等于空转。
+   */
+  let scoped = rows;
   if (args.tasks && args.tasks.length > 0) {
     const keys = args.tasks.map((t) => t.trim());
     targets = rows.filter((r) => keys.some((k) => r.id.startsWith(k) || r.title.includes(k)));
+    scoped = targets;
   } else if (!args.all) {
     targets = rows.filter((r) => r.rlen > 0).slice(0, 8);
+    scoped = targets;
   } else {
     targets = rows.filter((r) => r.rlen > 0);
+    scoped = rows;
   }
 
   // 界面上渲染出来的数字也要与库里的取数对一遍。门禁此前比的是台账 / 交付 MD / manifest /
@@ -232,6 +314,8 @@ async function main(): Promise<void> {
   const expLedgerCells = expLedgerRows.map((r) => ledgerCells(r, agentNameOf));
   /** 单任务证据核对表的期望值来源：看板 ledger 那一份（与台账逐行同源） */
   const ledgerOf = new Map(bev.ledger.map((r) => [r.taskId, r]));
+  /** 比对页的期望值：可用记录（含现算的一致率 / 覆盖率）与「没留下结构化结果」的记录 */
+  const cmpOf = new Map<string, { usable: StoredCompare[]; unusable: StoredCompare[] }>();
   const expectOf = new Map<
     string,
     { calls: number; docTraced: number; docTotal: number; amtTraced: number; amtTotal: number }
@@ -269,6 +353,13 @@ async function main(): Promise<void> {
       amtTraced: amt.traced,
       amtTotal: amt.total,
     });
+    // 比对页的期望值走 /api/tasks/:id/compares 用的那一份 listStoredCompares，顺序也是同一个
+    // listToolCalls（ORDER BY started_at ASC）：界面少渲染一条、或把比率换成读留存字段，这里都会红。
+    const cmp = listStoredCompares(listToolCalls(t.id));
+    cmpOf.set(t.id, {
+      usable: cmp.filter((c) => c.totals !== null && c.rates !== null),
+      unusable: cmp.filter((c) => c.totals === null),
+    });
   }
 
   const browser = await launchChromium();
@@ -289,6 +380,25 @@ async function main(): Promise<void> {
       });
     }
   }
+  // 补上「范围内有比对留存、但没有结论」的任务的比对页。只补真有留存的那几个，
+  // 否则失败任务的空页会被整批拖进来，扫得慢还容易撞上「内容过少」判据。
+  if (args.tabs.includes("compare")) {
+    const inTargets = new Set(targets.map((t) => t.id));
+    for (const r of scoped.filter((x) => !inTargets.has(x.id))) {
+      const cmp = listStoredCompares(listToolCalls(r.id));
+      if (cmp.length === 0) continue;
+      cmpOf.set(r.id, {
+        usable: cmp.filter((c) => c.totals !== null && c.rates !== null),
+        unusable: cmp.filter((c) => c.totals === null),
+      });
+      pages.push({
+        label: `${r.title.slice(0, 18)} · compare`,
+        url: `${WEB}/#/agent/${r.agentId}/task/${r.id}/tab/compare`,
+        tab: "compare",
+        taskId: r.id,
+      });
+    }
+  }
 
   const allHits: Hit[] = [];
   let scanned = 0;
@@ -305,6 +415,8 @@ async function main(): Promise<void> {
   /** 台账表格逐格核对：核到的单元格数与不一致数（为 0 说明表格压根没展开） */
   let ledgerCellChecks = 0;
   let ledgerCellBad = 0;
+  /** 比对页数字核对：核到的数字个数（为 0 说明这一屏压根没核到，覆盖是空的） */
+  let cmpChecks = 0;
   /**
    * 枚举时**见过**的入口（点没点到另说）。「必需入口」的判据是「范围内出现过就必须点到」，
    * 不是「任何时候都必须点到」：窄范围跑（--tasks 指定几个任务、--no-overview）时，
@@ -509,6 +621,162 @@ async function main(): Promise<void> {
               numFails.push(`${p.label} 核对表「联网检索留痕」没写出只留查询元数据 ${lrow.searchMetadataOnly} 次`);
             }
           }
+        }
+      }
+    }
+    // 比对页：这一屏的数字此前一个都没被核对过（scan 只是路过它扫 Markdown 残留）。期望值来自
+    // /api/tasks/:id/compares 用的那一份 listStoredCompares——计数取自留存，一致率 / 覆盖率由
+    // compareRates 现算（与工具返回文本、看板、作品说明同一个函数），不读留存里的百分比字段。
+    if (p.tab === "compare" && p.taskId !== "") {
+      const want = cmpOf.get(p.taskId);
+      const wantCount = want ? want.usable.length + want.unusable.length : 0;
+      let ui = (await page.evaluate(CMP_READ)) as CmpUi;
+      if (want && wantCount > 0) {
+        // 等界面把比对记录取回来再取数：以渲染出的记录条数对齐为准，固定等一小段在大任务上会量到半成品
+        const deadline = Date.now() + 20000;
+        while (Date.now() < deadline && ui.recs.length + ui.unusableShown < wantCount) {
+          await page.waitForTimeout(400);
+          ui = (await page.evaluate(CMP_READ)) as CmpUi;
+        }
+        cmpChecks += 1;
+        if (ui.recs.length !== want.usable.length) {
+          numFails.push(
+            `${p.label} 比对页渲染了 ${ui.recs.length} 条记录，库里可用的是 ${want.usable.length} 条（少的那条此前是 !totals 就 return null 静默丢的）`,
+          );
+        }
+        const byId = new Map(ui.recs.map((r) => [r.id, r]));
+        for (const r of want.usable) {
+          const short = r.id.slice(0, 8);
+          const got = byId.get(short);
+          cmpChecks += 1;
+          if (!got) {
+            numFails.push(`${p.label} 库里比对记录 #${short} 在界面上找不到（渲染时被静默丢掉）`);
+            continue;
+          }
+          const t = r.totals!;
+          const rt = r.rates!;
+          const exp: Record<string, string> = {
+            一致率: rt.matchRateText,
+            覆盖率: rt.coverageText,
+            比对项: String(t.compared),
+            一致: String(t.matched),
+            差异: String(t.mismatched),
+            仅系统: String(t.onlyA),
+            仅人工: String(t.onlyB),
+          };
+          // 总准确率那张卡后面可能跟着「较上次比对变化」的 ▲/▼，所以只钉开头那一段
+          cmpChecks += 1;
+          const acc = String(got.kpi["总准确率"] ?? "");
+          if (!acc.startsWith(`${t.accuracyPercent}%`)) {
+            numFails.push(`${p.label} #${short}「总准确率」界面「${acc || "(缺)"}」不含取数「${t.accuracyPercent}%」`);
+          }
+          for (const [lab, wantText] of Object.entries(exp)) {
+            cmpChecks += 1;
+            const gotText = String(got.kpi[lab] ?? "");
+            if (gotText !== wantText) {
+              numFails.push(`${p.label} #${short}「${lab}」界面「${gotText || "(缺)"}」≠ 取数「${wantText}」`);
+            }
+          }
+          const expSheets = (r.result?.sheets ?? []) as unknown as Array<{
+            sheetA: string;
+            accuracyPercent: number;
+            matched: number;
+            compared: number;
+            skippedFormulas: number;
+          }>;
+          cmpChecks += 1;
+          if (got.sheets.length !== expSheets.length) {
+            numFails.push(
+              `${p.label} #${short} 界面上渲染了 ${got.sheets.length} 个工作表，留存里是 ${expSheets.length} 个`,
+            );
+          }
+          expSheets.forEach((s, i) => {
+            const g = got.sheets[i];
+            cmpChecks += 1;
+            if (!g) {
+              numFails.push(`${p.label} #${short} 界面上少了工作表「${s.sheetA}」`);
+              return;
+            }
+            for (const [lab, wantV, gotV] of [
+              ["表名", s.sheetA, g.name],
+              ["准确率", `${s.accuracyPercent}%`, `${g.acc}%`],
+              ["一致/比对", `${s.matched}/${s.compared}`, `${g.matched}/${g.compared}`],
+              ["跳过公式格", String(s.skippedFormulas), String(g.skipped)],
+            ] as Array<[string, string, string]>) {
+              cmpChecks += 1;
+              if (wantV !== gotV) {
+                numFails.push(`${p.label} #${short} 工作表「${s.sheetA}」${lab} 界面「${gotV}」≠ 留存「${wantV}」`);
+              }
+            }
+          });
+        }
+        // 汇总环图：四个计数必须等于各条记录之和，百分比必须等于该计数占四项合计的比例
+        const sum = { 一致: 0, 差异: 0, 仅系统: 0, 仅人工: 0 };
+        for (const r of want.usable) {
+          const t = r.totals!;
+          sum.一致 += t.matched;
+          sum.差异 += t.mismatched;
+          sum.仅系统 += t.onlyA;
+          sum.仅人工 += t.onlyB;
+        }
+        const sumAll = sum.一致 + sum.差异 + sum.仅系统 + sum.仅人工;
+        const gotDonut = new Map(ui.donut.map((d) => [d.label, d]));
+        for (const [lab, wantV] of Object.entries(sum)) {
+          cmpChecks += 1;
+          if (sumAll === 0) {
+            if (ui.donut.length !== 0) {
+              numFails.push(`${p.label} 四项计数合计为 0，汇总环图不该出现（界面画了 ${ui.donut.length} 项）`);
+            }
+            continue;
+          }
+          const g = gotDonut.get(lab);
+          if (!g) {
+            numFails.push(`${p.label} 汇总环图里没有「${lab}」这一项`);
+            continue;
+          }
+          if (g.v !== wantV) {
+            numFails.push(`${p.label} 汇总环图「${lab}」${g.v} ≠ 各条记录之和 ${wantV}`);
+          }
+          cmpChecks += 1;
+          const wantPct = Math.round((wantV / sumAll) * 100);
+          if (g.pct !== wantPct) {
+            numFails.push(`${p.label} 汇总环图「${lab}」百分比 ${g.pct}% ≠ ${wantPct}%`);
+          }
+        }
+        // 没留下结构化结果的那几次：必须如实列出条数与记录号，不能静默不渲染
+        cmpChecks += 1;
+        if (ui.unusableShown !== want.unusable.length) {
+          numFails.push(
+            `${p.label} 库里 ${want.unusable.length} 次比对没有留下结构化结果，界面写的是「另有 ${ui.unusableShown} 次」`,
+          );
+        }
+        for (const u of want.unusable) {
+          const short = u.id.slice(0, 8);
+          cmpChecks += 1;
+          if (!ui.ids.includes(short)) {
+            numFails.push(`${p.label} 没有结构化结果的比对 #${short} 没在界面上列出来（静默丢掉）`);
+          }
+        }
+        if (want.usable.length === 0 && want.unusable.length > 0) {
+          cmpChecks += 1;
+          if (ui.heading !== "unusable") {
+            numFails.push(
+              `${p.label} 有 ${want.unusable.length} 次比对没留下结果、一条可用的都没有，界面却写「${
+                ui.heading === "none" ? "暂无比对记录" : ui.heading || "(没有任何提示)"
+              }」`,
+            );
+          }
+        }
+      } else if (want) {
+        // 库里一条比对留存都没有：这一屏必须是明确的空态，不能是白板
+        cmpChecks += 2;
+        if (ui.recs.length !== 0 || ui.unusableShown !== 0) {
+          numFails.push(
+            `${p.label} 库里没有比对留存，界面却渲染了 ${ui.recs.length} 条记录 /「另有 ${ui.unusableShown} 次」`,
+          );
+        }
+        if (ui.heading !== "none") {
+          numFails.push(`${p.label} 库里没有比对留存，界面没给「暂无比对记录」空态（读到「${ui.heading || "无"}」）`);
         }
       }
     }
@@ -802,8 +1070,17 @@ async function main(): Promise<void> {
   if (args.overview && ledgerCellChecks === 0) {
     numFails.push("一个台账单元格都没核到（表格没展开？），逐格核对这项覆盖是空的");
   }
+  // 比对页同理：范围内有比对留存却一个数字都没核到，说明这一屏的覆盖是空的（比如页面压根没挂载）
+  // 数 cmpOf 而不是 targets：补进来的「有比对留存但没有结论」的任务不在 targets 里，
+  // 按 targets 数会少报一个（实测 4 对 5），报出来的覆盖面比真实的小。
+  let cmpTargets = 0;
+  for (const c of cmpOf.values()) if (c.usable.length + c.unusable.length > 0) cmpTargets += 1;
+  const compareMissing = args.tabs.includes("compare") && cmpTargets > 0 && cmpChecks === 0;
+  if (args.tabs.includes("compare") && cmpTargets > 0) {
+    console.log(`[scan] 比对页数字核对：${cmpChecks} 项（范围内 ${cmpTargets} 个任务有比对留存）`);
+  }
   console.log(
-    `[scan] 界面数字与库取数核对：${numChecks} 项 + 台账单元格 ${ledgerCellChecks} 个（不一致 ${ledgerCellBad} 个）· 合计不一致 ${numFails.length} 处`,
+    `[scan] 界面数字与库取数核对：${numChecks} 项 + 台账单元格 ${ledgerCellChecks} 个 + 比对页 ${cmpChecks} 项（不一致 ${ledgerCellBad} 个）· 合计不一致 ${numFails.length} 处`,
   );
   for (const f of numFails.slice(0, 10)) console.log(`  - ${f}`);
   if (numFails.length > 10) console.log(`  …另有 ${numFails.length - 10} 处`);
@@ -816,7 +1093,8 @@ async function main(): Promise<void> {
       requiredMissing.length > 0 ||
       iconOnlyMissing ||
       numFails.length > 0 ||
-      numbersMissing)
+      numbersMissing ||
+      compareMissing)
   ) {
     console.log(
       allHits.length > 0
@@ -829,7 +1107,9 @@ async function main(): Promise<void> {
               ? "[FAIL] 一个图标按钮都没点到，浮层覆盖是空的"
               : numbersMissing
                 ? "[FAIL] 一个结果页都没核对到界面数字，这项覆盖是空的"
-                : "[FAIL] 界面上的数字与库里的取数对不上",
+                : compareMissing
+                  ? "[FAIL] 一个比对页都没核对到界面数字，这项覆盖是空的"
+                  : "[FAIL] 界面上的数字与库里的取数对不上",
     );
     process.exit(1);
   }

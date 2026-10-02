@@ -188,6 +188,25 @@ export interface CompareRecord {
   id: string;
   at: string | null;
   result: CompareResult;
+  rates: CompareRates;
+}
+
+/**
+ * 由原始计数现算的两个比率（document-tools 的 compareRates）与它们的文案，随比对留存一起由服务端下发。
+ * 界面不自己算：这两个比率的口径在工具返回文本、看板、作品说明、测试报告里各有消费点，
+ * 组件里再写一份迟早走偏；文案也统一用 rateText，算不出来时是「无可比对项」而不是 0% 或「—」。
+ */
+export interface CompareRates {
+  matchRatePercent: number | null;
+  coveragePercent: number | null;
+  matchRateText: string;
+  coverageText: string;
+}
+
+/** 工具调用记为成功、却没有留下结构化结果的比对：界面必须如实列出，不能静默不渲染 */
+export interface UnusableCompare {
+  id: string;
+  at: string | null;
 }
 
 export interface CompareRef {

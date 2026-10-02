@@ -17,6 +17,7 @@ import {
   selectReopenTargets,
 } from "../services/issues.ts";
 import { listAmountChecks, setAmountCheck } from "../services/amount-checks.ts";
+import { listStoredCompares } from "../services/compare-stats.ts";
 import { collectBundleEntries, createBundleZip } from "../services/bundle-zip.ts";
 // 单次核验条数上限与前端共用一个定义：前端按它分块，这里用它兜底
 import { LINK_CHECK_BATCH } from "../../../web/src/link-check.ts";
@@ -565,17 +566,19 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  /** 底稿比对记录：从工具调用历史中提取 compare_workpapers 的结构化结果，供前端比对视图使用。 */
+  /**
+   * 底稿比对记录：从工具调用历史中提取 compare_workpapers 的留存结果，供前端比对视图使用。
+   *
+   * 取数与比率都在 listStoredCompares 里（与 scan:uimd 的比对页数字核对同一份实现）。没有 totals 的
+   * 留存单独走 `unusable`：此前它们混在 compares 里，前端 `if (!totals) return null` 直接不渲染，
+   * 于是标签上写着「2 条比对」、正文一片空白，用户看不到任何解释（实测 13 条留存里有 2 条是空对象）。
+   */
   app.get("/api/tasks/:id/compares", async (req) => {
     const { id } = req.params as { id: string };
-    const rows = listToolCalls(id).filter(
-      (r) => String(r.tool_name) === "compare_workpapers" && r.ok === 1 && r.result,
-    );
-    const compares = rows.map((r) => ({
-      id: String(r.id),
-      at: r.ended_at ? String(r.ended_at) : null,
-      result: JSON.parse(String(r.result)) as unknown,
-    }));
-    return { compares };
+    const all = listStoredCompares(listToolCalls(id));
+    return {
+      compares: all.filter((c) => c.totals !== null),
+      unusable: all.filter((c) => c.totals === null).map((c) => ({ id: c.id, at: c.at })),
+    };
   });
 }

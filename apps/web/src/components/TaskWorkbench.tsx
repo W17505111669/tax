@@ -9,6 +9,7 @@ import type {
   AgentInfo,
   ArtifactInfo,
   CompareRecord,
+  UnusableCompare,
   FileInfo,
   LinkCheck,
   RefCheckRecord,
@@ -217,6 +218,8 @@ function firstProseLine(text: string): string {
 export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, secInto }: Props) {
   const { timeline, toolCalls, status, connected, reconnect } = useTaskEvents(task.id);
   const [compares, setCompares] = useState<CompareRecord[]>([]);
+  // 记为成功却没留下结构化结果的比对：计入标签上的次数，正文由 CompareView 如实列出
+  const [unusableCompares, setUnusableCompares] = useState<UnusableCompare[]>([]);
   const [issues, setIssues] = useState<TaskIssue[]>([]);
   const [reviews, setReviews] = useState<ReviewRecord[]>([]);
   // 「转为待复核」后的本地乐观标记，服务端状态由 App 轮询同步
@@ -410,8 +413,10 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     const load = () => {
       void api
         .listCompares(task.id)
-        .then((list) => {
-          if (!cancelled) setCompares(list);
+        .then((r) => {
+          if (cancelled) return;
+          setCompares(r.compares);
+          setUnusableCompares(r.unusable ?? []);
         })
         .catch(() => undefined);
     };
@@ -2100,9 +2105,16 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                     {allCitations.length}
                   </span>
                 )}
-                {key === "compare" && compares.length > 0 && (
-                  <span className="ml-1.5 rounded bg-glow-500/15 px-1 py-0.5 text-[10px] text-glow-300">
-                    {compares.length}
+                {key === "compare" && compares.length + unusableCompares.length > 0 && (
+                  <span
+                    className="ml-1.5 rounded bg-glow-500/15 px-1 py-0.5 text-[10px] text-glow-300"
+                    title={`比对 ${compares.length + unusableCompares.length} 次${
+                      unusableCompares.length > 0
+                        ? `（其中 ${unusableCompares.length} 次没有留下结构化结果，见比对页说明）`
+                        : ""
+                    }`}
+                  >
+                    {compares.length + unusableCompares.length}
                   </span>
                 )}
                 {key === "review" && pendingReviews > 0 && (
@@ -2640,7 +2652,12 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
               </>
             )}
             {tab === "compare" && (
-              <CompareView compares={compares} onOpenTarget={openCompareTarget} onOpenPair={openComparePair} />
+              <CompareView
+                compares={compares}
+                unusable={unusableCompares}
+                onOpenTarget={openCompareTarget}
+                onOpenPair={openComparePair}
+              />
             )}
             {tab === "review" && (
               <ReviewView
