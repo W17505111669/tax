@@ -15,6 +15,7 @@ import {
   aggregatePeerCompares,
   buildDerivedFrom,
   isTemplateCompare,
+  listStoredCompares,
   summarizeTaskCompares,
 } from "../src/services/compare-stats.ts";
 import { docRefSnapshotText, evidenceSnapshotText } from "./materials-lib.ts";
@@ -239,6 +240,87 @@ if (perTask.size < runs) {
 expect(
   "有比对记录时两种口径都必须有值",
   runs === 0 || (s.compareAccuracy !== null && s.compareAccuracyOverall !== null),
+  true,
+);
+
+// 1b) listStoredCompares：/api/tasks/:id/compares 与 scan:uimd 的比对页数字核对共用这一份取数。
+// 真实库里只有「有 totals」与「空对象」两档样本，坏 JSON / 数组留存 / ok=0 / 空 result 这几档库里
+// 压根没有，只能靠合成输入钉住——它们决定了界面是「如实说没有」还是整页崩掉。
+const cmpRow = (over: Record<string, unknown>): Record<string, unknown> => ({
+  id: "c0",
+  tool_name: "compare_workpapers",
+  ok: 1,
+  result: "{}",
+  ended_at: "2026-09-29T03:00:00.000Z",
+  ...over,
+});
+const tot = (o: Record<string, number>): string => JSON.stringify({ totals: o });
+const storedSynthetic = listStoredCompares([
+  cmpRow({ id: "a", result: tot({ compared: 5, matched: 2, mismatched: 1, onlyA: 2, onlyB: 0, accuracyPercent: 40 }) }),
+  // 旧记录：留存里没有 matchRatePercent / coveragePercent，比率必须由计数现算（真实 11 条里 10 条是这一档）
+  cmpRow({ id: "b", result: tot({ compared: 4, matched: 4, mismatched: 0, onlyA: 0, onlyB: 0, accuracyPercent: 100 }) }),
+  cmpRow({ id: "c", result: "{}" }),
+  cmpRow({ id: "d", result: "{ 坏 JSON" }),
+  cmpRow({ id: "e", result: "[1,2]" }),
+  cmpRow({ id: "f", ok: 0, result: tot({ compared: 9, matched: 9, mismatched: 0, onlyA: 0, onlyB: 0 }) }),
+  cmpRow({ id: "g", result: "" }),
+  { ...cmpRow({ id: "h" }), tool_name: "generate_workpaper" },
+]);
+expect("只收 compare_workpapers、ok=1、留存非空的调用", storedSynthetic.map((r) => r.id), ["a", "b", "c", "d", "e"]);
+expect("有 totals 的照实归一化计数", storedSynthetic[0]?.totals?.compared, 5);
+expect("一致率 = 一致/(一致+差异)，由计数现算", storedSynthetic[0]?.rates?.matchRatePercent, 66.67);
+expect("覆盖率 = 一致/(一致+仅系统)，由计数现算", storedSynthetic[0]?.rates?.coveragePercent, 50);
+expect("留存里没有比率字段也照样算得出来", storedSynthetic[1]?.rates?.matchRateText, "100%");
+expect(
+  "分母为 0 时文案是「无可比对项」，不是 0% 也不是「—」",
+  listStoredCompares([
+    cmpRow({ id: "z", result: tot({ compared: 0, matched: 0, mismatched: 0, onlyA: 0, onlyB: 0, accuracyPercent: 100 }) }),
+  ])[0]?.rates?.matchRateText,
+  "无可比对项",
+);
+for (const id of ["c", "d", "e"]) {
+  const rec = storedSynthetic.find((r) => r.id === id);
+  // 哨兵只在「这条记录压根没被收进来」时出现：用 ?? 兜底会把正要断言的 null 一起吃掉
+  expect(`留存不可用时 totals 为 null（#${id}）`, rec === undefined ? "missing" : rec.totals, null);
+  expect(`留存不可用时比率也为 null（#${id}）`, rec === undefined ? "missing" : rec.rates, null);
+}
+expect("坏 JSON 不抛异常，result 归 null", storedSynthetic.find((r) => r.id === "d")?.result, null);
+expect("空对象留存照原样留着，事后能查出是哪一次", storedSynthetic.find((r) => r.id === "c")?.result, {});
+
+// 走查真实库数据，并用一份**独立**的重数（直接 SQL + 逐条 JSON.parse）交叉验证分档。
+// 走查型断言必须同时断「确实检查到了东西」：库里一条比对留存都没有时，上面那几条合成断言照样全绿。
+const realRows = db
+  .prepare(
+    `SELECT result FROM tool_calls WHERE tool_name = 'compare_workpapers' AND ok = 1 AND COALESCE(result,'') <> ''`,
+  )
+  .all() as unknown as Array<{ result: string }>;
+let realUsable = 0;
+let realUnusable = 0;
+for (const r of realRows) {
+  let usable = false;
+  try {
+    const j = JSON.parse(r.result) as { totals?: unknown };
+    usable = Boolean(j) && typeof j === "object" && !Array.isArray(j) && typeof j?.totals === "object" && j.totals !== null;
+  } catch {
+    usable = false;
+  }
+  if (usable) realUsable += 1;
+  else realUnusable += 1;
+}
+const storedReal = listStoredCompares(
+  db
+    .prepare(`SELECT id, tool_name, ok, result, ended_at FROM tool_calls ORDER BY started_at ASC`)
+    .all() as unknown as Array<Record<string, unknown>>,
+);
+expect("真实库里确有可用留存（为 0 说明这一节在空跑）", realUsable > 0, true);
+expect(
+  "真实留存的分档与独立重数一致",
+  [storedReal.filter((r) => r.totals !== null).length, storedReal.filter((r) => r.totals === null).length],
+  [realUsable, realUnusable],
+);
+expect(
+  "真实留存里凡有 totals 的都算出了两个比率",
+  storedReal.every((r) => r.totals === null || r.rates !== null),
   true,
 );
 
