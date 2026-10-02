@@ -3,7 +3,12 @@
  * 重点是「同名工具跨多次运行」时按次运行导出不会挂错入参/返回值。
  * 运行：pnpm verify:tlcalls
  */
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { matchToolCalls } from "../../web/src/timeline-calls.ts";
+import { applyEvent, createEventsAcc, FLUSH_MS } from "../../web/src/task-events.ts";
+import type { AgentEvent } from "../../web/src/types.ts";
 
 const failures: string[] = [];
 let checks = 0;
@@ -72,6 +77,123 @@ expect(
 );
 expect("空输入", matchToolCalls([], calls), []);
 expect("空调用记录", matchToolCalls(items, []), [-1, -1, -1, -1, -1, -1, -1]);
+
+// ---- 事件聚合（task-events.ts）----
+// 这段口径此前写在 useTaskEvents 的 SSE 回调里，每来一条事件就 setState 一次并复制整个数组。
+// 搬出来之后才测得到：配对、流式合并、状态推进，以及「就地聚合」这个批量刷新的前提。
+const AT = "2026-10-02T00:00:00.000Z";
+const ev = (seq: number, kind: AgentEvent["kind"], extra: Partial<AgentEvent> = {}): AgentEvent => ({
+  seq,
+  taskId: "t1",
+  kind,
+  message: "",
+  at: AT,
+  ...extra,
+});
+
+const acc = createEventsAcc();
+expect("初始状态是 created、三个容器都是空的", [acc.status, acc.timeline.length, acc.toolCalls.length, acc.stream], [
+  "created",
+  0,
+  0,
+  "",
+]);
+applyEvent(acc, ev(1, "run_started"));
+applyEvent(acc, ev(2, "tool_start", { payload: { toolName: "web_search", callId: "c1", args: { q: "土增" } } }));
+expect("run_started 推进状态", acc.status, "processing");
+expect("tool_start 建一条调用记录，结果先空着", [acc.toolCalls.length, acc.toolCalls[0]!.result, acc.toolCalls[0]!.ok], [
+  1,
+  null,
+  null,
+]);
+applyEvent(acc, ev(3, "tool_end", { payload: { toolName: "web_search", callId: "c1", ok: true, result: { a: 1 } } }));
+expect("tool_end 按 callId 落位，结果与结束时间都写上", [acc.toolCalls[0]!.result, acc.toolCalls[0]!.ok, acc.toolCalls[0]!.endedAt], [
+  { a: 1 },
+  true,
+  AT,
+]);
+expect("不新增第二条调用记录", acc.toolCalls.length, 1);
+expect("时间线每条事件一行（run_started / tool_start / tool_end）", acc.timeline.map((t) => t.id), [
+  "1-run_started",
+  "2-tool_start",
+  "3-tool_end",
+]);
+expect("tool_end 的时间线行不带 detail（详情在调用记录里）", acc.timeline[2]!.detail, undefined);
+
+// 同名工具并发：按 callId 各归各的，这是「按工具名配对」那个老 bug 的回归
+const par = createEventsAcc();
+applyEvent(par, ev(1, "tool_start", { payload: { toolName: "web_search", callId: "a" } }));
+applyEvent(par, ev(2, "tool_start", { payload: { toolName: "web_search", callId: "b" } }));
+applyEvent(par, ev(3, "tool_end", { payload: { toolName: "web_search", callId: "b", ok: false, result: { e: 1 } } }));
+applyEvent(par, ev(4, "tool_end", { payload: { toolName: "web_search", callId: "a", ok: true, result: { e: 2 } } }));
+expect("同名并发按 callId 各归各的", par.toolCalls.map((c) => [c.id, c.ok, c.result]), [
+  ["a", true, { e: 2 }],
+  ["b", false, { e: 1 }],
+]);
+
+// 历史事件没有 callId：退回「同名且未结束」的最近一条
+const legacy = createEventsAcc();
+applyEvent(legacy, ev(1, "tool_start", { payload: { toolName: "fetch_content" } }));
+applyEvent(legacy, ev(2, "tool_end", { payload: { toolName: "fetch_content", ok: true, result: { u: "x" } } }));
+expect("无 callId 时 id 用 seq 兜底", legacy.toolCalls[0]!.id, "fetch_content#1");
+expect("无 callId 退回同名未结束的那条", [legacy.toolCalls[0]!.result, legacy.toolCalls[0]!.ok], [{ u: "x" }, true]);
+const orphan = createEventsAcc();
+applyEvent(orphan, ev(1, "tool_end", { payload: { toolName: "web_search", callId: "nope", ok: true } }));
+expect("配不上的 tool_end 不凭空造调用记录", orphan.toolCalls.length, 0);
+expect("配不上的 tool_end 仍进时间线（事件本身是真的）", orphan.timeline.length, 1);
+
+// 流式正文：delta 只在第一条时建时间线行，之后就地追加
+const st = createEventsAcc();
+applyEvent(st, ev(1, "agent_text_delta", { message: "一、" }));
+applyEvent(st, ev(2, "agent_text_delta", { message: "结论" }));
+applyEvent(st, ev(3, "agent_text"));
+expect("delta 累计进 stream", st.stream, "一、结论");
+expect("两条 delta 只产生一条时间线行", st.timeline.length, 1);
+expect("时间线行的 detail 与 stream 同源", st.timeline[0]!.detail, "一、结论");
+expect("agent_text 之后不再是流式态", [st.timeline[0]!.streaming, st.streamId], [false, null]);
+applyEvent(st, ev(4, "agent_text_delta", { message: "补" }));
+expect("agent_text 之后再来 delta 会另起一条", st.timeline.length, 2);
+applyEvent(st, ev(5, "run_completed"));
+expect("run_completed 推进状态", st.status, "completed");
+applyEvent(st, ev(6, "run_failed"));
+expect("run_failed 推进状态", st.status, "failed");
+
+// 就地聚合是批量刷新的前提：一旦每条事件都换新数组，hook 那边的批处理就白做了
+const inplace = createEventsAcc();
+const timelineRef = inplace.timeline;
+const callsRef = inplace.toolCalls;
+for (let i = 0; i < 5; i++) applyEvent(inplace, ev(i, "tool_start", { payload: { toolName: "t", callId: `c${i}` } }));
+expect("聚合就地改数组，不换数组身份", [inplace.timeline === timelineRef, inplace.toolCalls === callsRef], [true, true]);
+
+// 量一个此前没量过的数：超大任务的事件回放（实测最大 13829 条）在聚合层要多久
+const big = createEventsAcc();
+const BIG_N = 14000;
+let deltas = 0;
+const t0 = Date.now();
+for (let i = 0; i < BIG_N; i++) {
+  if (i % 3 === 0) deltas += 1;
+  applyEvent(
+    big,
+    i % 3 === 0
+      ? ev(i, "agent_text_delta", { message: "字" })
+      : ev(i, i % 3 === 1 ? "tool_start" : "tool_end", { payload: { toolName: "t", callId: `c${i}` } }),
+  );
+}
+const bigMs = Date.now() - t0;
+// 期望值由计数器给出：非 delta 事件各占一行，上万条 delta 合并成流式那一行
+expect("每条非 delta 事件各占一行、上万条 delta 合并成一行", big.timeline.length, BIG_N - deltas + 1);
+expect("确实聚合了上万条事件（不是空跑）", big.timeline.length > 9000, true);
+expect("聚合层不是瓶颈（1 万条以上也要在 5 秒内跑完）", bigMs < 5000, true);
+console.log(`[verify] 事件聚合：${BIG_N} 条事件耗时 ${bigMs} ms（界面此前每条事件一次 setState + 一次全量数组复制）`);
+
+// hook 那侧必须真的批处理，否则聚合层再快也白搭
+const here = path.dirname(fileURLToPath(import.meta.url));
+const hookSrc = fs.readFileSync(path.resolve(here, "..", "..", "web", "src", "hooks", "useTaskEvents.ts"), "utf8");
+expect("hook 里不再每条事件复制一次时间线数组", hookSrc.includes("setTimeline((prev)"), false);
+expect("hook 里不再每条事件复制一次调用数组", hookSrc.includes("setToolCalls((prev)"), false);
+expect("hook 按固定间隔批量刷新", hookSrc.includes("setTimeout(flush, FLUSH_MS)"), true);
+expect("刷新间隔取自 task-events.ts（两边不各写一个数）", [hookSrc.includes("FLUSH_MS"), FLUSH_MS > 0], [true, true]);
+expect("聚合口径不在 hook 里重复实现", hookSrc.includes("STATUS_LABEL"), false);
 
 console.log(`[verify] 时间线配对检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {

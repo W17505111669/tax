@@ -203,7 +203,8 @@ expect("目录 / 标签 / 步骤 / 核对表行 / 待办分组的 key 都带下�
 ok("引用胶囊按 URL 去重后再渲染（key={c.url} 才成立）", wb.includes("mergeCitations("));
 ok(
   "时间线条目 id 由 seq 与 kind 组成，天然唯一",
-  fs.readFileSync(path.join(webSrc, "hooks", "useTaskEvents.ts"), "utf8").includes("id: `${event.seq}-${event.kind}`"),
+  // 聚合口径搬到了 task-events.ts（hook 里只剩订阅与批量刷新），断言跟着搬到同一处，别指向空文件
+  fs.readFileSync(path.join(webSrc, "task-events.ts"), "utf8").includes("id: `${event.seq}-${event.kind}`"),
 );
 
 console.log(
