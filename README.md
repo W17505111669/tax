@@ -53,6 +53,11 @@ pnpm case:run <id>   # 案例回归：上传→执行→与人工参考底稿比
 pnpm verify:agents   # Phase 1：两个 Agent 的系统提示词与工具集相互独立
 pnpm -r typecheck    # 全仓类型检查
 pnpm qa:all          # 全量质量门：57 项 verify + 测试报告 + 比赛材料 + 证据包
+
+# 下面两个是「真开浏览器」的实测门禁，需要先 pnpm dev（API 8787 + 前端 5174）起着。
+# 它们刻意不进 qa:all：要开浏览器、要前端在跑，失败原因常常与代码无关；加 --strict 则任何不符即退出码 1。
+pnpm scan:uimd       # 界面实测：全站扫 Markdown 原文残留，点开折叠面板/浮层，并把界面上渲染的数字与门禁取数逐项核对（含台账表格逐格）
+pnpm scan:deliverables # 交付物实测：真下载交付包 zip / 台账 CSV / 台账 MD / 核对表 MD / mermaid PNG 与 SVG，逐字节校验（BOM、CRLF、不串列、manifest 自校验、图片尺寸）
 ```
 
 验证记录见 [docs/testing/phase0-verification.md](docs/testing/phase0-verification.md)。

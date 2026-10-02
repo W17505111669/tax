@@ -177,6 +177,21 @@ const ev = stats.evidence;
 const readme = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
 checks += 1;
 if (readme.length < 3000) failures.push(`README.md 只有 ${readme.length} 字，像是被截断了`);
+// 两个「真开浏览器」的实测门禁刻意不进 qa:all（要前端在跑、失败原因常与代码无关），所以它们
+// 唯一的曝光位置就是 README 的命令清单——此前清单里一个都没提，读的人不知道它们存在，等于这两道
+// 门禁没人跑：界面 Markdown 残留、界面数字与取数是否一致、交付物字节是否合规，全都无人复核。
+expect("README 写了界面实测怎么跑", readme.includes("pnpm scan:uimd"), true);
+expect("README 写了交付物实测怎么跑", readme.includes("pnpm scan:deliverables"), true);
+expect(
+  "README 说清这两个 scan 不进 qa:all（否则会被当成全量门的一部分，以为跑过 qa:all 就跑过了）",
+  (readme.match(/不进 qa:all/g) ?? []).length >= 1 && readme.includes("需要先 pnpm dev"),
+  true,
+);
+expect(
+  "README 写明 --strict 的退出码语义（供门禁化使用）",
+  readme.includes("--strict") && readme.includes("退出码 1"),
+  true,
+);
 
 // 证据包目录：qa:all 末尾的 pack:evidence 会按当天日期多留一轮，所以「第几轮 / 最后一轮是哪天」
 // 是**每跑一次门禁就会变的数**。这种数字不该写进 README——写进去就注定过期，而且过期是门禁自己
