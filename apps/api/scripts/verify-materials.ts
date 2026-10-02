@@ -21,6 +21,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { computePlatformStats } from "../src/services/stats.ts";
+import { getTask, listTasks } from "../src/services/task-store.ts";
+import { LEDGER_COLUMNS } from "../../web/src/evidence-ledger.ts";
 
 const failures: string[] = [];
 let checks = 0;
@@ -111,6 +113,114 @@ for (const file of DOCS) {
 expect("确实读到了全部对外交付文档", docsRead, DOCS.length);
 expect("确实核对到了当前状态数字（不是文档里一个都没写）", stateChecked >= 6, true);
 expect("确实核对到了历史数字的限定词", historyChecked >= 1, true);
+
+// ---- README：唯一一份手写、不由生成脚本取数的对外文档 ----
+// 作品说明由 gen:materials 生成，数字随库变；README 是人写的，写死的数字不会自己更新。
+// 实测过期了 6 处：qa:all 写「42 项 verify」而实际 57 项；「24 个任务」而实际 40 个；
+// 「rd-audit 18 个 / land-vat 6 个」而实际 29 / 11；「弱证据 23 条待人工处置」而按现行判据
+// 待处置是 0 条（15 条已声明背景参考 + 8 条未进结论正文）；「覆盖率 36.84%」而实际 100%
+//（那 36.84% 是模板类比对被误记成覆盖缺口时的旧值）；「台账第 16 列「其中复查取得」的高亮」
+// 而实际高亮的是第 7 列「待复查」与第 12 列「证据力弱」，「其中复查取得」在第 5 列。
+// 判据与作品说明同一套：当前状态数字必须与取数一致，历史数字附近必须有限定词。
+const stats = computePlatformStats();
+const tasks = listTasks();
+const agentTasks = (id: string): [number, number] => {
+  const list = tasks.filter((t) => t.agentId === id);
+  return [list.length, list.filter((t) => String(getTask(t.id)?.result ?? "").trim() !== "").length];
+};
+const [rdTotal, rdDone] = agentTasks("rd-audit");
+const [lvTotal, lvDone] = agentTasks("land-vat");
+const rootPkg = JSON.parse(fs.readFileSync(path.resolve(ROOT, "package.json"), "utf8")) as {
+  scripts: Record<string, string>;
+};
+const qaAll = rootPkg.scripts["qa:all"] ?? "";
+const qaVerifies = [...new Set(qaAll.match(/pnpm verify:[\w:-]+/g) ?? [])];
+const definedVerifies = Object.keys(rootPkg.scripts).filter((k) => k.startsWith("verify:"));
+// qa:all 里调到的 verify 与 package.json 里定义的 verify 必须一一对应：
+// 少调一个就是新门禁没进全量门（绿得没人知道），多调一个就是脚本名写错（qa:all 当场炸）
+expect("qa:all 调用的 verify 数与 package.json 里定义的一致", qaVerifies.length, definedVerifies.length);
+for (const k of definedVerifies) {
+  checks += 1;
+  if (!qaAll.includes(`pnpm ${k}`)) failures.push(`${k} 在 package.json 里定义了，但 qa:all 没调用它`);
+}
+
+const ev = stats.evidence;
+const readme = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
+checks += 1;
+if (readme.length < 3000) failures.push(`README.md 只有 ${readme.length} 字，像是被截断了`);
+
+// 证据包目录：qa:all 末尾的 pack:evidence 会按当天日期多留一轮，所以「第几轮 / 最后一轮是哪天」
+// 是**每跑一次门禁就会变的数**。这种数字不该写进 README——写进去就注定过期，而且过期是门禁自己
+// 造成的（实测：本轮把 README 改成「四轮…至 10-01」并跑 qa:all，跑完当场变成五轮…至 10-02，
+// 自己把自己的断言搞红了）。判据因此反过来断：README 必须用通配写法，且不得写死轮次或具体日期。
+const evidenceDirs = fs
+  .readdirSync(path.join(ROOT, "data"), { withFileTypes: true })
+  .filter((d) => d.isDirectory() && /^evidence-\d{4}-\d{2}-\d{2}$/.test(d.name))
+  .map((d) => d.name)
+  .sort();
+/** README 里的当前状态数字：写了就必须与取数一致，且每条都必须真的匹配到（防止改写后静默失去覆盖） */
+const README_CURRENT: Array<[string, RegExp, number[]]> = [
+  ["qa:all 的 verify 项数", /全量质量门：(\d+) 项 verify/g, [qaVerifies.length]],
+  ["案例编号数与任务总数", /(\d+) 个案例编号、(\d+) 个任务/g, [new Set(tasks.map((t) => t.caseId).filter(Boolean)).size, tasks.length]],
+  ["rd-audit 任务数与已出结论数", /rd-audit (\d+) 个任务、其中 (\d+) 个已出结论/g, [rdTotal, rdDone]],
+  ["land-vat 任务数与已出结论数", /land-vat (\d+) 个任务、其中 (\d+) 个已出结论/g, [lvTotal, lvDone]],
+  ["弱证据条数与待处置数", /弱证据引用 (\d+) 条，按现行判据待处置 (\d+) 条/g, [ev.weakCitations, Math.max(0, ev.weakCitations - ev.weakDisclaimed - ev.weakUncited)]],
+  ["已声明背景参考的弱证据条数", /其中 (\d+) 条已在结论中写明/g, [ev.weakDisclaimed]],
+  ["未进结论正文的弱证据条数", /(\d+) 条只出现在联网检索留存里/g, [ev.weakUncited]],
+  [
+    "底稿比对累计项数 / 一致 / 填错 / 一致率 / 覆盖率",
+    /底稿比对累计 (\d+) 项：一致 (\d+) \+ 填错 (\d+)，一致率 (\d+)% · 覆盖率 (\d+)%/g,
+    [stats.compareCompared, stats.compareMatched, stats.compareMismatched, Math.round(stats.compareMatchRateOverall ?? -1), Math.round(stats.compareCoverageOverall ?? -1)],
+  ],
+  [
+    "台账两列欠账的列号",
+    /第 (\d+) 列「待复查」、第 (\d+) 列「证据力弱」/g,
+    [LEDGER_COLUMNS.indexOf("待复查") + 1, LEDGER_COLUMNS.indexOf("证据力弱") + 1],
+  ],
+];
+expect("确实读到了证据包目录（不是空数组上通过的）", evidenceDirs.length >= 1, true);
+checks += 1;
+if (!readme.includes("data/evidence-*")) {
+  failures.push("README 没有用通配写法 data/evidence-* 引用证据包（写死轮次会在每次 qa:all 之后过期）");
+}
+checks += 1;
+if (/[一二三四五六七八九十\d]+\s*轮证据包/.test(readme)) {
+  failures.push("README 里写死了证据包轮次：pack:evidence 每跑一次就多一轮，这个数注定过期");
+}
+checks += 1;
+if (/data\/evidence-\d{4}-\d{2}-\d{2}/.test(readme)) {
+  failures.push("README 里写死了某一轮证据包的日期：同上，改用 data/evidence-* 通配");
+}
+let readmeChecked = 0;
+for (const [label, re, want] of README_CURRENT) {
+  let matched = 0;
+  for (const m of readme.matchAll(re)) {
+    matched += 1;
+    readmeChecked += 1;
+    checks += 1;
+    const got = m.slice(1).map(Number);
+    if (JSON.stringify(got) !== JSON.stringify(want)) {
+      failures.push(`README 里写的${label} ${got.join("/")} 与平台当前值 ${want.join("/")} 不一致`);
+    }
+  }
+  // 每条判据都必须真的匹配到文本：README 改写后正则失配的话，这一项会静默变成「没写就不核对」
+  checks += 1;
+  if (matched < 1) failures.push(`README 里找不到「${label}」的写法，这条核对等于没生效（正则失配？）`);
+}
+// 历史数字同样要带限定词，否则 36.84% 这种旧值会被读成当前口径
+for (const needle of ["36.84%", "matched 均为 0"]) {
+  const at = readme.indexOf(needle);
+  if (at < 0) continue;
+  checks += 1;
+  const around = readme.slice(Math.max(0, at - 160), at + 160);
+  if (!/(此前|当时|一度|历史|修复当时)/.test(around)) {
+    failures.push(`README 里的历史数字「${needle}」附近没有时间或「此前/一度」限定词，会被读成当前口径`);
+  }
+}
+expect("确实核对到了 README 的当前状态数字", readmeChecked >= README_CURRENT.length, true);
+console.log(
+  `[verify] README 当前状态数字核对 ${readmeChecked} 处（任务 ${tasks.length} 个 · rd-audit ${rdTotal}/${rdDone} · land-vat ${lvTotal}/${lvDone} · 弱证据 ${ev.weakCitations} 条待处置 ${Math.max(0, ev.weakCitations - ev.weakDisclaimed - ev.weakUncited)} · 比对累计 ${stats.compareCompared} 项）`,
+);
 console.log(
   `[verify] 对外文档 ${docsRead} 份 · 当前状态数字核对 ${stateChecked} 处 · 历史数字限定词核对 ${historyChecked} 处（平台当前：金额 ${e.amountTotal} 处 / 待确认 ${e.amountPending} · 引用 ${e.citations} 条 · 检索 ${e.searchCalls} 次 · 文号 ${e.docRefs} 处）`,
 );
