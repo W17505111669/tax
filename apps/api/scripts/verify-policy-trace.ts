@@ -113,6 +113,9 @@ let bodyUrlViaLine = 0;
 const bodyRefs: BodyTracedRef[] = [];
 let unverifiable = 0;
 let untraced = 0;
+/** 待复查文号的总数与其中「至少被复查过一次」的条数（看板口径：untraced + unverifiable） */
+let pendingTotal = 0;
+let pendingChecked = 0;
 // 取数走 docref-lib：与 verify:docrefmd 共用同一份 SQL 与口径，改一处两边同时生效
 for (const td of loadTaskDocRefs()) {
   const res = td.res;
@@ -133,6 +136,18 @@ for (const td of loadTaskDocRefs()) {
   checks += 1;
   if (res.bodyTracedRefs.length !== res.tracedByBody) {
     failures.push(`${td.taskId} 仅正文提到的明细 ${res.bodyTracedRefs.length} 条与计数 ${res.tracedByBody} 不一致`);
+  }
+  // 待复查的文号（看板与台账的「待复查」= untraced + unverifiable，与 stats.ts:486 同一口径）
+  // 必须**至少被复查过一次**：没复查过就是没人看过的欠账，而它在看板上只是一个数字。实测此前
+  // 10 处里有 2 处从未复查（渲染实测 I 的〔2006〕187号、渲染实测 J 的 2017年第40号），用产品
+  // 自己的接口跑一次复查，两处都判为 matched（复用平台已核实的官方原文页），于是待复查
+  // 10 → 8、有出处 111 → 113、看板缺口清单从 3 个任务收敛到 1 个（剩下那个在禁区里）。
+  const docChecks = td.refChecks.filter((c) => c.kind === "docref");
+  for (const p of [...res.untraced, ...res.unverifiableRefs]) {
+    pendingTotal += 1;
+    checks += 1;
+    if (docChecks.some((c) => c.text === p.text)) pendingChecked += 1;
+    else failures.push(`${td.taskId.slice(0, 8)} 文号 ${p.text} 待复查却从未复查过（这笔欠账没人看过）`);
   }
   for (const r of res.bodyTracedRefs) {
     bodyRefs.push(r);
@@ -472,6 +487,10 @@ for (const k of VIA_KEYS) {
 }
 // 真实数据走查：每一处的档位都要能取到非空文案，否则界面上就是 undefined
 expect("真实数据里确实有「仅正文提到」的明细可查", bodyRefs.length >= 1, true);
+// 防空跑：库里确实有待复查的文号，否则上面那条「每处都复查过」是在空集合上通过的
+expect("确实走到了待复查的真实文号（不是空跑）", pendingTotal >= 1, true);
+expect("待复查的文号全部至少复查过一次", pendingChecked, pendingTotal);
+console.log(`[verify] 待复查文号 ${pendingTotal} 处 · 其中至少复查过一次 ${pendingChecked} 处`);
 for (const r of bodyRefs) {
   const label = r.sourceVia === "" ? "（无地址）" : r.sourceVia;
   expect(`文号 ${r.text} 的档位 ${label} 有界面文案`, SOURCE_VIA_TEXT[r.sourceVia].trim() !== "", true);
