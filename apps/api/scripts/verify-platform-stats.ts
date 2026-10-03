@@ -532,6 +532,66 @@ expect("全平台待复核合计与逐任务重算一致", s.reviewPendingIssues
 console.log(
   `[verify] 复核闭环缺口走查：清单 ${s.reviewBacklog.length} 个任务 / 未复核 ${backlogSum} 项 · 全平台待复核合计 ${s.reviewPendingIssues} 项 · 用 SQL + pendingReviewCount 独立重列 ${completedWithPending.length} 个`,
 );
+
+// 6) 库体量与事件流。events 是库里最大的表，其中绝大多数是流式分片 agent_text_delta。
+// 这些分片**不是死重**：listConclusions 靠它们按运行重组结论（verify:tlcalls 钉住了重组结果与
+// tasks.result 一致，writeback-evidence 与 verify:revision-impact 也读它），所以删不得——删了
+// 就等于毁掉跨运行对比的基线。这里只做三件事：把体量量成常驻指标（此前没人量过，只有一句
+// 「库不小」的印象）、钉一条不随数据增长的不变量（有结论就必须还留着事件流）、把处置建议写进
+// docs/testing 而不是擅自动历史数据。
+const dbFile = String((db.prepare(`PRAGMA database_list`).get() as { file?: string } | undefined)?.file ?? "");
+expect("库文件确实在（否则本节量到的全是 0，等于空跑）", dbFile !== "" && fs.existsSync(dbFile), true);
+const dbBytes = dbFile !== "" && fs.existsSync(dbFile) ? fs.statSync(dbFile).size : 0;
+const evKinds = db
+  .prepare(`SELECT kind, COUNT(*) AS n, COALESCE(SUM(LENGTH(message)), 0) AS bytes FROM events GROUP BY kind`)
+  .all() as unknown as Array<{ kind: string; n: number; bytes: number }>;
+const evTotal = evKinds.reduce((a, r) => a + r.n, 0);
+const delta = evKinds.find((r) => r.kind === "agent_text_delta");
+const evCountDirect = Number((db.prepare(`SELECT COUNT(*) AS n FROM events`).get() as { n: number }).n);
+expect("按 kind 分组的行数之和等于直接 COUNT（分组没漏 kind）", evTotal, evCountDirect);
+const maxEvPerTask = Number(
+  (db.prepare(`SELECT COALESCE(MAX(n), 0) AS n FROM (SELECT COUNT(*) AS n FROM events GROUP BY task_id)`).get() as {
+    n: number;
+  }).n,
+);
+const withResult = Number(
+  (db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE COALESCE(LENGTH(result), 0) > 0`).get() as { n: number }).n,
+);
+expect("确实有带结论的任务可核（为 0 时下面那条就是空跑）", withResult > 0, true);
+const noEvents = db
+  .prepare(
+    `SELECT id, title FROM tasks WHERE COALESCE(LENGTH(result), 0) > 0
+       AND NOT EXISTS (SELECT 1 FROM events e WHERE e.task_id = tasks.id)`,
+  )
+  .all() as unknown as Array<{ id: string; title: string }>;
+expect(
+  "有结论的任务都还留着事件流（delta 分片是按运行重组结论的唯一来源，清了就等于毁掉跨运行对比的基线）",
+  noEvents.map((r) => `${r.id.slice(0, 8)} ${r.title.slice(0, 12)}`),
+  [],
+);
+// 这条判据没法做变异测试：让它变红的唯一办法是删掉某个任务的事件行，而那正是「修改历史任务数据」。
+// 所以改用交叉校验证明它不是恒真——同一件事（带结论且有事件流的任务数）用两种写法各算一遍：
+// 一种是「带结论任务数 − 缺事件流的任务数」，另一种直接 EXISTS 数一遍。相关子查询写错列名或
+// 关联条件时两边就会对不上，而单看第一条断言永远是绿的。
+const withResultAndEvents = Number(
+  (
+    db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM tasks t WHERE COALESCE(LENGTH(t.result), 0) > 0
+           AND EXISTS (SELECT 1 FROM events e WHERE e.task_id = t.id)`,
+      )
+      .get() as { n: number }
+  ).n,
+);
+expect("带结论且有事件流的任务数：减法与 EXISTS 两种算法一致", withResult - noEvents.length, withResultAndEvents);
+const mbOf = (n: number): string => (n / 1048576).toFixed(2);
+console.log(
+  `[verify] 库体量：${mbOf(dbBytes)} MB · events ${evTotal} 行（agent_text_delta ${delta?.n ?? 0} 行 = ${
+    evTotal > 0 ? (((delta?.n ?? 0) / evTotal) * 100).toFixed(1) : "0.0"
+  }% · 分片文本 ${mbOf(delta?.bytes ?? 0)} MB · 全部 message ${mbOf(
+    evKinds.reduce((a, r) => a + r.bytes, 0),
+  )} MB）· 单任务最多 ${maxEvPerTask} 行 · 带结论任务 ${withResult} 个`,
+);
 console.log(
   `[verify] 平台统计检查项=${checks} 失败=${failures.length}（比对 ${runs} 次：最近 ${s.compareAccuracy ?? "n/a"}% / 累计 ${
     s.compareAccuracyOverall ?? "n/a"
