@@ -8,6 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { LEDGER_COLUMNS } from "../../web/src/evidence-ledger.ts";
 import { outcomeLine, type ToolOutcomeCounts } from "../../web/src/tool-outcome.ts";
+import { qaVerifyCount } from "./qa-count-lib.ts";
 import rdAuditAgent from "@tax/agent-rd-audit";
 import landVatAgent from "@tax/agent-land-vat";
 import type { TaxAgentConfig } from "@tax/agent-core";
@@ -22,7 +23,7 @@ fs.mkdirSync(outDir, { recursive: true });
 const rootPkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")) as {
   scripts?: Record<string, string>;
 };
-const verifyCount = (rootPkg.scripts?.["qa:all"] ?? "").split("pnpm verify:").length - 1;
+const verifyCount = qaVerifyCount(rootPkg.scripts);
 
 function build(agent: TaxAgentConfig): string {
   const stats = statsFor(agent.id);

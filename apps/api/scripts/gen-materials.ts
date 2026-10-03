@@ -26,9 +26,17 @@ import {
   rateText,
   statsFor,
 } from "./materials-lib.ts";
+import { qaVerifyCount } from "./qa-count-lib.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..", "..", "..");
+// 验证项数从 qa:all 里数出来，与 PPT 大纲那份共用一份取数。这一行此前是手写死的 7 个脚本名
+//（verify:pi / docs / template / policy / compare / ocr / agents），而 qa:all 现在跑 58 项——
+// 交出去的材料上少报了 51 项，而且不会随 qa:all 更新。
+const rootPkgScripts = (
+  JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")) as { scripts?: Record<string, string> }
+).scripts;
+const verifyCount = qaVerifyCount(rootPkgScripts);
 const outDir = path.join(root, "docs", "competition");
 fs.mkdirSync(outDir, { recursive: true });
 
@@ -187,7 +195,7 @@ function build(agent: TaxAgentConfig, extra: Array<{ name: string; label: string
         } 处，用来证明「保留式填列」只往空格子里写值、没有改坏模板原有内容与公式。这一类不计入上面两个比率——模板本来是空的，「只有一侧有」恰恰是填进去的值，把它算成覆盖缺口等于把「填了多少」记成「漏了多少」（口径改前它一度把累计覆盖率从 100% 拉到 36.84%）。两个比率都由原始计数现算，不读比对记录里存的百分比字段`
       : `- 暂无记录级比对数据`,
   );
-  lines.push(`- 自动化验证：verify:pi / verify:docs / verify:template / verify:policy / verify:compare / verify:ocr / verify:agents 全部 PASS（见 docs/testing/test-report-*.md）`);
+  lines.push(`- 自动化验证：\`pnpm qa:all\` 一次跑完 ${verifyCount} 项 verify 全部 PASS（逐项结果见 docs/testing/test-report-*.md 第二节「自动化验证矩阵」）`);
   lines.push("");
   const latest = latestCompareFor(agent.id);
   if (latest) {

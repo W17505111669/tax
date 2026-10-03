@@ -16,6 +16,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { qaVerifyCount } from "./qa-count-lib.ts";
 
 const failures: string[] = [];
 let checks = 0;
@@ -177,6 +178,29 @@ for (const file of docFiles) {
 }
 expect("确实核对到了文档里的命令（不是没扫着）", docCmds >= 8, true);
 console.log(`[verify] 对外文档 ${docFiles.length} 份里的 ${docCmds} 条 pnpm 命令逐个核对存在性`);
+
+// 4) 对外文档里那句「自动化验证 N 项」必须与 qa:all 里真实的 verify 条目数同源。
+// 这个数有三个消费点：PPT 大纲（一直是取数的）、两份作品说明（本轮之前手写死 7 个脚本名，
+// 而 qa:all 实际跑 58 项，交出去的材料上少报了 51 项）、README 的命令清单（手写死「58 项」）。
+// 取数的那份不会漂，手写死的那两份会，而且漂了不会有任何门禁红——「58」对不上任何东西，
+// 它只是一句话。PPT 那份的注释里早就记着这个教训（「原先写着 7 项，实际已 37 项」），
+// 但教训只在一个文件里学到了，没搬到隔壁两个。
+const QA_COUNT_IN_DOC = /(\d+)\s*项\s*verify/;
+const readmeText = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
+const docCount = Number(QA_COUNT_IN_DOC.exec(readmeText)?.[1] ?? Number.NaN);
+const realCount = qaVerifyCount(rootPkg.scripts);
+expect("确实从 qa:all 里数到了 verify 条目（不是 package.json 没读到在这儿空跑）", realCount >= 40, true);
+expect("确实从 README 里取到了那个写死的项数（正则没匹配上就是 NaN，同样算红）", Number.isFinite(docCount), true);
+expect(`README 写的「${docCount} 项 verify」必须等于 qa:all 里真实的 verify 条目数`, docCount, realCount);
+// 作品说明那份由 gen:materials 生成，改成取数之后就不该再出现手写死的脚本名清单
+const materialsHardcoded = docFiles
+  .filter((f) => f.endsWith("作品说明.md"))
+  .filter((f) => fs.existsSync(f) && /自动化验证：verify:/.test(fs.readFileSync(f, "utf8")))
+  .map((f) => path.basename(f));
+expect("作品说明里不再手写死验证脚本名清单（改由 gen:materials 取数）", materialsHardcoded, []);
+console.log(
+  `[verify] 对外「自动化验证 N 项」同源核对：qa:all 真实 ${realCount} 项 · README 写 ${docCount} 项 · 作品说明手写清单 ${materialsHardcoded.length} 份`,
+);
 
 console.log(`[verify] 运行命令一致性检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {

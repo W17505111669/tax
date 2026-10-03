@@ -3314,3 +3314,23 @@ after：按实测把这两条的 `tabs` 改成 `["result"]`。附带一个收益
 顺带把上一轮那句结论收窄：上一轮说「20000 这个上限对 35/36 条是够的，不需要动上限」，按条数算没错，但按工具算要小心——`web_search` 最长一条已到 18204 字，距上限只剩 9%。准确的说法是：**今天不需要动，但它已经在余量不大的那一侧**，新判据盯的正是这件事。
 
 实测：`verify:searchev` 检查项 **708 → 709**、失败 0，新增报告行 `留存正文逐工具：web_search 6 条 / 均 11703 字 / 最长 18204 字 · fetch_content 10 条 / 均 2736 字 / 最长 20000 字 / 截断 1 条 · get_search_content 11 条 / 均 1525 字 / 最长 3459 字 · fetch_public_document 6 条 / 均 2649 字 / 最长 4546 字 · search_public_cases 3 条 / 均 287 字 / 最长 398 字`；`typecheck:all` 通过（8 包）；`qa:all` 全绿、退出码 **0**（verify 脚本仍 50 个）。本轮只动门禁脚本与一处注释，没动界面与交付文案，故未跑 `scan:uimd`。
+
+### 「自动化验证 58 项」有三种表述、两种不会随 qa:all 更新，而教训早就写在隔壁文件的注释里
+
+靶来自 P1 第 10 项（一致性与陈旧信息审计）。`qa:all` 现在跑 **58 项 verify**，这个数字出现在三个对外位置，取数方式却各不相同：PPT 大纲由 `gen-ppt-outline.ts` 从 `qa:all` 里数（会跟着更新）；作品说明由 `gen-materials.ts` **手写死 7 个脚本名**（不会）；README **手写死「58 项」**（不会）。
+
+最刺眼的是作品说明那份。它写的是「自动化验证：verify:pi / verify:docs / verify:template / verify:policy / verify:compare / verify:ocr / verify:agents 全部 PASS」——**交出去的材料上只报了 7 项，而 qa:all 实际跑 58 项，少报 51 项**。这不是数字过期，是它从来没跟过：那 7 个名字是这个项目最早的一批验证脚本。
+
+更值得注意的是 `gen-ppt-outline.ts` 里那句注释：「验证项数从 qa:all 里数出来：写死的数字迟早与测试报告对不上（这一页原先写着「7 项」，实际已 37 项）」。**同一个坑、同一批交付件，教训在 PPT 那个生成器里学到了、还写成了注释，却没有搬到隔壁的作品说明生成器**。两个文件都在 `apps/api/scripts/` 下、都在 `qa:all` 里被调、都往 `docs/competition/` 写材料。这与前几轮清掉的「四份状态文案」「两份运行次数」是同一类病，只是这次两份实现分属两个生成器，谁也看不见谁。
+
+修法：取数收成一份 `apps/api/scripts/qa-count-lib.ts`（`qaVerifyCount(scripts)`），三个消费点全接上。PPT 那份原本就取数，改成调共享实现（消掉那行内联的 `split("pnpm verify:").length - 1`）；作品说明那份改成「`pnpm qa:all` 一次跑完 58 项 verify 全部 PASS（逐项结果见测试报告第二节『自动化验证矩阵』）」，数字由 `gen:materials` 生成时取；README 那份保留手写（命令清单是人读的，把数字改成取数不现实），但给它配一条门禁。
+
+口径要说清楚：这里数的是 **`qa:all` 命令行里 `pnpm verify:` 出现几次（58）**，不是 `apps/api/scripts/` 下有多少个 `verify-*.ts` 文件（50）。两者不是一回事——有些 verify 命令跑的是 `agents/` 与 `packages/` 下的脚本。对外讲的是「qa:all 一次跑完多少项」，所以按命令数。
+
+断言加在 `verify:runcmd`（它本来就是「对外文档里的命令与 package.json 是否一致」这道门）：从 README 里正则取出那个数字，与 `qaVerifyCount(rootPkg.scripts)` 逐项比；再加一条走查——两份作品说明里不许再出现 `自动化验证：verify:` 这种手写清单。三条防空跑：确实从 qa:all 数到了 ≥40 项、确实从 README 取到了数字（正则没匹配上得 NaN，同样红）、手写清单必须为 0 份。检查项 **302 → 308**（多出的 2 项来自作品说明里新增的那句 `pnpm qa:all`，被既有的「文档命令存在性」走查接住了）。
+
+变异测试：把 README 的「58 项」改成「57 项」→ 断言红、报「实际 57，期望 58」；还原后 308 项 / 失败 0，`git diff` 对 README 为空。
+
+顺带把三处生成物都重跑核了一遍：`gen:ppt` 之后两份 PPT 大纲仍是「自动化验证 58 项」且**文件无 diff**（说明共享实现与原来那行内联逐字等价）；`gen:materials` 之后两份作品说明都换成新句子；`verify:materials` 141 项 / 失败 0——它管的是作品说明里的当前状态数字与历史数字限定词，这句不在它的四族数字里，所以项数不变。
+
+实测：`verify:runcmd` 检查项 **302 → 308**、失败 0，新报告行 `对外「自动化验证 N 项」同源核对：qa:all 真实 58 项 · README 写 58 项 · 作品说明手写清单 0 份`；`verify:materials` **141** / 0；`typecheck:all` 通过（8 包）；`qa:all` 全绿、退出码 **0**（verify 脚本仍 50 个，新增的 `qa-count-lib.ts` 是共享库不是门禁，所以 58 这个数不变）。本轮只动生成脚本、门禁与两份交付文档，没动界面，故未跑 `scan:uimd`。
