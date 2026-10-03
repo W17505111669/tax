@@ -11,6 +11,7 @@ import { db } from "../src/db.ts";
 import { LEDGER_COLUMNS } from "../../web/src/evidence-ledger.ts";
 import { computePlatformStats } from "../src/services/stats.ts";
 import { summarizeTaskCompares, type CompareCall } from "../src/services/compare-stats.ts";
+import { compareModeLabel, compareModeOf, type CompareModeState } from "../../web/src/compare-mode.ts";
 import { compareRates, rateText } from "@tax/document-tools";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -284,14 +285,29 @@ for (const task of tasks) {
   if (cmp.peer === null && cmp.template.runs > 0) accuracy = `模板核对 ${cmp.template.runs} 次`;
   // 逐格（address）模式与记录级不是同一个量纲，只在表格里标一下，不进合计
   if (cmp.peer === null && cmp.template.runs === 0) {
-    const hasAddress = compares.some((c) => {
-      try {
-        return (JSON.parse(c.result ?? "{}") as { sheets?: Array<{ mode?: string }> }).sheets?.[0]?.mode === "address";
-      } catch {
-        return false;
-      }
-    });
-    if (hasAddress) accuracy = "地址模式";
+    // 没有可计入的记录级比对时，如实写出这批记录是什么模式，而不是把准确率列留成 `—`：
+    // 同一行的工具链列写着 compare_workpapers 跑过几次，准确率列留空就等于说「这个任务没有
+    // 比对数据」，行内自相矛盾。实测 26f91720 就是这么静默退化的——09-29 那份报告里这格还是
+    // 「0%（地址模式）」，平台统计的判据收紧成「只认 mode === 'record'」之后它悄悄变成了 `—`，
+    // 而没有任何门禁发现（模式标签此前三处各写一份，见 web/src/compare-mode.ts 的头注释）。
+    const states = compares
+      .map((c) => {
+        try {
+          return compareModeOf((JSON.parse(c.result ?? "{}") as { sheets?: Array<{ mode?: string }> }).sheets);
+        } catch {
+          return null;
+        }
+      })
+      .filter((s): s is CompareModeState => s !== null);
+    if (states.length > 0) {
+      // 一个任务里混着多种模式时按「最该被看见的那种」标：逐格与未知模式都是要人去看的例外
+      const pick =
+        states.find((s) => s === "address") ??
+        states.find((s) => s === "unknown") ??
+        states.find((s) => s === "record") ??
+        "unrecorded";
+      accuracy = compareModeLabel(pick);
+    }
   }
 
   const outDir = path.join(root, "data", "outputs", task.id);

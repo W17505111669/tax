@@ -292,6 +292,45 @@ expect(
   true,
 );
 
+// ---- 测试报告：工具链列与准确率列不许自相矛盾 ----
+// 报告第三节每行是一个任务，第 5 列是工具调用链、第 6 列是比对准确率。链里写着
+// compare_workpapers 跑过、准确率列却是 `—`（意思是「这个任务没有比对数据」），就是行内
+// 自相矛盾。实测 26f91720「底稿比对准确率闭环」正是这样：4 次比对、准确率列 `—`，
+// 而 09-29 那份报告里同一格还是「0%（地址模式）」——平台统计的判据收紧成「只认
+// mode === 'record'」之后它静默退化成了 `—`，此前没有任何门禁读过这份报告
+//（读 test-report 的只有 4 个生成/打包脚本，0 个 verify）。
+//
+// 这条**只能放在本门禁**：report:test 内部会逐个跑 VERIFY_SCRIPTS（42 个，含 verify:stats）
+// 再把 PASS/FAIL 写进报告第二节，放进 verify:stats 就成了循环依赖，读到的是上一次生成的报告
+//（实测会让报告写出「存在未通过验证项」的假结论，滞后一轮）。本脚本不在那 42 个里，
+// 而 qa:all 的顺序是 report:test → … → verify:materials，读到的正是本次生成的报告。
+const reportDir = path.join(ROOT, "docs", "testing");
+const reportFiles = fs
+  .readdirSync(reportDir)
+  .filter((f) => /^test-report-\d{4}-\d{2}-\d{2}\.md$/.test(f))
+  .sort();
+const latestReport = reportFiles[reportFiles.length - 1] ?? "";
+expect("找得到最新那份测试报告（这条走查不能空跑）", latestReport !== "", true);
+let reportRows = 0;
+let reportDashRows = 0;
+for (const ln of fs.readFileSync(path.join(reportDir, latestReport), "utf8").split(/\r?\n/)) {
+  if (!ln.startsWith("|") || !ln.includes("compare_workpapers")) continue;
+  const cells = ln.split("|").map((c) => c.trim());
+  // 只认任务明细表：第 2 列是 agent id，避免误伤别的表格里同样提到这个工具名的行
+  if (cells[2] !== "rd-audit" && cells[2] !== "land-vat") continue;
+  reportRows += 1;
+  if ((cells[6] ?? "") === "—") {
+    reportDashRows += 1;
+    failures.push(`${latestReport} 「${cells[1]}」工具链列有 compare_workpapers、准确率列却是「—」`);
+  }
+}
+expect("报告里确实走到了带比对的任务行（不是空跑）", reportRows > 0, true);
+expect("报告里没有「链上有比对、准确率列却是 —」的行", reportDashRows, 0);
+// 结论文案由计数器给出，不写死：变异测试时同一件事曾一边报「无一为「—」」一边列出 2 处失败
+console.log(
+  `[verify] 测试报告 ${latestReport}：工具链含 compare_workpapers 的任务行 ${reportRows} 行 · 其中准确率列为「—」的 ${reportDashRows} 行`,
+);
+
 console.log(`[verify] 交付文档数字一致性检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  - ${f}`);

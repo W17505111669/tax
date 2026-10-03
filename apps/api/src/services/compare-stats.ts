@@ -14,6 +14,8 @@
  * 实测「artifact vs upload」两种情况都出现过，另一种的 upload 是人工参考底稿，属同行评审。
  */
 import { compareRates, rateText } from "@tax/document-tools";
+// 模式判据与界面、测试报告共用一份：三处各写一遍时对同一批记录给出过三个不同答案
+import { compareModeOf } from "../../../web/src/compare-mode.ts";
 
 export type CompareCall = {
   tool_name: string;
@@ -112,7 +114,9 @@ export function summarizeTaskCompares(calls: CompareCall[]): TaskCompareSummary 
       continue;
     }
     // 只认记录级比对：逐格（address）比对数的是单元格，与记录级不是同一个量纲，混在一起就没法解释
-    if (parsed.sheets?.[0]?.mode !== "record" || parsed.totals?.accuracyPercent === undefined) continue;
+    // mode 缺失的记录同样不计入（量纲无从判断）；这一档在界面上如实显示「模式未记录」，
+    // 要不要按形状推断成记录级并计入累计，是会动对外一致率的决定，留给人拍板（见 phase0 文档）
+    if (compareModeOf(parsed.sheets) !== "record" || parsed.totals?.accuracyPercent === undefined) continue;
     const at = String(call.started_at ?? "");
     if (isTemplateCompare(call.args, derivedFrom)) {
       template.runs += 1;

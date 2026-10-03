@@ -20,6 +20,12 @@ import {
   summarizeTaskCompares,
 } from "../src/services/compare-stats.ts";
 import { docRefSnapshotText, evidenceSnapshotText } from "./materials-lib.ts";
+import {
+  COMPARE_MODES,
+  COMPARE_MODE_LABEL,
+  compareModeLabel,
+  compareModeOf,
+} from "../../web/src/compare-mode.ts";
 
 const failures: string[] = [];
 let checks = 0;
@@ -592,6 +598,85 @@ console.log(
     evKinds.reduce((a, r) => a + r.bytes, 0),
   )} MB）· 单任务最多 ${maxEvPerTask} 行 · 带结论任务 ${withResult} 个`,
 );
+// ---- 比对模式判据：一处定义，比对页 / 测试报告 / 平台统计三处共用 ----
+// 三处各写一遍时，对同一批记录给出过三个不同答案（详见 web/src/compare-mode.ts 头注释）：
+// 26f91720「底稿比对准确率闭环」那 4 条记录的 sheets[0].mode 字段压根不存在，比对页兜底成
+// 「记录级模式」、平台统计判 mode !== "record" 跳过、测试报告把准确率列留成 `—`——而同一行的
+// 工具链列写着 4 次 compare_workpapers。09-29 那份报告里这格还是「0%（地址模式）」，
+// 判据收紧后它静默退化成了 `—`，没有任何门禁发现。下面钉四件事：判据四态分明、
+// 三个消费点都接上同一份、真实库里每条记录都能归档且不许把「缺失」推断成某一档、
+// 以及报告不再出现「工具链有比对、准确率列却是 —」这种行内自相矛盾。
+const repoRoot = path.resolve(statsHere, "..", "..", "..");
+expect("record 归记录级", compareModeOf([{ mode: "record" }]), "record");
+expect("address 归逐格", compareModeOf([{ mode: "address" }]), "address");
+expect(
+  "mode 缺失单列一档，不兜底成记录级（sheets 为空 / 无 mode / 无 sheets 三种形状同一档）",
+  [compareModeOf([{}]), compareModeOf([]), compareModeOf(undefined)],
+  ["unrecorded", "unrecorded", "unrecorded"],
+);
+expect("名单外的取值归 unknown，不被静默吞进某一档", compareModeOf([{ mode: "cell" }]), "unknown");
+expect("unknown 的标签带上原始取值（否则界面上出现一个查不到出处的词）", compareModeLabel("unknown", "cell"), "未知模式（cell）");
+expect("四态各有文案", Object.keys(COMPARE_MODE_LABEL).length, 4);
+expect("文案表覆盖判据名单里的每一种模式", COMPARE_MODES.every((m) => COMPARE_MODE_LABEL[m] !== undefined), true);
+
+// 同源静态走查：三个消费点都必须走这一份，谁也不许再自己写字面兜底
+const cmpViewSrc = fs.readFileSync(path.join(repoRoot, "apps", "web", "src", "components", "CompareView.tsx"), "utf8");
+const reportSrc = fs.readFileSync(path.resolve(statsHere, "gen-test-report.ts"), "utf8");
+const cmpStatsSrc = fs.readFileSync(path.resolve(statsHere, "..", "src", "services", "compare-stats.ts"), "utf8");
+expect(
+  "三份源码都真读到了（静态走查不能空跑）",
+  [cmpViewSrc.length > 5000, reportSrc.length > 5000, cmpStatsSrc.length > 3000],
+  [true, true, true],
+);
+expect("比对页走共享标签函数", cmpViewSrc.includes("compareModeLabel(compareModeOf(rec.result.sheets)"), true);
+expect("比对页不再有「非 address 就算记录级」的字面兜底", cmpViewSrc.includes('? "地址模式" : "记录级模式"'), false);
+expect("测试报告走共享标签函数", reportSrc.includes("compareModeLabel(pick)"), true);
+expect("测试报告不再自己判 address", reportSrc.includes('mode === "address"'), false);
+expect("平台统计的模式判据走共享函数", cmpStatsSrc.includes('compareModeOf(parsed.sheets) !== "record"'), true);
+
+// 真实数据走查：全库每条成功的比对记录都必须能归档，且归档结果与库里 mode 的实际取值一致
+let cmpRows = 0;
+const cmpDist = new Map<string, number>();
+const cmpRowsRaw = db
+  .prepare(
+    `SELECT task_id, result FROM tool_calls WHERE tool_name = 'compare_workpapers' AND ok = 1 AND result IS NOT NULL`,
+  )
+  .all() as Array<{ task_id: string; result: string }>;
+for (const r of cmpRowsRaw) {
+  let sheets: Array<{ mode?: string }> | undefined;
+  try {
+    sheets = (JSON.parse(r.result) as { sheets?: Array<{ mode?: string }> }).sheets;
+  } catch {
+    sheets = undefined;
+  }
+  cmpRows += 1;
+  const st = compareModeOf(sheets);
+  cmpDist.set(st, (cmpDist.get(st) ?? 0) + 1);
+  const raw = sheets?.[0]?.mode;
+  if (raw === "record" || raw === "address") {
+    if (st !== raw) failures.push(`${r.task_id.slice(0, 8)} 模式归档与库里取值不符：${raw} → ${st}`);
+  } else if (raw === undefined && st !== "unrecorded") {
+    failures.push(`${r.task_id.slice(0, 8)} 库里没有 mode 字段却被归成 ${st}（缺失就是缺失，不猜）`);
+  }
+}
+expect("模式走查确实走到了记录（不是空跑）", cmpRows > 0, true);
+expect("全库比对记录都归档了、没有落进 unknown（工具没新增过模式）", cmpDist.get("unknown") ?? 0, 0);
+expect(
+  "「模式未记录」这一档确实存在（它就是本轮修的那 4 条，被改回兜底时这条会红）",
+  (cmpDist.get("unrecorded") ?? 0) > 0,
+  true,
+);
+console.log(
+  `[verify] 比对模式归档：${cmpRows} 条记录 → ${[...cmpDist.entries()].map(([k, v]) => `${k} ${v}`).join(" · ")}`,
+);
+
+// 「测试报告行内自相矛盾」那条走查放在 verify-materials，不放在这里：report:test 内部会逐个跑
+// VERIFY_SCRIPTS（42 个，含 verify:stats）再把 PASS/FAIL 写进报告第二节与总体结论，放在这里就
+// 成了循环依赖——verify:stats 读到的是**上一次**生成的报告。实测单独跑一次 report:test，
+// 它就把「存在未通过验证项」这个假结论写进了对外文档（滞后一轮，下一次跑才恢复）。
+// verify-materials 不在那 42 个里，而 qa:all 的顺序是 report:test → … → verify:materials，
+// 读到的正是本次生成的报告。
+
 console.log(
   `[verify] 平台统计检查项=${checks} 失败=${failures.length}（比对 ${runs} 次：最近 ${s.compareAccuracy ?? "n/a"}% / 累计 ${
     s.compareAccuracyOverall ?? "n/a"

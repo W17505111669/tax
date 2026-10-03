@@ -4,6 +4,7 @@ import { IconAlert, IconCheck, IconCopy, IconDownload } from "./Icons.tsx";
 import { downloadCsv, downloadText } from "../download.ts";
 import { dayStamp } from "../time-format.ts";
 import { KEYS, readEnum, writeRaw } from "../local-store.ts";
+import { compareModeLabel, compareModeOf } from "../compare-mode.ts";
 
 const COMPARE_KINDS = ["all", "mismatch", "only_a", "only_b"] as const;
 type CompareKind = (typeof COMPARE_KINDS)[number];
@@ -461,7 +462,7 @@ export function CompareView({ compares, unusable = [], onOpenTarget, onOpenPair 
               <span className="kicker">Workpaper Compare</span>
               <span className="text-[12px] text-mist-600">
                 {rec.at ? new Date(rec.at).toLocaleString("zh-CN", { hour12: false }) : ""} ·{" "}
-                {rec.result.sheets[0]?.mode === "address" ? "地址模式" : "记录级模式"}
+                {compareModeLabel(compareModeOf(rec.result.sheets), rec.result.sheets[0]?.mode)}
               </span>
               <button
                 type="button"
