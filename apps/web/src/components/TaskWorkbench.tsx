@@ -25,7 +25,15 @@ import { countTables, markdownToPlainText, plainLine, plainSnippet, tocEntries }
 import { readerKey, SideReader, type ReaderTarget } from "./SideReader.tsx";
 import { loadTags, saveTags } from "../tags.ts";
 import { matchToolCalls } from "../timeline-calls.ts";
-import { artifactsOfRun, artifactTable, fmtBytes, runWindows, unattributedArtifacts } from "../run-artifacts.ts";
+import {
+  artifactsOfRun,
+  artifactTable,
+  fmtBytes,
+  runOfArtifact,
+  runWindows,
+  unattributedArtifacts,
+} from "../run-artifacts.ts";
+import { ARTIFACT_ROLE_NOTE, ARTIFACT_ROLE_TEXT, artifactsSection } from "../delivery-artifacts.ts";
 import { artifactSources } from "../artifact-sources.ts";
 import { callStats, toolCallSection } from "../run-tools.ts";
 import {
@@ -839,12 +847,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
 
   // 交付包里的产物溯源表：来源工具 + 所属运行（复用时间线导出的同一套时间窗判定）
   const runWins = useMemo(() => runWindows(timeline), [timeline]);
-  const runOfArtifact = (name: string): number | null => {
-    const a = artifacts.find((x) => x.name === name);
-    if (!a) return null;
-    const w = runWins.find((x) => artifactsOfRun([a], x).length > 0);
-    return w ? w.run : null;
-  };
+  // 归属判据在 run-artifacts.ts：交付 MD 的「所属运行」列与 manifest 的 run 字段共用同一份
+  const runOf = (name: string): number | null => runOfArtifact(artifacts, runWins, name);
 
   const toc = useMemo(
     // 条目顺序与 MarkdownView 的 sec-N 锚点一致（同样只取 h2/h3、同样按出现顺序），跳转不会错位
@@ -1486,21 +1490,16 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     "",
     "## 生成产物与溯源",
     "",
-    ...(artifacts.length > 0
-      ? [
-          "| 文件 | 大小 | 来源工具 | 关系 | 时间 | 所属运行 |",
-          "| --- | --- | --- | --- | --- | --- |",
-          ...artifacts.map((a) => {
-            const src = artSrc.get(a.name);
-            const run = runOfArtifact(a.name);
-            return `| ${a.name} | ${fmtBytes(a.byteSize)} | ${src?.toolName ?? "—"} | ${
-              src ? (src.role === "producer" ? "生成" : "引用") : "未识别"
-            } | ${src ? new Date(src.at).toLocaleString("zh-CN", { hour12: false }) : "—"} | ${
-              run !== null ? `第 ${run} 次` : "—"
-            } |`;
-          }),
-        ]
-      : ["（本次任务无生成产物）"]),
+    // 「生成产物与溯源」整节搬到 delivery-artifacts.ts：留在组件闭包里就没法单测，而它是交付包里
+    // 「产物从哪来」的对外声称（来源工具 / 关系 / 所属运行三列此前全靠下载下来肉眼扫）
+    ...artifactsSection(
+      artifacts.map((a) => ({
+        name: a.name,
+        byteSize: a.byteSize,
+        source: artSrc.get(a.name) ?? null,
+        run: runOf(a.name),
+      })),
+    ),
     "",
     "## 工具调用清单（按运行分组）",
     "",
@@ -1561,7 +1560,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
           sourceTool: s?.toolName ?? null,
           sourceRole: s ? s.role : null,
           sourceAt: s?.at ?? null,
-          run: runOfArtifact(a.name),
+          run: runOf(a.name),
         };
       }),
       tools: { total: st.total, ok: st.ok, failed: st.failed, running: st.running, avgMs: st.avgMs },
@@ -2824,9 +2823,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                         <span className="block truncate text-[11px] text-mist-600">
                           {fmtBytes(a.byteSize)}
                           {src
-                            ? src.role === "producer"
-                              ? ` · 由 ${src.toolName} 生成于 ${srcAt}`
-                              : ` · 被 ${src.toolName} 引用（${srcAt}），非该调用生成`
+                            ? ARTIFACT_ROLE_NOTE[src.role](src.toolName, srcAt)
                             : " · 来源未识别"}
                         </span>
                       </span>
@@ -2835,7 +2832,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                       <button
                         type="button"
                         className="action-btn shrink-0"
-                        title={`在时间线中定位${src.role === "producer" ? "生成" : "引用"}它的 ${src.toolName} 调用`}
+                        title={`在时间线中定位${ARTIFACT_ROLE_TEXT[src.role]}它的 ${src.toolName} 调用`}
                         onClick={() => locateCall(src.id)}
                       >
                         定位

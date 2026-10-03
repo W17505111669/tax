@@ -45,7 +45,12 @@ const empty = fs.mkdtempSync(path.join(os.tmpdir(), "tax-gates-empty-"));
  * `every(...)` 在空索引上恰恰全部通过。改成认整个 `services/` 与 `routes/` 目录：判据是「有没有
  * 从服务端取数」，不是「从哪个文件取数」。
  */
-const READS_DB = /from "\.\.\/src\/(?:db|services\/[a-z-]+|routes\/[a-z-]+)\.ts"|from "\.\/docref-lib\.ts"/;
+// 共享取数 lib 也要算「走真实数据」：verify:delivart 通过 ./artifacts-lib.ts 间接读库与产物目录，
+// 只认直接 import 会把它判成纯函数、于是跳过空库复跑——它那条「确实走到了带产物的任务」的
+// 防空跑断言就永远不会被自动验证。白名单是手写的，下一个 lib 出现时会再漏一次；
+// 根治要按 import 做传递闭包，见 phase0 文档「留给下一轮」。
+const READS_DB =
+  /from "\.\.\/src\/(?:db|services\/[a-z-]+|routes\/[a-z-]+)\.ts"|from "\.\/(?:docref|artifacts|revision)-lib\.ts"/;
 const SELF = "verify-gates.ts";
 const files = fs.readdirSync(here).filter((f) => /^verify-.*\.ts$/.test(f)).sort();
 const srcOf = (f: string): string => fs.readFileSync(path.join(here, f), "utf8");

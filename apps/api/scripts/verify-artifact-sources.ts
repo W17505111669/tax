@@ -5,10 +5,9 @@
  * 运行：pnpm verify:artsrc
  */
 import { artifactSources, basename, namesInResult } from "../../web/src/artifact-sources.ts";
-import fs from "node:fs";
-import path from "node:path";
+// 产物与工具调用的真实取数与 verify:delivart 共用一份（见 artifacts-lib.ts 的头注释）
+import { taskArtifacts, taskIds } from "./artifacts-lib.ts";
 import { db } from "../src/db.ts";
-import { dirs } from "../src/config.ts";
 
 const failures: string[] = [];
 let checks = 0;
@@ -110,38 +109,18 @@ expect("非对象结果返回空", namesInResult("底稿.xlsx"), []);
 expect("空调用列表", artifactSources(["a.xlsx"], []).size, 0);
 
 // 5) 真实数据：产物目录 × 工具调用结果的溯源命中率（阈值防回归；未命中项作为提示输出）
-const tasks = db.prepare(`SELECT id FROM tasks`).all() as Array<{ id: string }>;
 let total = 0;
 let hit = 0;
 const misses: string[] = [];
-for (const t of tasks) {
-  const dir = path.join(dirs.outputs, t.id);
-  if (!fs.existsSync(dir)) continue;
-  const names = fs.readdirSync(dir).filter((f) => fs.statSync(path.join(dir, f)).isFile());
-  if (names.length === 0) continue;
-  const rows = db
-    .prepare(`SELECT id, tool_name, result, ok, started_at FROM tool_calls WHERE task_id = ? ORDER BY started_at ASC`)
-    .all(t.id) as Array<{ id: string; tool_name: string; result: string | null; ok: number | null; started_at: string }>;
-  const calls = rows.map((c) => {
-    let result: unknown = null;
-    try {
-      result = c.result ? JSON.parse(c.result) : null;
-    } catch {
-      result = null;
-    }
-    return {
-      id: c.id,
-      toolName: c.tool_name,
-      at: c.started_at,
-      ok: c.ok === 1 ? true : c.ok === 0 ? false : null,
-      result,
-    };
-  });
-  const src = artifactSources(names, calls);
+for (const id of taskIds()) {
+  const got = taskArtifacts(id);
+  if (!got) continue;
+  const names = got.artifacts.map((a) => a.name);
+  const src = artifactSources(names, got.calls);
   for (const n of names) {
     total += 1;
     if (src.has(n)) hit += 1;
-    else misses.push(`${t.id.slice(0, 8)}/${n}`);
+    else misses.push(`${id.slice(0, 8)}/${n}`);
   }
 }
 expect("真实产物溯源率不低于 90%", total === 0 || hit / total >= 0.9, true);

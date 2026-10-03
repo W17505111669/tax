@@ -52,7 +52,7 @@ pnpm demo:script     # 生成录屏分镜表（docs/competition/录屏分镜表.
 pnpm case:run <id>   # 案例回归：上传→执行→与人工参考底稿比对→案例报告（data/cases/）
 pnpm verify:agents   # Phase 1：两个 Agent 的系统提示词与工具集相互独立
 pnpm -r typecheck    # 全仓类型检查
-pnpm qa:all          # 全量质量门：57 项 verify + 测试报告 + 比赛材料 + 证据包
+pnpm qa:all          # 全量质量门：58 项 verify + 测试报告 + 比赛材料 + 证据包
 
 # 下面两个是「真开浏览器」的实测门禁，需要先 pnpm dev（API 8787 + 前端 5174）起着。
 # 它们刻意不进 qa:all：要开浏览器、要前端在跑，失败原因常常与代码无关；加 --strict 则任何不符即退出码 1。

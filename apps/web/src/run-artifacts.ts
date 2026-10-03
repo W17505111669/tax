@@ -46,6 +46,25 @@ export function unattributedArtifacts(artifacts: ArtifactLike[], windows: RunWin
   );
 }
 
+/**
+ * 某个产物属于第几次运行：取第一个「时间窗包含它」的运行。归不到任何一次时返回 null，
+ * 由调用方如实写成「—」，不猜。
+ *
+ * 此前这段逻辑是 TaskWorkbench 里的一个闭包，而交付 MD 的「所属运行」列与 manifest 的 run
+ * 字段都靠它——两个对外声称共用一份取数，却谁也测不到它。搬到这里与 artifactsOfRun /
+ * unattributedArtifacts 作伴，三个函数共用同一套时间窗判据。
+ */
+export function runOfArtifact(
+  artifacts: ArtifactLike[],
+  windows: RunWindow[],
+  name: string,
+): number | null {
+  const a = artifacts.find((x) => x.name === name);
+  if (!a) return null;
+  const w = windows.find((x) => artifactsOfRun([a], x).length > 0);
+  return w ? w.run : null;
+}
+
 /** 字节数格式化：导出表格与角标 tooltip 共用；整数不带小数（25 MB 而不是 25.00 MB） */
 export function fmtBytes(n: number): string {
   if (!Number.isFinite(n) || n < 0) return "—";
