@@ -21,6 +21,7 @@ import {
   UNCAPPED,
 } from "../../web/src/search-evidence.ts";
 import { db } from "../src/db.ts";
+import { MAX_RETAINED_TEXT, withRetainedText } from "@tax/agent-core";
 import { getTask, listTasks } from "../src/services/task-store.ts";
 
 const failures: string[] = [];
@@ -416,6 +417,54 @@ expect(
 expect("合并上限默认值大于单来源上限", MERGED_CITATION_LIMIT > CITATION_LIMIT, true);
 
 // 6) 真实任务走查：工具留存与结论正文里的每个 URL 都必须进入合并后的引用清单（除非超过上限）
+/**
+ * 留存正文的自洽判据。`retainedText` / `retainedChars` / `omittedChars` 三个字段是
+ * `withRetainedText` 一次写下的，界面上那句「平台留存时又截断 N 条、合计 M 字没有存下」直接拿
+ * 它们报数，所以三者对不上就是界面在报一个错的数。判据只写一份，合成样本与库里真实行都用它。
+ *
+ * 注意「截断」与「顶到上限」不是一回事：正文长度恰好等于上限时不截断、`omittedChars` 为 0，
+ * 所以只许单向推——`omittedChars > 0` 时 `retainedChars` 必须等于上限，反过来不成立。
+ */
+function retentionDefects(rec: Record<string, unknown>): string[] {
+  const bad: string[] = [];
+  const text = typeof rec.retainedText === "string" ? rec.retainedText : null;
+  if (text === null) return bad;
+  const chars = typeof rec.retainedChars === "number" ? rec.retainedChars : Number.NaN;
+  const om = typeof rec.omittedChars === "number" ? rec.omittedChars : Number.NaN;
+  if (!Number.isFinite(chars) || !Number.isFinite(om)) {
+    bad.push(`retainedChars / omittedChars 不是数（${String(rec.retainedChars)} / ${String(rec.omittedChars)}）`);
+    return bad;
+  }
+  if (chars > MAX_RETAINED_TEXT) bad.push(`留存 ${chars} 字超过上限 ${MAX_RETAINED_TEXT}`);
+  if (om < 0) bad.push(`omittedChars 为负（${om}）`);
+  if (om > 0 && chars !== MAX_RETAINED_TEXT) bad.push(`omittedChars=${om} 但 retainedChars=${chars}（截断时留存必须顶到上限）`);
+  if (chars < MAX_RETAINED_TEXT && om !== 0) bad.push(`retainedChars=${chars} 没顶到上限却有 omittedChars=${om}`);
+  if (text.length !== chars + (om > 0 ? 1 : 0)) bad.push(`正文 ${text.length} 字与 retainedChars=${chars} 不匹配（截断时结尾多一个省略号）`);
+  return bad;
+}
+
+// 合成侧先把判据钉住：库里真实行只代表「已经写下来的数据」，实现改坏了要等下一次联网才看得出来。
+// 长度扫过上限两侧，也扫「恰好等于上限」这一点——那是最容易写错成「截断」的边界。
+const RETAIN_SWEEP = [1, 2, MAX_RETAINED_TEXT - 1, MAX_RETAINED_TEXT, MAX_RETAINED_TEXT + 1, MAX_RETAINED_TEXT * 2];
+for (const n of RETAIN_SWEEP) {
+  const out = withRetainedText("fetch_content", { url: "https://x.gov.cn/a" }, "字".repeat(n)) as Record<string, unknown>;
+  checks += 1;
+  const bad = retentionDefects(out);
+  if (bad.length > 0) failures.push(`留存自洽·合成长度 ${n}：${bad.join("；")}`);
+}
+checks += 1;
+const emptyOut = withRetainedText("fetch_content", { url: "https://x.gov.cn/a" }, "") as Record<string, unknown>;
+if (emptyOut.retainedText !== undefined) failures.push("空正文却凭空造出了 retainedText");
+expect(
+  "长度扫描确实覆盖了上限两侧（不是只扫一边在这儿空跑）",
+  RETAIN_SWEEP.some((n) => n > MAX_RETAINED_TEXT) && RETAIN_SWEEP.some((n) => n < MAX_RETAINED_TEXT),
+  true,
+);
+let retainTotal = 0;
+let retainTruncated = 0;
+let retainCharsSum = 0;
+let retainOmittedSum = 0;
+const retainBad: string[] = [];
 let taskTotal = 0;
 let withSearch = 0;
 let metaOnlyCalls = 0;
@@ -448,6 +497,19 @@ for (const t of listTasks()) {
   const textCitesAll = extractTextCitations(text, UNCAPPED);
   const mergedAll = mergeCitations(citesAll, textCitesAll, UNCAPPED);
   const evidence = searchEvidence(parsed);
+  // 库里真实行：每一行留存正文的三个字段都必须自洽，否则界面报的截断条数与字数就是错的
+  for (const c of parsed) {
+    const rec = (c.result ?? null) as Record<string, unknown> | null;
+    if (!rec || typeof rec.retainedText !== "string") continue;
+    retainTotal += 1;
+    const chars = typeof rec.retainedChars === "number" ? rec.retainedChars : 0;
+    const om = typeof rec.omittedChars === "number" ? rec.omittedChars : 0;
+    retainCharsSum += chars;
+    retainOmittedSum += om;
+    if (om > 0) retainTruncated += 1;
+    checks += 1;
+    for (const why of retentionDefects(rec)) retainBad.push(`${t.id.slice(0, 8)} ${c.toolName}：${why}`);
+  }
   taskTotal += 1;
   // 走查报的数也用全量：这行日志会进验证记录，与看板对不上就会被当成两处口径打架
   citeTotal += mergedAll.length;
@@ -485,6 +547,11 @@ for (const t of listTasks()) {
     }
   }
 }
+expect("确实量到了库里的留存正文（不是这个功能没跑过在这儿空跑）", retainTotal >= 1, true);
+expect("库里每一行留存正文的三个字段都自洽（不自洽＝界面在报一个错的截断数）", retainBad, []);
+console.log(
+  `[verify] 留存正文截断实测：${retainTotal} 条留存 · 平台层截断 ${retainTruncated} 条 · 留住 ${retainCharsSum} 字 / 截掉 ${retainOmittedSum} 字（占原文 ${((retainOmittedSum / Math.max(1, retainCharsSum + retainOmittedSum)) * 100).toFixed(1)}%）`,
+);
 console.log(
   `[verify] 真实任务走查：${taskTotal} 个任务 · ${withSearch} 个用过联网检索 · 引用 ${citeTotal} 条（工具留存 ${toolCiteTotal} + 结论正文 ${textCiteTotal}，去重后 ${citeTotal}；政府/税务机关站点 ${officialTotal} 条）· 只留元数据的检索 ${metaOnlyCalls} 次`,
 );
