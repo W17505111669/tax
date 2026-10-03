@@ -48,6 +48,7 @@ import { listAgents } from "../src/agents.ts";
 import { AGENT_IDS } from "@tax/shared-schemas";
 import { listStoredCompares, type StoredCompare } from "../src/services/compare-stats.ts";
 import { listTasks, listToolCalls } from "../src/services/task-store.ts";
+import { extractIssues, pendingReviewCount } from "../src/services/issues.ts";
 import {
   ledgerCells,
   ledgerSort,
@@ -552,6 +553,10 @@ async function main(): Promise<void> {
       retention: string | null;
       /** 生成产物份数：与 /api/reader 的产物清单同一个判据（目录下 isFile 的个数） */
       artifacts: number;
+      /** 该任务待复核项数：与复核页、平台合计、看板缺口卡同一个 pendingReviewCount */
+      pending: number;
+      /** 该任务提取到的问题总数（含已复核的）：用来区分「一个问题都没有」与「问题都处置完了」 */
+      issues: number;
     }
   >();
   for (const t of targets) {
@@ -594,6 +599,8 @@ async function main(): Promise<void> {
       artifacts: fs.existsSync(outDir)
         ? fs.readdirSync(outDir, { withFileTypes: true }).filter((e) => e.isFile()).length
         : 0,
+      pending: pendingReviewCount(t.id),
+      issues: extractIssues(t.id).length,
     });
     // 比对页的期望值走 /api/tasks/:id/compares 用的那一份 listStoredCompares，顺序也是同一个
     // listToolCalls（ORDER BY started_at ASC）：界面少渲染一条、或把比率换成读留存字段，这里都会红。
@@ -704,6 +711,8 @@ async function main(): Promise<void> {
   /** 其中真渲染出「生成产物」区块的页数，与整块不渲染的页数（后者只计数、如实报，不判失败） */
   let artifactPanelSeen = 0;
   let artifactPanelMissing = 0;
+  /** 复核页逐任务的待复核项数核对：项数（为 0 说明这一屏压根没核到） */
+  let reviewChecks = 0;
   const toggleLabels = new Set<string>();
   let nodesTotal = 0;
   let charsTotal = 0;
@@ -990,6 +999,66 @@ async function main(): Promise<void> {
     // 比对页：这一屏的数字此前一个都没被核对过（scan 只是路过它扫 Markdown 残留）。期望值来自
     // /api/tasks/:id/compares 用的那一份 listStoredCompares——计数取自留存，一致率 / 覆盖率由
     // compareRates 现算（与工具返回文本、看板、作品说明同一个函数），不读留存里的百分比字段。
+    // 复核页：每个任务自己那个「N 项待税务师确认」此前没被核对过。平台合计（43 项）在 verify:stats
+    // 与看板缺口卡两处都对过了，逐任务的数字却只在界面上出现——取数与门禁是同一个 pendingReviewCount，
+    // 但渲染路径没人核。三种形态必须恰好命中一种：未完成态的「N 项待税务师确认」、完成态的
+    // 「仍有 N 项问题未复核」、0 项时的「暂无待复核事项」空态。完成态两句会同时出现，所以还要
+    // 互相对一遍：同一个数在同一页写两处，写歪了谁都看不出来。
+    //
+    // 这里必须用 innerText 而**不是** textContent：textContent 会把相邻节点的文本直接粘起来，
+    // 实测「渲染实测G」那页把前一个元素末尾的 3 与「3 项待税务师确认」粘成「33 项待税务师确认」，
+    // 于是门禁报了一个界面根本没显示的数（服务端 reviewPending 与 listTasks 都是 3）。
+    // 与产物区块那项正好相反——那边判「区块在不在」要无视浮层隐藏，所以用 textContent；
+    // 这边是**提取数字**，元素边界就是数字边界，只能用 innerText。
+    if (p.tab === "review" && p.taskId !== "") {
+      const want = expectOf.get(p.taskId);
+      if (want) {
+        const txt = ((await page.evaluate(`document.body.innerText`)) as string).replace(/\s+/g, " ");
+        const openM = /(\d+) 项待税务师确认/.exec(txt);
+        const doneM = /仍有 (\d+) 项问题未复核/.exec(txt);
+        const shown = openM?.[1] ?? doneM?.[1] ?? null;
+        reviewChecks += 1;
+        if (want.pending > 0) {
+          if (shown === null) {
+            numFails.push(
+              `${p.label} 取数说该任务有 ${want.pending} 项待复核，界面上两种文案都没出现（也没有空态提示）`,
+            );
+          } else if (Number(shown) !== want.pending) {
+            numFails.push(`${p.label} 复核页写「${shown} 项」≠ 取数 ${want.pending} 项待复核`);
+          }
+          reviewChecks += 1;
+          if (openM && doneM && openM[1] !== doneM[1]) {
+            numFails.push(
+              `${p.label} 复核页两处待复核数字不一致：「${openM[1]} 项待税务师确认」对「仍有 ${doneM[1]} 项问题未复核」`,
+            );
+          }
+        } else {
+          reviewChecks += 1;
+          if (shown !== null) {
+            numFails.push(`${p.label} 取数说该任务没有待复核项，界面却写着「${shown} 项」`);
+          }
+          reviewChecks += 1;
+          // 待复核 0 项有两种完全不同的情形，界面上的正确形态也不一样，判据必须分开：
+          // ①一个问题都没提取到 → 必须给「暂无待复核事项」空态，否则用户看到的是一块空白，
+          //   分不清是「没问题」还是「没加载出来」；
+          // ②提取到问题、但都复核完了 → **不该**出现那句空态，否则等于把「已处置完」说成
+          //   「从来没有问题」，把人工复核过的痕迹抹掉。
+          // 第一版判据只写了①，全库跑红了 8 处，红的全是②那类任务（「回归案例：土增模板映射填列」
+          // 「回归案例：研发费用归集核查与底稿」等）——是判据窄了，不是界面错了。
+          if (want.issues === 0) {
+            if (!txt.includes("暂无待复核事项")) {
+              numFails.push(
+                `${p.label} 一个问题都没提取到，界面却没给「暂无待复核事项」空态（空白一块，分不清是没提取到还是没加载）`,
+              );
+            }
+          } else if (txt.includes("暂无待复核事项")) {
+            numFails.push(
+              `${p.label} 该任务提取到 ${want.issues} 个问题且都已复核，界面却写「暂无待复核事项」——把「已处置完」说成了「没有问题」`,
+            );
+          }
+        }
+      }
+    }
     if (p.tab === "compare" && p.taskId !== "") {
       const want = cmpOf.get(p.taskId);
       const wantCount = want ? want.usable.length + want.unusable.length : 0;
@@ -1710,6 +1779,12 @@ async function main(): Promise<void> {
     );
   }
   const artifactPanelGone = artifactBtnChecks > 0 && artifactPanelSeen === 0;
+  const reviewMissing = args.tabs.includes("review") && targets.length > 0 && reviewChecks === 0;
+  if (args.tabs.includes("review")) {
+    console.log(
+      `[scan] 复核页待复核项数核对：${reviewChecks} 项（每个任务 2~4 项：数字 + 空态 + 两处文案互相一致）`,
+    );
+  }
   if (args.tabs.includes("result")) {
     console.log(
       `[scan] 结果页「联网留存不完整」提示：应有 ${retentionNotes} 个任务（其余任务走「这句不该出现」那半边判据）`,
@@ -1739,7 +1814,8 @@ async function main(): Promise<void> {
       recentMissing ||
       readerMissing ||
       (args.tabs.includes("result") && targets.length > 0 && artifactBtnChecks === 0) ||
-      artifactPanelGone)
+      artifactPanelGone ||
+      reviewMissing)
   ) {
     console.log(
       allHits.length > 0
@@ -1772,7 +1848,9 @@ async function main(): Promise<void> {
                                   ? "[FAIL] 看板近 14 天趋势一个数都没核对到，这项覆盖是空的"
                                   : recentMissing
                                     ? "[FAIL] 看板「最近活动」一条都没核对到，这项覆盖是空的"
-                                    : "[FAIL] 界面上的数字与库里的取数对不上",
+                                    : reviewMissing
+                                      ? "[FAIL] 一个复核页都没核对到待复核项数，这项覆盖是空的"
+                                      : "[FAIL] 界面上的数字与库里的取数对不上",
     );
     process.exit(1);
   }
