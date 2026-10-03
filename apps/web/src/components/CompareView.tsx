@@ -3,7 +3,7 @@ import type { CompareDiff, CompareRecord, CompareRef, UnusableCompare } from "..
 import { IconAlert, IconCheck, IconCopy, IconDownload } from "./Icons.tsx";
 import { downloadCsv, downloadText } from "../download.ts";
 import { dateTimeStamp, dayStamp } from "../time-format.ts";
-import { moneyText } from "../format.ts";
+import { moneyText, percentFrom } from "../format.ts";
 import { KEYS, readEnum, writeRaw } from "../local-store.ts";
 import { compareModeLabel, compareModeOf } from "../compare-mode.ts";
 
@@ -103,12 +103,12 @@ export function CompareView({ compares, unusable = [], onOpenTarget, onOpenPair 
       `- 人工底稿 (B)：${rec.result.b?.name ?? "—"}`,
       `- 一致率：${rec.rates.matchRateText}（只看两边都有的项，回答「填得对不对」）`,
       `- 覆盖率：${rec.rates.coverageText}（人工底稿有的项里自动填到多少，回答「填得全不全」）`,
-      `- 总准确率：${t.accuracyPercent}%（比对 ${t.compared}：一致 ${t.matched}、差异 ${t.mismatched}、仅A ${t.onlyA}、仅B ${t.onlyB}）`,
+      `- 总准确率：${percentFrom(t.accuracyPercent)}（比对 ${t.compared}：一致 ${t.matched}、差异 ${t.mismatched}、仅A ${t.onlyA}、仅B ${t.onlyB}）`,
       `- 口径说明：总准确率的分母把「填错」与「只有一侧有」混在一起，单看它分不清问题在填列逻辑还是在两份底稿的口径范围，必须与上面两个比率一起读；作品说明的累计口径已不再报总准确率，此处保留是为了能与这一次比对的原始计数对上`,
       "",
     ];
     for (const s of rec.result.sheets) {
-      lines.push(`## 工作表「${s.sheetA}」 准确率 ${s.accuracyPercent}%`);
+      lines.push(`## 工作表「${s.sheetA}」 准确率 ${percentFrom(s.accuracyPercent)}`);
       lines.push("");
       lines.push("| 类型 | 位置 | 系统底稿 (A) | 人工底稿 (B) |");
       lines.push("| --- | --- | --- | --- |");
@@ -128,7 +128,7 @@ export function CompareView({ compares, unusable = [], onOpenTarget, onOpenPair 
   const copySummary = (rec: CompareRecord) => {
     const t = rec.result.totals;
     const lines = [
-      `比对准确率 ${t.accuracyPercent}%（比对 ${t.compared}：一致 ${t.matched}、差异 ${t.mismatched}、仅A ${t.onlyA}、仅B ${t.onlyB}）· 一致率 ${rec.rates.matchRateText} · 覆盖率 ${rec.rates.coverageText}`,
+      `比对准确率 ${percentFrom(t.accuracyPercent)}（比对 ${t.compared}：一致 ${t.matched}、差异 ${t.mismatched}、仅A ${t.onlyA}、仅B ${t.onlyB}）· 一致率 ${rec.rates.matchRateText} · 覆盖率 ${rec.rates.coverageText}`,
     ];
     for (const s of rec.result.sheets) {
       for (const d of s.diffs) {
@@ -147,7 +147,7 @@ export function CompareView({ compares, unusable = [], onOpenTarget, onOpenPair 
     const lines = [
       "# 基准对比报告",
       "",
-      `- 基准记录：${baseRec.at ?? baseRec.id}　准确率 ${bt.accuracyPercent}%`,
+      `- 基准记录：${baseRec.at ?? baseRec.id}　准确率 ${percentFrom(bt.accuracyPercent)}`,
       "",
       "| 记录 | 时间 | 准确率 Δ(pp) | 差异 Δ | 仅系统 Δ | 仅人工 Δ |",
       "| --- | --- | --- | --- | --- | --- |",
@@ -171,7 +171,7 @@ export function CompareView({ compares, unusable = [], onOpenTarget, onOpenPair 
     const filterDesc = `${kindFilter === "all" ? "全部" : KIND_META[kindFilter].label}${
       addrQuery.trim() ? ` / 地址含「${addrQuery.trim()}」` : ""
     }`;
-    const lines = [`比对准确率 ${t.accuracyPercent}%（筛选：${filterDesc}）`];
+    const lines = [`比对准确率 ${percentFrom(t.accuracyPercent)}（筛选：${filterDesc}）`];
     for (const s of rec.result.sheets) {
       for (const d of s.diffs.filter(matchFilter)) {
         const kind = d.kind === "mismatch" ? "差异" : d.kind === "only_a" ? "仅系统" : "仅人工";
@@ -347,8 +347,8 @@ export function CompareView({ compares, unusable = [], onOpenTarget, onOpenPair 
                 <span>准确率趋势 · {pts.length} 次比对</span>
                 <span>
                   {trendHover !== null && pts[trendHover] !== undefined
-                    ? `第 ${trendHover + 1} 次 · ${pts[trendHover]}%`
-                    : `最低 ${min}% · 最高 ${max}%`}
+                    ? `第 ${trendHover + 1} 次 · ${percentFrom(pts[trendHover])}`
+                    : `最低 ${percentFrom(min)} · 最高 ${percentFrom(max)}`}
                 </span>
               </div>
               <svg
@@ -614,7 +614,7 @@ export function CompareView({ compares, unusable = [], onOpenTarget, onOpenPair 
                 <div className="flex flex-wrap items-baseline gap-2">
                   <span className="text-[13px] font-medium text-mist-100">工作表「{s.sheetA}」</span>
                   <span className="text-[11.5px] text-mist-600">
-                    准确率 {s.accuracyPercent}% · 一致 {s.matched}/{s.compared} · 跳过公式格 {s.skippedFormulas}
+                    准确率 {percentFrom(s.accuracyPercent)} · 一致 {s.matched}/{s.compared} · 跳过公式格 {s.skippedFormulas}
                   </span>
                 </div>
                 {s.diffs.length === 0 ? (

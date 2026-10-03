@@ -285,6 +285,18 @@ console.log(`[verify] format.ts 导出消费点走查：${fmtExports.length} 个
 // 约定是赋值目标名含 width。`const rate = percentOf(...) ?? 0` 再渲染成 `${rate}%`，
 // 就是把「还没有任务」说成「完成率 0%」——本轮界面上 1 处、下载的概览快照 MD 里 1 处都是这么写的。
 const WIDTH_TARGET = /(?:const|let)\s+\w*[Ww]idth\w*\s*=/;
+/**
+ * 走查四：百分比文案不许自己拼。「数值 → 百分比文案」全库只许 format.ts 的 percentFrom 一份实现。
+ * 此前运行时目录里有 13 处裸拼（`${t.accuracyPercent}%`、JSX 里 `{s.accuracyPercent}%`），
+ * 其中 tool-outcome.ts 与 AgentOverview 的 SVG 圆心标签还是 format.ts 之外的两份完整实现
+ * （各自写了一遍 `rate === null ? "—" : ...`）。裸拼今天没出事，只因为这些字段类型恰好是非空
+ * number；哪天某个比率改成 `number | null`，界面与下载的交付 MD 上就会直接出现「null%」。
+ * 例外只有一类：CSS 几何属性（条宽、扇形角度）确实需要一个数，那不是文案。
+ */
+const BARE_PCT = /\{[A-Za-z_$][\w.$?\[\]]*\}%/;
+const CSS_GEOM = /(width|height|left|right|top|bottom|flex|basis|offset)\s*:/i;
+const barePct: string[] = [];
+let codeLines = 0;
 const percentOfSites: string[] = [];
 const badNullDefault: string[] = [];
 const walkPct = (dir: string): void => {
@@ -298,17 +310,28 @@ const walkPct = (dir: string): void => {
     const rel = path.relative(path.resolve(here, "..", ".."), p);
     const lines = fs.readFileSync(p, "utf8").split(/\r?\n/);
     for (let i = 0; i < lines.length; i += 1) {
-      const text = lines[i] ?? "";
-      if (!text.includes("percentOf(")) continue;
-      percentOfSites.push(`${rel}:${i + 1}`);
-      if (/\?\?\s*0\b|\|\|\s*0\b/.test(text) && !WIDTH_TARGET.test(text)) badNullDefault.push(`${rel}:${i + 1}`);
+      // 行尾注释不是渲染路径，先剥掉再判（本轮 tool-outcome.ts 的说明注释里就带着 `${rate}%` 样本）
+      const text = (lines[i] ?? "").replace(/\/\/.*$/, "");
+      codeLines += 1;
+      const at = `${rel}:${i + 1}`;
+      if (text.includes("percentOf(")) {
+        percentOfSites.push(at);
+        if (/\?\?\s*0\b|\|\|\s*0\b/.test(text) && !WIDTH_TARGET.test(text)) badNullDefault.push(at);
+      }
+      if (BARE_PCT.test(text) && !CSS_GEOM.test(text)) barePct.push(at);
     }
   }
 };
 for (const d of FMT_DIRS) walkPct(d);
 expect("percentOf 走查确实走到了调用点（不是空跑）", percentOfSites.length >= 1, true);
 expect("percentOf 的 null 没有被 ?? 0 兜底成「0%」（只许兜给名字含 width 的几何尺寸变量）", badNullDefault, []);
-console.log(`[verify] percentOf 调用点走查：${percentOfSites.length} 处 · 把 null 兜成 0 当文案的 ${badNullDefault.length} 处`);
+// 正则本身也要自检：写废了的正则会让这条走查永远绿，而它绿的樣子与「全库都合规」一模一样
+expect("裸拼 % 的正则确实能命中样本（不是正则写废了在这儿空跑）", [BARE_PCT.test("`${rate}%`"), BARE_PCT.test("{rate}%"), BARE_PCT.test("percentFrom(rate)")], [true, true, false]);
+expect("裸拼 % 的走查确实扫到了代码行（不是目录空了在这儿空跑）", codeLines > 1000, true);
+expect("界面与服务端都不再自己拼百分号（「数值 → 百分比文案」只留 percentFrom 一份实现）", barePct, []);
+console.log(
+  `[verify] percentOf 调用点走查：${percentOfSites.length} 处 · 把 null 兜成 0 当文案的 ${badNullDefault.length} 处 · 裸拼 % 残留 ${barePct.length} 处（扫了 ${codeLines} 行）`,
+);
 
 console.log(`[verify] 数字与单位排版检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
@@ -317,5 +340,5 @@ if (failures.length > 0) {
   process.exit(1);
 }
 console.log(
-  "[PASS] 数字与单位排版正确（去零 / 百分比取值与兜底 / 单位空隙 / 字节数 / 组件不再各自 round / 导出无死代码 / null 不被兜成 0%）",
+  "[PASS] 数字与单位排版正确（去零 / 百分比取值与兜底 / 单位空隙 / 字节数 / 组件不再各自 round / 导出无死代码 / null 不被兜成 0% / 百分号只由 percentFrom 拼）",
 );

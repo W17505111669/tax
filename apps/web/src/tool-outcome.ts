@@ -23,7 +23,7 @@
  * 未完成次数单独摆出来给人看，不藏进比率里，也不拿它去把成功率做高。
  */
 
-import { percentOf } from "./format.ts";
+import { percentFrom, percentOf } from "./format.ts";
 
 export interface ToolOutcomeCounts {
   /** 调用行总数 */
@@ -102,7 +102,8 @@ export function ringSegments(c: ToolOutcomeCounts, circumference: number): RingS
 /** 一行文字说清三态，导出 MD / TSV / 快照共用，避免各处各写一句话口径不一致 */
 export function outcomeLine(c: ToolOutcomeCounts): string {
   const rate = successRate(c);
-  const rateText = rate === null ? "—" : `${rate}%`;
+  // 走 percentFrom：这里此前自己拼 `${rate}%`，等于「数值 → 百分比文案」在 format.ts 之外又存了一份
+  const rateText = percentFrom(rate);
   const base = `工具调用 ${c.calls} 次 · 成功 ${c.ok} · 失败 ${c.failed} · 成功率 ${rateText}（分母为有返回结果的 ${resolvedCalls(c)} 次）`;
   return c.unfinished > 0
     ? `${base} · 另有 ${c.unfinished} 次调用没有结果落库（结束事件未配对回该行，或进程在工具返回前结束；不计入成功率分子分母）`

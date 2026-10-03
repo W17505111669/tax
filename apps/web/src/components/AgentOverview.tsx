@@ -548,7 +548,7 @@ export function AgentOverview({
     { label: p ? `底稿产物 ${p.artifacts} 份` : `核心能力 ${agent.capabilities.length} 项` },
     {
       label:
-        p && p.compareMatchRateOverall !== null ? `比对一致率 ${p.compareMatchRateOverall}%` : `历史任务 ${stats.tasks} 个`,
+        p && p.compareMatchRateOverall !== null ? `比对一致率 ${percentFrom(p.compareMatchRateOverall)}` : `历史任务 ${stats.tasks} 个`,
     },
   ];
 
@@ -830,7 +830,7 @@ export function AgentOverview({
                   // 单位串保持原长度量级：这张卡在 xl:grid-cols-6 的窄格里，写长了会折行挤动整排布局
                   unit:
                     stats.platform.compareMatchRateOverall !== null
-                      ? `% · 累计一致率 ${stats.platform.compareMatchRateOverall}%`
+                      ? `% · 累计一致率 ${percentFrom(stats.platform.compareMatchRateOverall)}`
                       : "%",
                 },
                 {
@@ -1414,7 +1414,7 @@ export function AgentOverview({
                   ) : null,
                 )}
                 <text x="16" y="18" textAnchor="middle" fill="#e6edf7" style={{ fontSize: 8.5, fontWeight: 600 }}>
-                  {rate === null ? "—" : `${Math.round(rate)}%`}
+                  {percentFrom(rate === null ? null : Math.round(rate))}
                 </text>
               </svg>
               <div className="space-y-0.5 text-[11px] text-mist-500">
