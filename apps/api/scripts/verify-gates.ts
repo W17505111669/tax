@@ -131,13 +131,15 @@ expect("空库复跑名单里只有 verify-*（scan 要浏览器与前端，复�
  * 只会产出一批为了绿而写的样本——那比没有更坏。补齐一个就把下限抬一格。
  */
 const RESIDUE = /, \[\]\);/;
-const POSITIVE_CTL = /\.test\(\s*["'`]/;
+// 阳性对照的识别是**约定式**的（与上面 GUARD 认「确实 / 空跑」同一个套路）：要么直接拿字面量
+// 样本 `.test("...")`，要么断言名里写「确实能命中」。所以补对照时得沿用这个措辞，否则统计不到。
+const POSITIVE_CTL = /\.test\(\s*["'`]|确实能命中|确实命中/;
 const allGates = [...files, ...scanFiles].filter((f) => f !== SELF);
 const withResidue = allGates.filter((f) => RESIDUE.test(srcOf(f)));
 const withCtl = withResidue.filter((f) => POSITIVE_CTL.test(srcOf(f)));
 const noCtl = withResidue.filter((f) => !POSITIVE_CTL.test(srcOf(f)));
 expect("确实找到了带残留判据的门禁（不是这条走查自己空跑）", withResidue.length >= 20, true);
-expect("带阳性对照的门禁数不许跌（补齐一个就抬一格，目标是有残留判据的全都带）", withCtl.length >= 3, true);
+expect("带阳性对照的门禁数不许跌（补齐一个就抬一格，目标是有残留判据的全都带）", withCtl.length >= 5, true);
 console.log(
   `[verify] 残留判据阳性对照覆盖：${withResidue.length} 个门禁有「必须为空」型判据 · 其中 ${withCtl.length} 个带已知违规样本自检 · 待补 ${noCtl.length} 个`,
 );

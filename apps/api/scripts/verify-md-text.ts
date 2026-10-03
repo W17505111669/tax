@@ -81,8 +81,46 @@ const DOC = [
   "",
   "按工具确定性测算，可加计扣除基数 **1,755,555.55 元**。",
 ].join("\n");
+
+/**
+ * 「界面上不许出现 Markdown 原文」这件事的模式表。整篇走查与全库真实结论走查共用一份——
+ * 此前井号标题那条在两处各写了一遍字面量，改一边不会带动另一边。
+ */
+const ARTIFACTS = [
+  ["井号标题", /(^|\s)#{1,6}\s/],
+  ["反引号", /`/],
+  ["粗体记号", /\*\*/],
+  ["表格分隔行", /\|\s*-{3,}/],
+  ["链接语法", /\]\(https?:\/\//],
+] as Array<[string, RegExp]>;
+const reOf = (name: string): RegExp | undefined => ARTIFACTS.find(([n]) => n === name)?.[1];
+// 阳性对照：这张表驱动的断言方向全是「不得命中」。任何一条模式写废（少个转义、量词写错），
+// leaks 就永远是空数组，门禁绿得和全库合规一模一样；而 `withConclusion > 0` 那两条防空跑断言
+// 查的是数据那一侧，查不出模式坏了。所以逐条拿已知违规样本反着断一次，并且用的必须是表里
+// 那同一个 RegExp 对象——另打一份字面量去自检等于没检，两份会各自漂。
+const ARTIFACT_SAMPLES: Record<string, string> = {
+  井号标题: "## 一、核查结论",
+  反引号: "见 `土地增值税清算表` 第 3 行",
+  粗体记号: "差额 **454,444.45 元**",
+  表格分隔行: "| --- | --- |",
+  链接语法: "[原文](https://www.chinatax.gov.cn/x.html)",
+};
+for (const [name, re] of ARTIFACTS) {
+  expect(
+    `「${name}」这条模式确实能命中已知违规样本（否则「不含记号」那些断言全是假绿）`,
+    re.test(ARTIFACT_SAMPLES[name] ?? ""),
+    true,
+  );
+}
+expect(
+  "每条模式都配了阳性对照样本（漏配的那条等于没自检）",
+  ARTIFACTS.filter(([n]) => !(n in ARTIFACT_SAMPLES)).map(([n]) => n),
+  [],
+);
 const plain = markdownToPlainText(DOC);
-ok("整篇里不再出现井号标题", !/(^|\s)#{1,6}\s/.test(plain), plain.slice(0, 80));
+const HEADING_RE = reOf("井号标题");
+expect("确实取到了井号标题那条模式（表被改过就当场红，不静默跳过）", typeof HEADING_RE, "object");
+ok("整篇里不再出现井号标题", HEADING_RE ? !HEADING_RE.test(plain) : false, plain.slice(0, 80));
 ok("整篇里不再出现反引号", !plain.includes("`"));
 ok("整篇里不再出现粗体记号", !plain.includes("**"));
 ok("mermaid 围栏内容被整块丢掉（flowchart 不该出现在摘要里）", !plain.includes("flowchart") && !plain.includes("A[辅助账]"));
@@ -110,13 +148,6 @@ const tasks = db.prepare(`SELECT id, title, result FROM tasks`).all() as unknown
   title: string;
   result: string | null;
 }>;
-const ARTIFACTS = [
-  ["井号标题", /(^|\s)#{1,6}\s/],
-  ["反引号", /`/],
-  ["粗体记号", /\*\*/],
-  ["表格分隔行", /\|\s*-{3,}/],
-  ["链接语法", /\]\(https?:\/\//],
-] as Array<[string, RegExp]>;
 let withConclusion = 0;
 let tocTotal = 0;
 const leaks: string[] = [];

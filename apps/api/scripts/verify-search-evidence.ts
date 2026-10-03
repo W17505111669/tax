@@ -256,8 +256,23 @@ const oursOnly = retentionNote({
 expect("只有留存层截断时不提工具层", (oursOnly ?? "").includes("联网工具自己截断"), false);
 expect("只有留存层截断时不写工具层那句字数口径", (oursOnly ?? "").includes("不推算字数"), false);
 expect("只有留存层截断时照样给出条数与字数", (oursOnly ?? "").includes("平台留存时又截断 1 条、合计 500 字没有存下"), true);
+/**
+ * 两条负向断言的判据模式。提到具名常量上是为了让阳性对照与判据用**同一个 RegExp 对象**——
+ * 另打一份字面量去自检等于没检，两份会各自漂。
+ * MD_NOTE_MARK 管界面纯文本展示位，MD_TITLE_MARK 管从正文提取出来的引用标题。
+ */
+const MD_NOTE_MARK = /[#*`|>]/;
+const MD_TITLE_MARK = /(\*\*|`)/;
+// 阳性对照：这两条的断言方向都是「不得命中」，模式写废就永远绿，绿的样子与「文案确实干净」
+// 一模一样。逐类记号各断一次它确实能命中。
+expect("「说明不含记号」的模式确实能命中井号", MD_NOTE_MARK.test("## 结论"), true);
+expect("「说明不含记号」的模式确实能命中粗体记号", MD_NOTE_MARK.test("差额 **454 元**"), true);
+expect("「说明不含记号」的模式确实能命中反引号与竖线", MD_NOTE_MARK.test("`a` | b"), true);
+expect("「说明不含记号」的模式确实能命中引用记号", MD_NOTE_MARK.test("> 引自"), true);
+expect("「标题不含记号」的模式确实能命中粗体记号", MD_TITLE_MARK.test("**标题**"), true);
+expect("「标题不含记号」的模式确实能命中反引号", MD_TITLE_MARK.test("见 `表A`"), true);
 // 这句话在界面上是纯文本展示位，带记号就会以原文显示出来
-expect("说明不含 Markdown 记号", /[#*`|>]/.test(rNote ?? ""), false);
+expect("说明不含 Markdown 记号", MD_NOTE_MARK.test(rNote ?? ""), false);
 
 // 5b) 结论正文里的引用提取与两来源合并
 expect("markdown 链接取链接文字", extractTextCitations("见[政策执行指引](https://a.gov.cn/x.pdf)。")[0], {
@@ -492,7 +507,7 @@ ok(
 );
 ok(
   "提取出的标题都不带 Markdown 记号",
-  mdCites.every((c) => !/(\*\*|`)/.test(c.title)),
+  mdCites.every((c) => !MD_TITLE_MARK.test(c.title)),
   JSON.stringify(mdCites.map((c) => c.title)),
 );
 expect("地址尾部的反引号被剥掉", cleanBareUrl("https://gov.cn/a_content.html`"), "https://gov.cn/a_content.html");

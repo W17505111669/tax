@@ -215,6 +215,11 @@ expect("金额的非有限值同样给「—」", moneyText(NaN), "—");
 const FMT_DIRS = [path.resolve(here, "..", "..", "web", "src"), path.resolve(here, "..", "src")];
 const FMT_ALLOWED = new Set(["time-format.ts", "format.ts"]);
 const INLINE_FMT = /toLocaleString\(\s*"zh-CN"/;
+// 阳性对照：这条走查断的是「offenders 必须为空」，模式写废（少个转义、引号种类写错、
+// 忘了 zh-CN 大小写）就永远空、永远绿，而 `fmtFiles > 30` 那条防空跑断言查的是文件那一侧，
+// 查不出模式坏了。所以拿已知违规与已知合规的两个样本各断一次。
+expect("内联格式化的模式确实能命中已知违规写法", INLINE_FMT.test(`n.toLocaleString("zh-CN")`), true);
+expect("内联格式化的模式不误伤合规写法", INLINE_FMT.test("groupNumber(n)"), false);
 const offenders: string[] = [];
 let fmtFiles = 0;
 const walkFmt = (dir: string): void => {
