@@ -130,6 +130,16 @@ expect("空库复跑名单里只有 verify-*（scan 要浏览器与前端，复�
  * 补阳性对照，每个都得先读懂它的判据、再挑一个**真的会长成这样**的坏样本，一次提交里赶完
  * 只会产出一批为了绿而写的样本——那比没有更坏。补齐一个就把下限抬一格。
  */
+// 分诊规则（本轮逐条看过之后定下来的，三类**不需要**阳性对照，别再照着名单硬补）：
+// 1. 纯函数的「空输入 → 空输出」单测，例如 verify-textfind 的「空查询没有命中」、
+//    verify-tool-failures 的「空清单分组为空数组」。判据坏了会变红不会变绿。
+// 2. 模式驱动但方向朝红的：例如 `/^https?:\/\//.test(url)` 不匹配就 push 进 failures，
+//    模式写废 → 全都判违规 → 红。这类是自保护的。
+// 3. 「某个文件不再出现字符串 X」型探针（verify-textfind 里那一批 `!reader.includes(...)`）。
+//    X 已经不在代码里了，阳性对照在原理上无法构造——你没法让一段被删掉的旧写法重现。
+//    这类的有效防护是同一个文件上必须有正向 includes 断言，证明读对了文件、文件不是空的。
+// 真正需要补的只剩一种：**扫一个总体（文件树 / 库里的行）收集违规项、断言列表为空**，
+// 且模式写废会让列表变空而不是变红。
 const RESIDUE = /, \[\]\);/;
 // 这个探针是**刻意宽的**，它会把纯函数单测也算进来（例如「空变更列表」「空数组是合法值」
 // 「非对象结果返回空」——那些是输入为空时期望输出为空的正常单测，判据坏了会变红不会变绿，
@@ -148,9 +158,9 @@ const noCtl = withResidue.filter((f) => !POSITIVE_CTL.test(srcOf(f)));
 expect("确实找到了带残留判据的门禁（不是这条走查自己空跑）", withResidue.length >= 20, true);
 expect("带阳性对照的门禁数不许跌（补齐一个就抬一格，目标是有残留判据的全都带）", withCtl.length >= 7, true);
 console.log(
-  `[verify] 残留判据阳性对照覆盖：${withResidue.length} 个门禁有「必须为空」型判据 · 其中 ${withCtl.length} 个带已知违规样本自检 · 待补 ${noCtl.length} 个`,
+  `[verify] 残留判据阳性对照覆盖：${withResidue.length} 个门禁有「必须为空」型判据 · 其中 ${withCtl.length} 个带已知违规样本自检 · 待分诊 ${noCtl.length} 个（含纯函数空输入单测，不都需要补）`,
 );
-console.log(`[verify] 待补阳性对照的门禁：${noCtl.join("、")}`);
+console.log(`[verify] 待分诊阳性对照的门禁：${noCtl.join("、")}`);
 
 /**
  * 生成物循环依赖：`report:test` 内部会逐个跑 `VERIFY_SCRIPTS`（42 个）再把 PASS/FAIL 写进

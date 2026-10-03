@@ -144,13 +144,19 @@ ok("DOM 包裹改为遍历区间", reader.includes("const ranges = findRanges(te
 ok("markdown 命中数以 DOM 的 mark 数为准", reader.includes("mark[data-find]\").length") && reader.includes("setMdMarks"));
 ok("不再手写环形取模", !reader.includes("% matchCount) + matchCount") && !reader.includes("+ 360) % 360") && !reader.includes("% tabs.length) + tabs.length"));
 ok("计数文案走 matchLabel", reader.includes("matchLabel(findIdx, matchCount)"));
-const allComponents = fs
-  .readdirSync(path.join(webSrc, "components"))
-  .filter((f) => /\.tsx?$/.test(f))
-  .filter((f) =>
-    fs.readFileSync(path.join(webSrc, "components", f), "utf8").includes(".toLowerCase().split("),
-  )
+const SPLIT_PROBE = ".toLowerCase().split(";
+const componentFiles = fs.readdirSync(path.join(webSrc, "components")).filter((f) => /\.tsx?$/.test(f));
+const allComponents = componentFiles
+  .filter((f) => fs.readFileSync(path.join(webSrc, "components", f), "utf8").includes(SPLIT_PROBE))
   .sort();
+// 这条判据是「扫一遍组件目录、残留必须为空」。它有两种静默失效，两种都给出空数组、都是绿：
+// 探针字符串打错一个字符，或者目录/后缀过滤失效导致一个文件都没扫到。所以两头各钉一条。
+expect("组件走查确实扫到了文件（不是后缀过滤失效在这儿空跑）", componentFiles.length >= 10, true);
+expect(
+  "split 探针确实能命中已知违规写法（探针打错一个字符就会永远空、永远绿）",
+  "text.toLowerCase().split(q)".includes(SPLIT_PROBE),
+  true,
+);
 expect("组件里不再用 split 数命中次数", allComponents, []);
 
 console.log(`[verify] 阅读器查找检查项=${checks} 失败=${failures.length}`);
