@@ -377,9 +377,12 @@ const TOGGLE_ALLOW = /^生成修订指令/;
  * 内容从来没被扫过一次——实测 34 页 201 次点击、14 类入口，全是带文字的按钮。
  */
 const REQUIRED_TOGGLES: Array<{ label: string; tabs: string[] }> = [
-  { label: "文号溯源", tabs: ["result", "review"] },
+  // tab 归属按实测填，不按「大概也会在那儿」填：--all --tabs=review 实扫 39 页，
+  // 复核页枚举到 5 类入口，这两颗都不在（复查面板挂在 result 分支里，另一颗在 ResultView
+  // 的弱证据块）。写宽不会红，只会让「必需入口都覆盖到了」变成一句没逐 tab 验过的话。
+  { label: "文号溯源", tabs: ["result"] },
   { label: "键盘快捷键", tabs: ["timeline", "result", "compare", "review"] },
-  { label: "生成修订指令", tabs: ["result", "review"] },
+  { label: "生成修订指令", tabs: ["result"] },
 ];
 
 const listTogglesSource = `(spec) => {
@@ -697,6 +700,8 @@ async function main(): Promise<void> {
    * 按老判据会红，而红的原因与覆盖率无关。
    */
   const seenLabels = new Set<string>();
+  /** 每个 tab 上真枚举到过的入口标签：用来核 REQUIRED_TOGGLES 里手写的 tab 归属有没有虚标 */
+  const seenTabs = new Map<string, Set<string>>();
   const seenIconOnly = new Set<string>();
   /** 其中扫完成功关回去的次数：关不掉的浮层会一直盖住后面的入口 */
   let iconOnlyClosed = 0;
@@ -1005,9 +1010,6 @@ async function main(): Promise<void> {
         }
       }
     }
-    // 比对页：这一屏的数字此前一个都没被核对过（scan 只是路过它扫 Markdown 残留）。期望值来自
-    // /api/tasks/:id/compares 用的那一份 listStoredCompares——计数取自留存，一致率 / 覆盖率由
-    // compareRates 现算（与工具返回文本、看板、作品说明同一个函数），不读留存里的百分比字段。
     // 复核页：每个任务自己那个「N 项待税务师确认」此前没被核对过。平台合计（43 项）在 verify:stats
     // 与看板缺口卡两处都对过了，逐任务的数字却只在界面上出现——取数与门禁是同一个 pendingReviewCount，
     // 但渲染路径没人核。三种形态必须恰好命中一种：未完成态的「N 项待税务师确认」、完成态的
@@ -1068,6 +1070,9 @@ async function main(): Promise<void> {
         }
       }
     }
+    // 比对页：这一屏的数字此前一个都没被核对过（scan 只是路过它扫 Markdown 残留）。期望值来自
+    // /api/tasks/:id/compares 用的那一份 listStoredCompares——计数取自留存，一致率 / 覆盖率由
+    // compareRates 现算（与工具返回文本、看板、作品说明同一个函数），不读留存里的百分比字段。
     if (p.tab === "compare" && p.taskId !== "") {
       const want = cmpOf.get(p.taskId);
       const wantCount = want ? want.usable.length + want.unusable.length : 0;
@@ -1597,6 +1602,9 @@ async function main(): Promise<void> {
         const toggles = await listToggles();
         for (const x of toggles) {
           seenLabels.add(x.label);
+          const perTab = seenTabs.get(p.tab) ?? new Set<string>();
+          perTab.add(x.label);
+          seenTabs.set(p.tab, perTab);
           if (x.iconOnly) seenIconOnly.add(x.label);
         }
         // 必需入口先点：interactLimit 是每页的点击预算（默认 10），DOM 顺序在前的一堆普通入口
@@ -1694,6 +1702,34 @@ async function main(): Promise<void> {
         (r) => r.tabs.some((t) => args.tabs.includes(t)) && ![...seenLabels].some((l) => l.includes(r.label)),
       ).map((r) => r.label)
     : [];
+  // 必需入口的 tab 归属必须与实测挂载一致。REQUIRED_TOGGLES 是手写的，而**写宽了不会红**：
+  // 上面两条判定都按 label 全局去重（seenLabels / toggleLabels 都不分 tab），于是全库扫时只要
+  // 任一 tab 上点到过就算覆盖。实测「文号溯源」与「生成修订指令」被标了 review 好几轮，
+  // 而复核页上两颗都不在（前者挂在 result 页的复查面板里，后者一颗在同一个面板、一颗在
+  // ResultView 的弱证据块里，都在 result）。写宽的代价不只是噪音：它让「必需入口都覆盖到了」
+  // 这句话看起来像是逐 tab 验过的，其实只在一个 tab 上验过。
+  const scannedTabs = new Set(pages.map((x) => x.tab));
+  const overstated: string[] = [];
+  let tabSpecChecks = 0;
+  if (args.interact) {
+    for (const r of REQUIRED_TOGGLES) {
+      for (const t of r.tabs) {
+        if (!scannedTabs.has(t)) continue; // 本次没扫这个 tab，无从判定，不算它虚标
+        specChecks += 1;
+        tabSpecChecks += 1;
+        const labels = seenTabs.get(t) ?? new Set<string>();
+        if (![...labels].some((l) => l.includes(r.label))) {
+          overstated.push(`「${r.label}」声明在 ${t} 页，本次在 ${t} 页枚举到 ${labels.size} 类入口却没有它`);
+        }
+      }
+    }
+  }
+  for (const o of overstated) numFails.push(`必需入口 tab 归属虚标：${o}`);
+  // 这条核对自己也不能空跑：tabs 被清空、或 scannedTabs 判据写歪时，上面一条都不会核，
+  // 「0 处虚标」就成了假绿。任何 tab 的跑法都至少该核到一条（键盘快捷键标了全部 4 个 tab）。
+  if (args.interact && tabSpecChecks === 0) {
+    numFails.push("必需入口 tab 归属一条都没核到：REQUIRED_TOGGLES 的 tabs 被清空了，或 scannedTabs 判据失配");
+  }
   // 图标按钮一个都没点到 = title / aria-label 那条匹配路径失效了（词汇表被改窄、或组件换了写法），
   // 这些浮层里的内容会静默退出扫描范围，而扫描照样是绿的。
   const iconOnlyMissing =
@@ -1745,7 +1781,9 @@ async function main(): Promise<void> {
       }`,
     );
     console.log(`[scan] 「续跑任务」面板（修订模式对话框）：点开并扫过 ${revisionPanels} 次`);
-    console.log(`[scan] 枚举判据自检：${specChecks} 项（必需入口 ${REQUIRED_TOGGLES.length} 个必须枚举得到，2 个写库/发请求按钮必须被排掉）`);
+    console.log(
+      `[scan] 枚举判据自检：${specChecks} 项（必需入口 ${REQUIRED_TOGGLES.length} 个必须枚举得到、声明的每个 tab 逐个核归属 ${tabSpecChecks} 条，2 个写库/发请求按钮必须被排掉）· 必需入口 tab 归属虚标 ${overstated.length} 处`,
+    );
     if (requiredMissing.length > 0) {
       console.log(`[scan] 必需入口一次都没点到：${requiredMissing.join("；")}（这些面板里的内容等于没扫）`);
     }
