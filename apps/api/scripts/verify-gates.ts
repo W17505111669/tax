@@ -199,6 +199,30 @@ expect("确实找到了读测试报告的门禁（这条走查不能空跑）", 
 expect("确实查到了 verify 脚本名（两个 package.json 都读到了）", knownScripts.size >= 40, true);
 expect("矩阵里的脚本名都能在 package.json 里查到（写错名字会让报告列出跑不了的命令）", matrix.filter((n) => !knownScripts.has(n)), []);
 expect("读测试报告的门禁不在报告自己的验证矩阵里（否则它读到上一次的报告，滞后一轮）", looped, []);
+/**
+ * 反方向：`qa:all` 里每个 verify 都必须进矩阵，否则报告第二节列不全，而结尾那句
+ * 「全部自动化验证通过」就覆盖不到它。本轮实测漏了 **16 个**（qa:all 58 项、矩阵 42 项）——
+ * 上面那条只查了「矩阵里的名字都存在」，从没查过「该进矩阵的都进了」。
+ *
+ * 排除名单不手写，由两条静态判据推导，这样「谁不进矩阵」永远是一个能复算的决定而不是一份会腐化的清单：
+ * 1. 自己读 `test-report-*.md` 的（进了矩阵就只能读到上一轮的报告，滞后一轮）；
+ * 2. 自己会 spawn 别的门禁的（进了矩阵等于在报告里嵌套跑一遍全套；本轮全库只有 verify-gates 一个）。
+ */
+const qaVerifies = [...(rootPkg.scripts["qa:all"] ?? "").matchAll(/pnpm (verify:[a-z0-9-]+)/g)].map(
+  (m) => m[1] ?? "",
+);
+// 这条**不排除 SELF**：verify-gates 自己就是那个「会拿空库把每个门禁再跑一遍」的脚本，
+// 它进矩阵等于在 report:test 里嵌套跑一遍全套。上面 readsReport 排除 SELF 是为了不自指，
+// 这里排除的恰恰是它自己，所以必须留着。
+const spawners = files.filter((f) => /spawnSync|execFileSync|execSync/.test(srcOf(f))).map((f) => scriptOf.get(f) ?? "");
+const reportExcluded = new Set([...readsReport.map((f) => scriptOf.get(f) ?? ""), ...spawners]);
+const notInMatrix = qaVerifies.filter((n) => !matrix.includes(n) && !reportExcluded.has(n));
+expect("qa:all 里确实枚举到了 verify 条目（不是 package.json 没读到在这儿空跑）", qaVerifies.length >= 40, true);
+expect("推导出的排除名单确实非空（两条判据都没命中就说明推导本身写废了）", [...reportExcluded].filter((n) => n !== "").length >= 1, true);
+expect("qa:all 里每个 verify 都进报告矩阵（否则报告那句「全部自动化验证通过」覆盖不到它）", notInMatrix, []);
+console.log(
+  `[verify] 报告矩阵覆盖：qa:all 跑 ${qaVerifies.length} 项 verify · 矩阵列 ${matrix.length} 项 · 推导排除 ${[...reportExcluded].filter((n) => n !== "").join("、") || "无"} · 既不在矩阵也没被排除 ${notInMatrix.length} 项`,
+);
 
 const fooled: string[] = [];
 const crashed: string[] = [];

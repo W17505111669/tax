@@ -184,6 +184,26 @@ const VERIFY_SCRIPTS: Array<{ name: string; cmd: string; scope: string }> = [
     cmd: "pnpm verify:upload",
     scope: "上传预检规则（扩展名 / 大小 / 空文件 / 批量分组 / 提示文案）",
   },
+  // 下面 14 项此前不在矩阵里，而 qa:all 一直在跑它们——于是报告第二节只列 42 项、
+  // 结尾却写「全部自动化验证通过」，那句话覆盖不到这 14 项。verify:gates 现在盯着这个方向：
+  // qa:all 里每个 verify 要么进矩阵，要么因为「自己读报告 / 自己会跑别的门禁」被推导排除。
+  // 刻意不进矩阵的两个：verify:materials（它读 test-report-*.md，进矩阵就只能读到上一轮的报告）、
+  // verify:gates（它自己会拿空库把每个门禁再跑一遍，进矩阵等于在报告里嵌套跑一遍全套）。
+  { name: "verify:delivart", cmd: "pnpm verify:delivart", scope: "交付 MD「生成产物与溯源」节（列结构 / 产物计数 / 溯源与真实任务走查）" },
+  { name: "verify:toutcome", cmd: "pnpm verify:toutcome", scope: "工具调用三态口径（成功 / 失败 / 未返回）" },
+  { name: "verify:docrefmd", cmd: "pnpm verify:docrefmd", scope: "交付 MD「政策文号溯源」节（列结构 / 链接 / 依据档位 / 截断提示 / 真实任务走查）" },
+  { name: "verify:delivamount", cmd: "pnpm verify:delivamount", scope: "交付 MD「结论金额溯源」节（列结构 / 两类拆分 / 处置建议 / 截断提示 / 已核对表）" },
+  { name: "verify:delivcite", cmd: "pnpm verify:delivcite", scope: "交付 MD「联网引用」节（分级行 / 弱证据两类括注 / 仅元数据检索 / 引用清单 / 替代来源表）" },
+  { name: "verify:docsrc", cmd: "pnpm verify:docsrc", scope: "已核实官方原文索引（原文页地址门槛 / 标题区判据 / 索引结构 / 逐页实网核对）" },
+  { name: "verify:jsxkeys", cmd: "pnpm verify:jsxkeys", scope: "前端 JSX 列表必须有 key" },
+  { name: "verify:mdtext", cmd: "pnpm verify:mdtext", scope: "Markdown 片段转可读纯文本（目录 / 摘要 / 差异行 / 关键词段落共用）+ 真实结论残留走查" },
+  { name: "verify:mdrender", cmd: "pnpm verify:mdrender", scope: "渲染前的中文 Markdown 修正（裸地址边界 / ** 紧贴全角标点）" },
+  
+  { name: "verify:tfails", cmd: "pnpm verify:tfails", scope: "失败工具调用的归因分类" },
+  { name: "verify:lvtools", cmd: "pnpm verify:lvtools", scope: "土增智填的三个业务工具（合同发票关联 / 发票账面关联 / 金额一致性检查）" },
+  { name: "verify:rdtools", cmd: "pnpm verify:rdtools", scope: "智研税审的两个业务工具（加计扣除测算 / 归集核查）" },
+  { name: "verify:runcmd", cmd: "pnpm verify:runcmd", scope: "脚本头部运行命令与 package.json 一致（正向解析 + qa:all 反向核对 + 对外文档命令存在性）" },
+  { name: "verify:promptreg", cmd: "pnpm verify:promptreg", scope: "提示词回归（「渲染实测」任务的结论与工具轨迹是否真遵守了系统提示词里的约束）" },
 ];
 
 function runVerify(cmd: string): { pass: boolean; output: string } {

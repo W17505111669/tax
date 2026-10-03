@@ -3392,3 +3392,21 @@ after：按实测把这两条的 `tabs` 改成 `["result"]`。附带一个收益
 这一批的分诊结论记下来（注意：判定为「不需要补」的仍会出现在名单上，因为探针是按 `, []);` 数的，名单不等于工作量）：`verify-run-artifacts` 4 条、`verify-amount-note` 10 条、`verify-timeline-calls` 的「空输入」、`verify-delivery-docref`、`verify-manifest` 的，都是纯函数空输入 → 空输出，按规则 1 不需要；`verify-timeline-calls` 的「运行次数两份实现逐个任务相等」是两实现比对型，比对口径坏了会产出**不等**而不是空列表，方向朝红，按规则 2 不需要（它上面还有一条「确实数到了运行」的防空跑断言）。剩下没分诊的是 `verify-ref-check`、`verify-lv-tools` / `verify-rd-tools`、`verify-review-status`、`verify-tool-failures`、`verify-upload-policy`、`verify-artifact-sources`、`verify-bundle-freshness`、`scan-render-perf`（上一轮已判定自保护），从断言名看多数是纯函数单测。
 
 实测：`scan:deliverables` 检查项 **128 → 132**、失败 0（真下载 18 份交付物、覆盖 4 个任务）；`verify:runcmd` **308 → 310**、失败 0；`verify:gates` **47** / 失败 0，报告行 `残留判据阳性对照覆盖：24 个门禁有「必须为空」型判据 · 其中 10 个带已知违规样本自检 · 待分诊 14 个`；`typecheck:all` 通过（8 包）；`qa:all` 全绿、退出码 **0**（verify 脚本仍 50 个）。变异已还原、复跑仍 132 / 0。本轮只动门禁脚本，没动界面与交付文案，故未跑 `scan:uimd`。
+
+### 测试报告说「全部自动化验证通过」，而它只跑了 58 项里的 42 项
+
+靶来自「拿一个对外声称的数字，追它在代码里的全部消费点」。`docs/testing/test-report-*.md` 是交出去的材料，第二节是「自动化验证矩阵」，结尾一句加粗的**总体结论：全部自动化验证通过**。查下来：`qa:all` 跑 **58** 项 verify，而矩阵只列 **42** 项——**16 项门禁跑了却不在报告里**，那句「全部」覆盖不到它们。
+
+真因是元门禁只查了一个方向。`verify:gates` 里有一条「矩阵里的脚本名都能在 package.json 里查到」（防的是名单里挂着一个已经不存在的脚本），但**反方向从来没查过**：`qa:all` 里的每一项是否都进了矩阵。矩阵是手写在 `gen-test-report.ts` 里的 `VERIFY_SCRIPTS`（`{name, cmd, scope}` 三条一组，`scope` 是人写的一句中文），`qa:all` 是手写在根 `package.json` 里的一长串 `pnpm verify:*`。**两边各存一份名单**，加门禁时改了 `qa:all` 就会忘了改矩阵。漏掉的 16 项里包括 `verify:delivcite`、`verify:docrefmd`、`verify:delivamount` 这三个交付 MD 的门禁，也包括 `verify:runcmd`、`verify:promptreg`、`verify:mdtext` 这些近几轮才加的——它们全都在 `qa:all` 里跑、全都绿，只是报告不提。
+
+修法两步。一是把能进矩阵的 14 项补进 `VERIFY_SCRIPTS`，`scope` 从各脚本头部那句「验证脚本：…」取（那才是权威描述，不另编一套说法）。矩阵 **42 → 56**，重新生成的报告第二节现在有 56 行。二是在 `verify:gates` 补上反方向那条断言，且**排除名单不手写**，由两条静态判据推导：自己读 `test-report-*.md` 的（进了矩阵就只能读到上一轮的报告，滞后一轮）、自己会 spawn 别的门禁的（进了矩阵等于在报告里嵌套跑一遍全套）。推导结果正好两项：`verify:materials`（它真的在读报告，`verify-materials.ts:343` 按 `^test-report-\d{4}-\d{2}-\d{2}\.md$` 过滤目录）与 `verify:gates`（全库唯一用 `spawnSync` 的门禁，它要拿空库把每个门禁再跑一遍）。断言是：`qa:all` 里每个 verify 要么在矩阵里，要么在推导出的排除名单里，两者都不是就点名。
+
+这条断言第一次跑就抓到了我自己的疏漏：`spawners` 那条推导我按惯例写了 `f !== SELF`（上面 `readsReport` 排除 SELF 是为了不自指），结果 `verify:gates` 既不在矩阵也没被排除，断言红、点名 `["verify:gates"]`。**这里的 SELF 恰恰是要排除的那一个**，去掉 `f !== SELF` 才对了。同一个 `SELF` 过滤在两条判据里语义相反，这种地方靠人眼是想不住的，只能靠断言兜住。
+
+代价如实报：`report:test` 现在 **83.9 秒**（矩阵多跑 14 项），`qa:all` 整体跟着变长。这是「报告那句『全部』要名副其实」的价格；另一条路是让报告改口只说「本节 42 项」，但那等于把缺口写进对外材料而不是补上。
+
+顺带一个观察，本轮不动：`qa:all` 里那 56 项现在会被跑两遍——一遍在 `report:test` 内部（为了把 PASS/FAIL 写进报告），一遍在 `qa:all` 自己的命令行上。真要省时间应该让 `report:test` 成为唯一执行点、`qa:all` 只调它，但那要连 `verify:gates` 的反向核对（「qa:all 里列的每个 `pnpm verify:*` 都必须能解析到真实脚本」）一起搬家，改动面比本轮大得多，留作下一轮候选。
+
+变异测试：从矩阵里删掉 `verify:jsxkeys` 一行 → 断言红、点名 `["verify:jsxkeys"]`，报告行显示「矩阵列 55 项 · 既不在矩阵也没被排除 1 项」；还原后矩阵 56 项 / 覆盖缺口 0 / `verify:gates` 50 项 0 失败。还原时踩了一个 PowerShell 坑，记下来免得重犯：在**单引号**串里写 `` `n `` 不会变成换行，会把字面量 `` `n `` 直接写进源码（`rg` 一查就露了），复原改用 `apply_patch`。
+
+实测：`verify:gates` 检查项 **47 → 50**、失败 0，新报告行 `报告矩阵覆盖：qa:all 跑 58 项 verify · 矩阵列 56 项 · 推导排除 verify:materials、verify:gates · 既不在矩阵也没被排除 0 项`；`report:test` 83.9 秒、生成的报告 56 行矩阵 / 无 FAIL / 总体结论照旧；`typecheck:all` 通过（8 包）；`qa:all` 全绿、退出码 **0**（verify 脚本仍 50 个）。本轮只动生成脚本、元门禁与生成出来的测试报告，没动界面与交付文案，故未跑 `scan:uimd`。

@@ -55,6 +55,20 @@
 | `pnpm verify:reltime` | 时间显示口径（相对时间分档 / 坏数据兜底不猜「刚刚」/ 与旧实现逐值一致 / link-check 空串语义 / 文件名时间戳 / 不许再出现第二份实现） | PASS |
 | `pnpm verify:textfind` | 阅读器查找口径（命中区间 / 计数与旧口径逐例一致 / 高亮分段拼接保真 / 环形序号与旋转角 / 计数文案 / markdown 以 DOM mark 数为准 / 无第二份实现） | PASS |
 | `pnpm verify:upload` | 上传预检规则（扩展名 / 大小 / 空文件 / 批量分组 / 提示文案） | PASS |
+| `pnpm verify:delivart` | 交付 MD「生成产物与溯源」节（列结构 / 产物计数 / 溯源与真实任务走查） | PASS |
+| `pnpm verify:toutcome` | 工具调用三态口径（成功 / 失败 / 未返回） | PASS |
+| `pnpm verify:docrefmd` | 交付 MD「政策文号溯源」节（列结构 / 链接 / 依据档位 / 截断提示 / 真实任务走查） | PASS |
+| `pnpm verify:delivamount` | 交付 MD「结论金额溯源」节（列结构 / 两类拆分 / 处置建议 / 截断提示 / 已核对表） | PASS |
+| `pnpm verify:delivcite` | 交付 MD「联网引用」节（分级行 / 弱证据两类括注 / 仅元数据检索 / 引用清单 / 替代来源表） | PASS |
+| `pnpm verify:docsrc` | 已核实官方原文索引（原文页地址门槛 / 标题区判据 / 索引结构 / 逐页实网核对） | PASS |
+| `pnpm verify:jsxkeys` | 前端 JSX 列表必须有 key | PASS |
+| `pnpm verify:mdtext` | Markdown 片段转可读纯文本（目录 / 摘要 / 差异行 / 关键词段落共用）+ 真实结论残留走查 | PASS |
+| `pnpm verify:mdrender` | 渲染前的中文 Markdown 修正（裸地址边界 / ** 紧贴全角标点） | PASS |
+| `pnpm verify:tfails` | 失败工具调用的归因分类 | PASS |
+| `pnpm verify:lvtools` | 土增智填的三个业务工具（合同发票关联 / 发票账面关联 / 金额一致性检查） | PASS |
+| `pnpm verify:rdtools` | 智研税审的两个业务工具（加计扣除测算 / 归集核查） | PASS |
+| `pnpm verify:runcmd` | 脚本头部运行命令与 package.json 一致（正向解析 + qa:all 反向核对 + 对外文档命令存在性） | PASS |
+| `pnpm verify:promptreg` | 提示词回归（「渲染实测」任务的结论与工具轨迹是否真遵守了系统提示词里的约束） | PASS |
 
 ## 三、真实任务台账
 
