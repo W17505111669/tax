@@ -34,6 +34,7 @@ import {
   unattributedArtifacts,
 } from "../run-artifacts.ts";
 import { ARTIFACT_ROLE_NOTE, ARTIFACT_ROLE_TEXT, artifactsSection } from "../delivery-artifacts.ts";
+import { headerLines } from "../delivery-header.ts";
 import { artifactSources } from "../artifact-sources.ts";
 import { callStats, toolCallSection } from "../run-tools.ts";
 import {
@@ -1452,18 +1453,35 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   // 工具调用清单一节使用」，只是拼行那段一直留在这里）：留在闭包里就没法单测，合计行五个数字、
   // 分组表头、每行 6 列、行数合计等于调用总数，此前一条断言都没有。
 
+  /**
+   * 交付包 manifest 与交付 MD 头部**共用的那一份** task 数据。
+   * 此前两处各写一遍字段，于是「转为待复核」那个本地状态只接到了 manifest、没接到 MD 头部
+   *（头部写「已完成」、manifest 写 waiting_review，同一份交付包两种答案）。共用一个对象之后，
+   * 这类分家在结构上就不可能发生，而不是靠两处都记得改。
+   */
+  const manifestTask = {
+    id: task.id,
+    title: task.title,
+    caseId: task.caseId,
+    agentId: task.agentId,
+    status: effectiveStatus,
+    createdAt: task.createdAt,
+    runCount,
+  };
+
   const bundleLines = () => [
-    `# ${task.title}`,
-    "",
-    `- 任务 ID：${task.id}`,
-    `- 智能体：${agent.shortName}${agent.model ? `（${agent.model}）` : ""}`,
-    // 状态写完整说法（与复制文本、核对表、无障碍播报同一个 taskStatusLabel）。此前这里直接写
-    // liveStatus，于是交付 MD 的头部出现 "completed" / "failed" 这种英文枚举值——对外文档里
-    // 唯一一个不翻译的字段，而且 failed 到底是「服务重启打断、续跑即可」还是「Agent 执行报错」，
-    // 在交付材料里完全看不出来（manifest 写枚举是对的，它是给归档系统检索的机器可读清单）。
-    `- 案例：${task.caseId}　状态：${statusFull}　运行次数：${runCount}`,
-    `- 创建：${dateTimeStamp(task.createdAt)}　导出：${dateTimeStamp(new Date())}`,
-    "",
+    // 头部六行搬到 delivery-header.ts：留在闭包里就没法单测，而它是交付材料的第一屏。
+    // statusText 传完整说法（与复制文本、核对表、无障碍播报同一个 taskStatusLabel）：此前这里
+    // 直接写 liveStatus，头部于是出现 "completed" / "failed" 这种英文枚举值，而且 failed 到底是
+    // 「服务重启打断、续跑即可」还是「Agent 执行报错」在交付材料里完全看不出来。
+    // manifest 写枚举是对的（给归档系统检索的机器可读清单），MD 是给人读的，两边不该一样。
+    ...headerLines({
+      task: manifestTask,
+      agentName: agent.shortName,
+      model: agent.model,
+      statusText: statusFull,
+      exportedAt: new Date(),
+    }),
     "## 交付自检",
     "",
     ...deliverySection(deliveryInput()),
@@ -1547,15 +1565,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     const st = callStats(toolCalls);
     const rc = reviewCounts(issues, reviews);
     return buildManifest({
-      task: {
-        id: task.id,
-        title: task.title,
-        caseId: task.caseId,
-        agentId: task.agentId,
-        status: effectiveStatus,
-        createdAt: task.createdAt,
-        runCount,
-      },
+      task: manifestTask,
       delivery,
       files: files.map((f) => ({
         name: f.fileName,

@@ -19,6 +19,9 @@ import {
 import { amountSection, AMOUNT_TABLE_LIMIT } from "../../web/src/delivery-amount.ts";
 import { citeSection } from "../../web/src/delivery-cite.ts";
 import { parseDetail, parsedByFileName } from "../../web/src/file-parse.ts";
+import { HEADER_FIELDS, headerLines } from "../../web/src/delivery-header.ts";
+import { taskStatusLabel } from "../../web/src/task-status.ts";
+import { dateTimeStamp } from "../../web/src/time-format.ts";
 import { reviewCounts } from "../../web/src/review-export.ts";
 import { normalizeRef, traceDocRefs } from "../../web/src/policy-trace.ts";
 import { gradeCitation, summarizeGrades, type CitationGrade } from "../../web/src/citation-grade.ts";
@@ -1172,6 +1175,58 @@ if (manifestLinkSummaries !== linkTasks) {
 if (cross.docRefTotal < 1 && cross.citations < 1) {
   failures.push("交叉核对的指标全是 0，比了等于没比（库里没有真实数据？）");
 }
+
+// ---- 交付 MD 头部：与 manifest 共用同一份 task 数据，逐字段核到渲染出来的文本里 ----
+// 头部那六行此前直接写在 TaskWorkbench 的 bundleLines() 里，是组件内闭包，任何单测都碰不到；
+// 而同一批字段在 buildManifest 里又写了一遍。两份各写各的就会各说一套——上一轮刚修掉的
+// 「转为待复核之后 MD 头部写『已完成』、manifest 写 waiting_review」正是这么来的。现在两侧
+// 共用一个 manifestTask 对象（delivery-header.ts 的 task 参数类型就是 ManifestInput["task"]），
+// 这里再把「渲染出来的文本里确实是库里的真值」逐任务核一遍：类型同源只保证字段名对得上，
+// 保证不了渲染时没拿错变量、没漏字段、没把状态又写回英文枚举。
+let headTasks = 0;
+const headBad: string[] = [];
+const HEAD_EXPORT_AT = new Date("2026-10-03T00:00:00.000Z");
+for (const t of listTasks()) {
+  headTasks += 1;
+  const mt = {
+    id: t.id,
+    title: t.title,
+    caseId: t.caseId,
+    agentId: t.agentId,
+    status: t.status,
+    createdAt: t.createdAt,
+    runCount: t.runCount ?? 0,
+  };
+  const lines = headerLines({
+    task: mt,
+    agentName: t.agentId,
+    model: null,
+    statusText: taskStatusLabel(t.status),
+    exportedAt: HEAD_EXPORT_AT,
+  });
+  const text = lines.join("\n");
+  const short = t.id.slice(0, 8);
+  if (lines.length !== 7) headBad.push(`${short} 头部 ${lines.length} 行 ≠ 7 行（标题 + 空行 + 4 行元信息 + 空行）`);
+  for (const f of HEADER_FIELDS) if (!text.includes(f)) headBad.push(`${short} 头部缺字段「${f}」`);
+  if (!text.includes(`# ${t.title}`)) headBad.push(`${short} 标题行不是库里的任务标题`);
+  if (!text.includes(`任务 ID：${t.id}`)) headBad.push(`${short} 任务 ID 与库里不符`);
+  if (!text.includes(`案例：${t.caseId}`)) headBad.push(`${short} 案例号与库里不符`);
+  if (!text.includes(`运行次数：${mt.runCount}`)) headBad.push(`${short} 运行次数与库里不符`);
+  if (!text.includes(`状态：${taskStatusLabel(t.status)}`)) headBad.push(`${short} 状态文案与共享名单不符`);
+  if (!text.includes(dateTimeStamp(t.createdAt))) headBad.push(`${short} 创建时间与共享格式不符`);
+  // 头部不许出现英文状态枚举：manifest 写枚举是对的（机器可读清单），MD 是给人读的
+  const statusCell = /状态：([^　\n]*)/.exec(text)?.[1] ?? "";
+  if (/^(created|processing|waiting_review|completed|failed)$/.test(statusCell)) {
+    headBad.push(`${short} 头部的状态写成了枚举值「${statusCell}」（对外文档要写中文）`);
+  }
+}
+checks += 1;
+if (headTasks < 1) failures.push("交付 MD 头部走查一个任务都没走到（空跑）");
+checks += 1;
+if (headBad.length > 0) failures.push(...headBad.slice(0, 6));
+console.log(
+  `[verify] 交付 MD 头部走查：${headTasks} 个任务 × ${HEADER_FIELDS.length} 个字段 · 不符 ${headBad.length} 处`,
+);
 console.log(
   `[verify] 交叉核对：任务级 ${rowsCompared} 个任务 · 逐项对比 ${pairChecks} 次（其中有结论 ${conclusionRows} 个）· 交付 MD 文号节 ${
     cross.mdChecked
