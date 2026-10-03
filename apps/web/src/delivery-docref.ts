@@ -13,6 +13,7 @@ import { DOC_REF_TABLE_LIMIT, SOURCE_VIA_TEXT, type RefTraceResult } from "./pol
 import { REF_VERDICT_TEXT, type RefCheckSummary } from "./ref-check.ts";
 import { mdCell } from "./run-tools.ts";
 import type { RefCheckRecord } from "./types.ts";
+import { dateTimeStamp } from "./time-format.ts";
 
 export interface DocRefSectionInput {
   refTrace: RefTraceResult;
@@ -96,7 +97,7 @@ export function docRefSection(input: DocRefSectionInput): string[] {
             refSummary.candidate
           } 处 · 未检索到 ${refSummary.empty} 处 · 检索失败 ${refSummary.error} 处${
             refSummary.checkedAt
-              ? `（${new Date(refSummary.checkedAt).toLocaleString("zh-CN", { hour12: false })}）`
+              ? `（${dateTimeStamp(refSummary.checkedAt)}）`
               : ""
           }`,
           "",

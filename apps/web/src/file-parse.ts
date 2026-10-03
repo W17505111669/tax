@@ -7,6 +7,7 @@
 
 import { fmtBytes } from "./run-artifacts.ts";
 import { mdCell } from "./run-tools.ts";
+import { dateTimeStamp } from "./time-format.ts";
 
 export type ParsedSheet = { name?: string; rowCount?: number; headers?: unknown[]; rows?: unknown[] };
 
@@ -123,9 +124,8 @@ export function fileTable(files: FileRow[], summaries: Map<string, ParseSummary>
     "| --- | --- | --- | --- | --- | --- | --- |",
     ...files.map((f, i) => {
       const s = summaries.get(f.fileName);
-      const at = f.createdAt && !Number.isNaN(Date.parse(f.createdAt))
-        ? new Date(f.createdAt).toLocaleString("zh-CN", { hour12: false })
-        : "—";
+      // 走共享的 dateTimeStamp（默认兜底就是「—」）：此前这里自己写了一遍判空 + 内联格式串
+      const at = dateTimeStamp(f.createdAt);
       const detail = `${mdCell(parseDetail(s))}${s?.warning ? `（提示：${mdCell(s.warning)}）` : ""}`;
       return `| ${i + 1} | ${mdCell(f.fileName)} | ${f.fileType || "—"} | ${fmtBytes(f.byteSize)} | ${at} | ${parseStatusText(
         f.parseStatus,

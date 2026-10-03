@@ -10,6 +10,7 @@
  */
 
 import { mdCell } from "./run-tools.ts";
+import { dateTimeStamp } from "./time-format.ts";
 
 export type SheetInput = {
   taskTitle: string;
@@ -83,12 +84,9 @@ export type SheetInput = {
 
 export type SheetRow = { item: string; value: string; note: string };
 
-function stamp(iso: string | null): string {
-  if (!iso) return "";
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return "";
-  return new Date(t).toLocaleString("zh-CN", { hour12: false });
-}
+// 台账里的时间走共享的 dateTimeStamp，兜底显式传空串：这张表要进 Excel，空单元格是「无值」，
+// 写成「—」反而成了一个会影响筛选与排序的字符串。交付 MD 那几节用默认的「—」（给人读的）。
+const stamp = (iso: string | null): string => dateTimeStamp(iso, "");
 
 /** 九项核对结论：每项一句可核对的值 + 一句说明（口径与结果页、交付自检完全一致） */
 export function evidenceSheetRows(i: SheetInput): SheetRow[] {

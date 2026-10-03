@@ -2949,3 +2949,27 @@ after：按实测把这两条的 `tabs` 改成 `["result"]`。附带一个收益
 实测：`verify:tlcalls` 检查项 **84 → 87**、失败 0，新报告行 `运行次数两份实现：任务 40 个 · 一致 40 · 不一致 0 · 全库累计运行 80 次`；`typecheck:all` 通过；`qa:all` 全绿（verify 脚本 50 个）。两次变异跑完均已还原，还原后复跑仍是 87 项 / 失败 0、一致 40 / 累计 80 次。界面动的是兜底值（当前 API 总返回 `runCount`，所以 DOM 与 CSV 的实际输出一个字都没变），仍按纪律全库复扫 `scan:uimd --all --strict`：151 页 / 1076 次交互 / **850125** 个文本节点 / 23454487 字 / 残留 **0** / 界面数字核对 414 项 + 台账 1760 单元格 + 比对页 280 + 看板 KPI 50 + 状态分布 42 + hero 10 + 周环比与缺口 20 + 趋势 4 + 最近活动 14 / 不一致 **0**。
 
 留一个已经量化好、但本轮刻意没动的靶给下一轮：`new Date(x).toLocaleString("zh-CN", { hour12: false })` 这个日期时间格式在 `apps/web/src` 与 `apps/api/scripts` 里内联了 **31 处**，分布在 11 个文件（TaskWorkbench 13、Sidebar 4、ReviewView 3、AgentOverview / CompareView / SideReader 各 2、delivery-artifacts / delivery-cite / delivery-docref / evidence-sheet / file-parse 各 1）。`time-format.ts` 里已经有 `fileStamp` / `dayStamp` / `relTime`，唯独没有这个「完整日期时间」——所以它被抄了 31 遍。收成一个 `dateTimeStamp` 并逐个接上，是「同一件事不写两遍」的下一个目标；31 处一轮做完风险太大，建议按「交付路径 5 处 → 组件 26 处」分两轮。
+
+### 31 处内联的日期时间格式：真正的问题不是重复，是同一种异常有四种处置
+
+起点是上一轮量化好的靶：`new Date(x).toLocaleString("zh-CN", { hour12: false })` 在 `apps/web/src` 与 `apps/api/scripts` 里内联了 31 处、分布在 11 个文件，而 `time-format.ts` 里已经有 `fileStamp` / `dayStamp` / `relTime`，唯独没有这个「完整日期时间」。
+
+但真去接的时候发现问题比「重复」严重：**交付路径那 5 个模块对「时间解析不出来」有四种不同处置**——`delivery-artifacts`（产物节的时间列）与 `delivery-cite`（联网引用节的「链接核验」行）**压根没兜底**，空值会让 `"Invalid Date"` 这个英文错误串直接出现在对外交付 MD 里；`evidence-sheet`（台账）返回空串；`file-parse`（业务资料清单节）返回「—」；`delivery-docref`（文号溯源节）靠外层条件把整个括号跳过。同一种异常在交付材料的四个节里四种表现。而 `time-format.ts` 的 `relTime` 早就写着「解析不出来一律给 fallback，不猜一个『刚刚』把坏数据藏起来」——这条原则此前只覆盖了相对时间。
+
+先量化这个风险是不是真的（临时脚本跑完即删）：扫 6 张表的全部时间列（`tasks.created_at`、`files.created_at`、`tool_calls.started_at`、`events.at`、`ref_checks.checked_at`、`link_checks.checked_at`），共 **88764 行**，空 / NULL **0 行**、非空但 `Date.parse` 失败 **0 行**。所以 `"Invalid Date"` 在当前数据上**不触发**，它是潜在缺陷而不是现存缺陷（与上一轮那个 `?? 1` 同类）。这个区别必须说准，否则就会把它记成一起已经发生的对外事故。
+
+修法：`time-format.ts` 新增 `dateTimeStamp(when, fallback = "—")`，接 `Date | string | number | null | undefined`，空值与解析失败一律给 fallback。本轮先接上交付路径那 5 处，组件里那 26 处留下一轮——31 处一轮做完要动 6 个组件的 import 与十几处 JSX，风险不值当。
+
+一个取舍要记：兜底默认「—」，但**台账显式传 `""`**。台账要进 Excel，空单元格是「无值」，写成「—」反而成了一个会影响筛选与排序的字符串值。所以统一的是「格式串与解析判定」，不是「兜底文案」——兜底由调用方按载体指定，这正是 `relTime` 已有的做法。
+
+把那个隐含前提变成常驻断言：31 处内联写法都默认「库里的时间字段一定可解析」，此前没有任何门禁核过它。现在 `verify:reltime` 每次跑都走 6 张表全部行——写入侧哪天落了个空值或坏格式，这条会先红，而不是等界面与交付 MD 上出现英文错误串。
+
+顺带一个副作用值得记：`verify:reltime` 因为这条走查开始 import `../src/db`，于是 `verify:gates` 把它从「纯函数」重新分类成「走真实数据」并进空库复跑名单。这是上一轮把判据改成传递闭包之后**第一次自动生效的分类变化**——按旧判据得手工往白名单里加名字，而它压根不涉及 lib。
+
+断言 12 条：格式（zh-CN、24 小时制、不含 AM/PM）、`Date` 与同一时刻的字符串给出同一结果、空串 / null / undefined / 坏字符串都给兜底、兜底可由调用方指定、任何输入都不输出 `Invalid Date`；静态走查（5 个模块真读到了、交付路径不再内联格式串）；真实数据走查（88764 行全部可解析，且确实走到了行）。
+
+变异测试（一次改两处）：删掉 `dateTimeStamp` 的 `Number.isNaN` 兜底，同时把 `file-parse` 改回内联 → 红 **3 条**，各自精准（`解析不出来的字符串给兜底: 实际 "Invalid Date"，期望 "—"`、`任何输入都不会输出 Invalid Date: 实际 true`、`交付路径上不再内联: 实际 ["file-parse.ts"]`）；还原后 59 项 / 失败 0。
+
+实测：`verify:reltime` 检查项 **47 → 59**、失败 0，新报告行 `时间字段完整性走查：6 张表 88764 行 · 空或解析失败 0 行`；`verify:gates` **44 → 45**，分类随之变成走真实数据 **29 → 30** / 纯函数 **20 → 19**、空库下断言红 **30 个** · 仍然绿 0（`verify:reltime` 在空库下会红，靠的正是「时间列走查确实走到了行」那条）；`typecheck:all` 通过；`qa:all` 全绿（verify 脚本 50 个）。两次变异均已还原，还原后复跑仍 59 项 / 失败 0。交付 MD 与台账的时间输出**逐字未变**——本轮改的是异常路径，而当前数据里没有空值或坏格式，兜底分支一次都不触发，所以这是预期内的「无变化」。全库 `scan:uimd --all --strict` 复扫：151 页 / 1076 次交互 / **850137** 个文本节点 / 23454523 字 / 残留 **0** / 界面数字核对 414 项 + 台账 **1760 单元格** + 比对页 280 + 看板 KPI 50 + 状态分布 42 + hero 10 + 周环比与缺口 20 + 趋势 4 + 最近活动 14 / 不一致 **0**。
+
+留给下一轮：组件里那 **26 处**内联日期时间格式（TaskWorkbench 13、Sidebar 4、ReviewView 3、AgentOverview / CompareView / SideReader 各 2），逐个接上 `dateTimeStamp` 并把 `verify:reltime` 那条静态走查的名单从 5 个模块扩到全部 11 个文件。交付路径先接完是有意的：那 5 处直接决定对外交付材料里会不会出现英文错误串，组件那 26 处只影响界面显示。

@@ -6,7 +6,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { dayStamp, fileStamp, relTime } from "../../web/src/time-format.ts";
+import { dateTimeStamp, dayStamp, fileStamp, relTime } from "../../web/src/time-format.ts";
+import { db } from "../src/db.ts";
 import { ageText } from "../../web/src/link-check.ts";
 
 const failures: string[] = [];
@@ -126,6 +127,70 @@ const handRolledDate = fs
   )
   .sort();
 expect("组件里不再自己切日期戳", handRolledDate, []);
+
+// ---- 完整日期时间：31 处内联收成一份，兜底也统一 ----
+// 这个格式串此前在 apps/web/src 与 apps/api/scripts 里内联了 31 处（11 个文件），而对「解析
+// 不出来」的处置有四种：delivery-artifacts 与 delivery-cite 压根没兜底（空值会把 "Invalid Date"
+// 这个英文错误串直接写进对外交付 MD）、evidence-sheet 返回空串、file-parse 返回「—」、
+// delivery-docref 靠外层条件把整个括号跳过。本轮先接上交付路径那 5 处，组件里那 26 处留下一轮。
+const probe = dateTimeStamp("2026-09-29T02:00:00.000Z");
+expect("正常时间给出 zh-CN 24 小时制的完整日期时间", /^\d{4}\/\d{1,2}\/\d{1,2} \d{2}:\d{2}:\d{2}$/.test(probe), true);
+expect("不出现 12 小时制的 AM/PM", /AM|PM/.test(probe), false);
+expect("Date 对象与同一时刻的字符串给出同一个结果", dateTimeStamp(new Date("2026-09-29T02:00:00.000Z")), probe);
+expect("空串给兜底、不给 Invalid Date", dateTimeStamp(""), "—");
+expect("null 与 undefined 同样给兜底", [dateTimeStamp(null), dateTimeStamp(undefined)], ["—", "—"]);
+expect("解析不出来的字符串给兜底（正是那两处没兜底的地方会写进交付 MD 的）", dateTimeStamp("not-a-date"), "—");
+expect("兜底文案由调用方指定（台账要空串、交付 MD 要「—」）", dateTimeStamp("", ""), "");
+expect(
+  "任何输入都不会输出 Invalid Date",
+  [dateTimeStamp(""), dateTimeStamp("x"), dateTimeStamp(NaN), dateTimeStamp(null)].some((s) => s.includes("Invalid")),
+  false,
+);
+// 静态走查：交付路径这 5 个模块不再各写一份格式串
+const DELIVERY_MODULES = [
+  "delivery-artifacts.ts",
+  "delivery-cite.ts",
+  "delivery-docref.ts",
+  "evidence-sheet.ts",
+  "file-parse.ts",
+];
+const webSrcDir = path.resolve(here, "..", "..", "web", "src");
+const inlined: string[] = [];
+let modulesRead = 0;
+for (const f of DELIVERY_MODULES) {
+  const src = fs.readFileSync(path.join(webSrcDir, f), "utf8");
+  if (src.length > 500) modulesRead += 1;
+  if (src.includes('toLocaleString("zh-CN"')) inlined.push(f);
+}
+expect("5 个交付模块都真读到了（静态走查不能空跑）", modulesRead, DELIVERY_MODULES.length);
+expect("交付路径上不再内联日期时间格式串", inlined, []);
+
+// 真实数据走查：上面那些兜底当前一次都不会触发——库里 6 张表的时间列全部可解析。
+// 这条把「隐含前提」变成常驻断言：写入侧哪天落了个空值或坏格式，界面与交付 MD 上就会出现
+// "Invalid Date"，而这条会先红。31 处内联写法都默认了这个前提成立，此前没有任何门禁核过它。
+const TIME_COLUMNS: Array<[string, string]> = [
+  ["tasks", "created_at"],
+  ["files", "created_at"],
+  ["tool_calls", "started_at"],
+  ["events", "at"],
+  ["ref_checks", "checked_at"],
+  ["link_checks", "checked_at"],
+];
+let timeRows = 0;
+const timeBad: string[] = [];
+for (const [t, col] of TIME_COLUMNS) {
+  const rows = db.prepare(`SELECT ${col} AS v FROM ${t}`).all() as Array<{ v: string | null }>;
+  for (const r of rows) {
+    timeRows += 1;
+    const v = r.v === null ? "" : String(r.v);
+    if (v === "" || !Number.isFinite(Date.parse(v))) timeBad.push(`${t}.${col}=${v === "" ? "(空)" : v}`);
+  }
+}
+expect("时间列走查确实走到了行（不是空跑）", timeRows > 0, true);
+expect("库里每一行的时间字段都可解析（否则界面与交付 MD 上会出现 Invalid Date）", timeBad, []);
+console.log(
+  `[verify] 时间字段完整性走查：${TIME_COLUMNS.length} 张表 ${timeRows} 行 · 空或解析失败 ${timeBad.length} 行`,
+);
 
 console.log(`[verify] 时间显示口径检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {

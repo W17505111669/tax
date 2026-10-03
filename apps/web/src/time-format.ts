@@ -26,6 +26,26 @@ export function relTime(iso: string | null | undefined, now: number = Date.now()
 }
 
 /**
+ * 完整日期时间：2026/9/29 10:00:00（zh-CN、24 小时制、月日不补零）。
+ *
+ * 这个格式串此前在 `apps/web/src` 与 `apps/api/scripts` 里内联了 **31 处**（11 个文件），
+ * 而对「解析不出来」的处置有四种：`delivery-artifacts` 与 `delivery-cite` 压根没兜底
+ *（空值会把 `"Invalid Date"` 这个英文错误串直接写进对外交付 MD）、`evidence-sheet` 返回空串、
+ * `file-parse` 返回「—」、`delivery-docref` 靠外层条件把整个括号跳过。同一种异常在交付材料的
+ * 不同节里四种表现。而本文件的 `relTime` 早就写着「解析不出来一律给 fallback，不猜一个『刚刚』
+ * 把坏数据藏起来」——这条原则此前只覆盖了相对时间。
+ *
+ * 兜底默认「—」（交付 MD 是给人读的，「—」比空白清楚）；台账那种要进 Excel 的表格显式传 `""`：
+ * 空单元格在 Excel 里是「无值」，写成「—」反而成了一个会影响筛选与排序的字符串。
+ */
+export function dateTimeStamp(when: Date | string | number | null | undefined, fallback = "—"): string {
+  if (when === null || when === undefined || when === "") return fallback;
+  const d = when instanceof Date ? when : new Date(when);
+  if (Number.isNaN(d.getTime())) return fallback;
+  return d.toLocaleString("zh-CN", { hour12: false });
+}
+
+/**
  * 文件名用的时间戳：20260928155452。
  * 连字符也一并去掉——原来只删冒号与 T，会得到「2026-09-28120000」这种既不是日期
  * 也不是时间的含糊写法，排序时还会和真正的日期戳混在一起。

@@ -18,6 +18,7 @@
  */
 import { fmtBytes } from "./run-artifacts.ts";
 import type { SourceCall } from "./artifact-sources.ts";
+import { dateTimeStamp } from "./time-format.ts";
 
 export type DeliveryArtifactRow = {
   name: string;
@@ -46,9 +47,6 @@ export const ARTIFACT_UNKNOWN_SOURCE = "未识别";
 export const ARTIFACT_EMPTY_NOTE = "（本次任务无生成产物）";
 export const ARTIFACT_DASH = "—";
 
-/** 时间列与交付 MD 其余各节同一个格式（zh-CN、24 小时制） */
-const stamp = (iso: string): string => new Date(iso).toLocaleString("zh-CN", { hour12: false });
-
 export function artifactsSection(rows: DeliveryArtifactRow[]): string[] {
   if (rows.length === 0) return [ARTIFACT_EMPTY_NOTE];
   const line = (cells: string[]): string => `| ${cells.join(" | ")} |`;
@@ -61,7 +59,9 @@ export function artifactsSection(rows: DeliveryArtifactRow[]): string[] {
         fmtBytes(r.byteSize),
         r.source?.toolName ?? ARTIFACT_DASH,
         r.source ? ARTIFACT_ROLE_TEXT[r.source.role] : ARTIFACT_UNKNOWN_SOURCE,
-        r.source ? stamp(r.source.at) : ARTIFACT_DASH,
+        // 时间列走共享的 dateTimeStamp：此前这里是本地一份内联 toLocaleString，且没有兜底，
+        // source.at 为空时会把 "Invalid Date" 直接写进交付 MD
+        r.source ? dateTimeStamp(r.source.at, ARTIFACT_DASH) : ARTIFACT_DASH,
         r.run !== null ? `第 ${r.run} 次` : ARTIFACT_DASH,
       ]),
     ),

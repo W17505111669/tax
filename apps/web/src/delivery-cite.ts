@@ -17,6 +17,7 @@ import { deltaText, type EvidenceDelta } from "./revision-impact.ts";
 import { mdCell } from "./run-tools.ts";
 import { retentionNote, type RetentionStats } from "./search-evidence.ts";
 import type { RefCheckRecord } from "./types.ts";
+import { dateTimeStamp } from "./time-format.ts";
 
 /** 一行链接核验记录（link_checks 的行形状），必须已按 liveLinkChecks 过滤 */
 export type CiteLinkRow = LinkCheckLike & { url: string; status: number | null; ms: number; error?: string };
@@ -129,7 +130,9 @@ export function citeSection(input: CiteSectionInput): string[] {
     // 汇总就地算，不接受外部传入：明细行与汇总行必须由同一份列表推出来
     const s = summarizeLinkChecks(linkChecks);
     out.push(
-      `- 链接核验：${new Date(linkCheckedAt).toLocaleString("zh-CN", { hour12: false })} · 可访问 ${s.ok}/${
+      // 走共享的 dateTimeStamp：此前这里内联 toLocaleString 且没有兜底，linkCheckedAt 为空时
+      // 会把 "Invalid Date" 直接写进交付 MD 的联网引用节
+      `- 链接核验：${dateTimeStamp(linkCheckedAt)} · 可访问 ${s.ok}/${
         s.total
       } · 失效 ${s.dead} · 拒绝自动访问 ${s.blocked} · 无法核验 ${s.unreachable}`,
     );
