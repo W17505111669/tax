@@ -3,7 +3,7 @@ import type { ReviewRecord, TaskIssue } from "../types.ts";
 import { IconAlert, IconCheck, IconPlus, IconX } from "./Icons.tsx";
 import { downloadText } from "../download.ts";
 import { readRaw, removeRaw, writeRaw } from "../local-store.ts";
-import { dayStamp } from "../time-format.ts";
+import { dateTimeStamp, dayStamp } from "../time-format.ts";
 import { UNTRACED_ORIGIN_HINT, UNTRACED_ORIGIN_TEXT } from "../amount-trace.ts";
 import {
   LABEL_MAX,
@@ -266,7 +266,7 @@ export function ReviewView({
                     <span className="shrink-0 text-[10.5px] text-mist-600">出现 {a.occurrences} 处</span>
                   )}
                   <span className="font-mono text-[10.5px] text-mist-600">
-                    {new Date(a.at).toLocaleString("zh-CN", { hour12: false })}
+                    {dateTimeStamp(a.at)}
                   </span>
                   <button
                     type="button"
@@ -343,7 +343,7 @@ export function ReviewView({
     for (const r of [...reviews].sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
       const issue = issues.find((i) => i.id === r.issueId);
       lines.push(
-        `- ${new Date(r.createdAt).toLocaleString("zh-CN", { hour12: false })} | ${
+        `- ${dateTimeStamp(r.createdAt)} | ${
           r.decision === "confirm" ? "确认" : "驳回"
         } | ${issue?.issueType ?? r.issueId} | 意见：${r.comment || "（无）"}`,
       );
@@ -602,7 +602,7 @@ export function ReviewView({
                     className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-night-850 px-2.5 py-1.5 text-[11.5px]"
                   >
                     <span className="font-mono text-[10.5px] text-mist-600">
-                      {new Date(r.createdAt).toLocaleString("zh-CN", { hour12: false })}
+                      {dateTimeStamp(r.createdAt)}
                     </span>
                     <span
                       className={`rounded border px-1.5 py-0.5 text-[10px] ${

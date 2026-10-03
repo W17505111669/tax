@@ -13,6 +13,7 @@ import {
   type UntracedSplit,
 } from "./amount-trace.ts";
 import { mdCell } from "./run-tools.ts";
+import { dateTimeStamp } from "./time-format.ts";
 
 /** 待确认金额表最多列多少条；超出要在正文里如实说明还有几处没列，不静默截断 */
 export const AMOUNT_TABLE_LIMIT = 20;
@@ -92,9 +93,9 @@ export function amountSection(input: AmountSectionInput): string[] {
           "| --- | --- | --- | --- | --- |",
           ...acked.map(
             (a, i) =>
-              `| ${i + 1} | ${mdCell(a.raw)} | ${a.occurrences} | ${new Date(a.at).toLocaleString("zh-CN", {
-                hour12: false,
-              })} | ${mdCell(a.note || "（无）")} |`,
+              `| ${i + 1} | ${mdCell(a.raw)} | ${a.occurrences} | ${dateTimeStamp(a.at)} | ${mdCell(
+                a.note || "（无）",
+              )} |`,
           ),
           "",
         ]

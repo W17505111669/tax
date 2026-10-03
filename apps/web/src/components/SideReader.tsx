@@ -6,6 +6,7 @@ import { ThemeSwitch } from "./ThemeSwitch.tsx";
 import { usePaperTheme } from "../hooks/usePaperTheme.ts";
 import { IconAlert, IconDownload, IconExternal, IconFile, IconRefresh, IconSpinner, IconX } from "./Icons.tsx";
 import { currentHitRow, locateSheet, sheetLocate } from "../sheet-locate.ts";
+import { dateTimeStamp } from "../time-format.ts";
 import {
   asSortRecord,
   asStringRecord,
@@ -735,7 +736,7 @@ export function SideReader({
                   markdown: "",
                   text: "",
                   src: target.url,
-                  loadedAt: new Date().toLocaleString("zh-CN", { hour12: false }),
+                  loadedAt: dateTimeStamp(new Date()),
                 },
               }));
               return;
@@ -750,7 +751,7 @@ export function SideReader({
                 markdown: result.markdown || result.excerpt || "（该网页未提取到正文）",
                 text: "",
                 src: target.url,
-                loadedAt: new Date().toLocaleString("zh-CN", { hour12: false }),
+                loadedAt: dateTimeStamp(new Date()),
               },
             }));
             return;

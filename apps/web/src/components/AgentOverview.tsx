@@ -20,7 +20,7 @@ import {
 import { downloadBlob, downloadText } from "../download.ts";
 import { asSnapshotRecord, KEYS, readJson, writeJson } from "../local-store.ts";
 import { needsUnitSpace, percentFrom, percentOf, percentValue } from "../format.ts";
-import { dayStamp, relTime } from "../time-format.ts";
+import { dateTimeStamp, dayStamp, relTime } from "../time-format.ts";
 import { groupSummary } from "../review-queue.ts";
 import {
   outcomeLine,
@@ -456,7 +456,7 @@ export function AgentOverview({
       "| --- | --- | --- |",
       ...perTool.map((t) => `| ${t.name} | ${t.calls} | ${t.ok} |`),
       "",
-      `- 导出时间：${new Date().toLocaleString("zh-CN", { hour12: false })}`,
+      `- 导出时间：${dateTimeStamp(new Date())}`,
     ];
     downloadBlob(
       new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" }),
@@ -1267,7 +1267,7 @@ export function AgentOverview({
                       onClick={() =>
                         downloadText(
                           "全平台证据核对台账.md",
-                          `${ledgerMarkdown(rows, agentName, new Date().toLocaleString("zh-CN", { hour12: false })).join("\n")}\n`,
+                          `${ledgerMarkdown(rows, agentName, dateTimeStamp(new Date())).join("\n")}\n`,
                           "text/markdown",
                         )
                       }

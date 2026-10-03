@@ -147,23 +147,45 @@ expect(
   false,
 );
 // 静态走查：交付路径这 5 个模块不再各写一份格式串
-const DELIVERY_MODULES = [
+// 名单是「所有曾内联过这个格式串的文件」：交付路径 6 个 + 组件 6 个。
+// 判据用正则而不是 includes('toLocaleString("zh-CN"')，两个原因，都是实测踩到的：
+// ① 后者会把**数字千分位**格式化一起算进来（AgentOverview 4 处、CompareView 1 处），
+//    那些不是日期，不该被这条断言管；
+// ② 选项对象换行的写法（Sidebar 的「最早」与 delivery-amount 的时间列都是跨行的）在单行
+//    统计里会漏——上一轮报的「31 处」就是这么少数了 2 处，其中一处还是我刚改过的「最晚」
+//    的紧邻配对行。
+const TIME_CONSUMERS = [
   "delivery-artifacts.ts",
+  "delivery-amount.ts",
   "delivery-cite.ts",
   "delivery-docref.ts",
   "evidence-sheet.ts",
   "file-parse.ts",
+  "components/TaskWorkbench.tsx",
+  "components/Sidebar.tsx",
+  "components/ReviewView.tsx",
+  "components/AgentOverview.tsx",
+  "components/CompareView.tsx",
+  "components/SideReader.tsx",
 ];
+const INLINE_STAMP = /toLocaleString\(\s*"zh-CN",\s*\{\s*hour12:\s*false/;
 const webSrcDir = path.resolve(here, "..", "..", "web", "src");
 const inlined: string[] = [];
 let modulesRead = 0;
-for (const f of DELIVERY_MODULES) {
+for (const f of TIME_CONSUMERS) {
   const src = fs.readFileSync(path.join(webSrcDir, f), "utf8");
   if (src.length > 500) modulesRead += 1;
-  if (src.includes('toLocaleString("zh-CN"')) inlined.push(f);
+  if (INLINE_STAMP.test(src)) inlined.push(f);
 }
-expect("5 个交付模块都真读到了（静态走查不能空跑）", modulesRead, DELIVERY_MODULES.length);
-expect("交付路径上不再内联日期时间格式串", inlined, []);
+expect("12 个消费点文件都真读到了（静态走查不能空跑）", modulesRead, TIME_CONSUMERS.length);
+expect("界面与交付路径都不再内联日期时间格式串（只留 time-format.ts 那一份）", inlined, []);
+// 判据自己也要能被证伪：拿一段跨行写法与一段数字格式化各试一次，确认它只咬前者
+expect(
+  "判据能匹配选项换行的写法（上一轮就是被这种写法漏掉 2 处的）",
+  INLINE_STAMP.test('x.toLocaleString("zh-CN", {\n  hour12: false,\n})'),
+  true,
+);
+expect("判据不会把数字千分位格式化误算进来", INLINE_STAMP.test('n.toLocaleString("zh-CN")'), false);
 
 // 真实数据走查：上面那些兜底当前一次都不会触发——库里 6 张表的时间列全部可解析。
 // 这条把「隐含前提」变成常驻断言：写入侧哪天落了个空值或坏格式，界面与交付 MD 上就会出现

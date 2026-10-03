@@ -4,7 +4,7 @@ import { api } from "../api.ts";
 import { downloadBlob, downloadText } from "../download.ts";
 import { isStarred, KEYS, readEnum, toggleStarred, writeRaw } from "../local-store.ts";
 import { fmtDurationShort, fmtDurationZh, fmtSecondsShort } from "../format.ts";
-import { dayStamp, fileStamp } from "../time-format.ts";
+import { dateTimeStamp, dayStamp, fileStamp } from "../time-format.ts";
 import type {
   AgentInfo,
   ArtifactInfo,
@@ -332,8 +332,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       `智能体：${agent.shortName}${agent.model ? `（${agent.model}）` : ""}`,
       `案例：${task.caseId}`,
       `状态：${statusFull}`,
-      `创建：${new Date(task.createdAt).toLocaleString("zh-CN", { hour12: false })}`,
-      `更新：${new Date(task.updatedAt).toLocaleString("zh-CN", { hour12: false })}`,
+      `创建：${dateTimeStamp(task.createdAt)}`,
+      `更新：${dateTimeStamp(task.updatedAt)}`,
       `工具调用：${toolCalls.length} 次`,
     ];
     try {
@@ -829,7 +829,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
 
   const lastRunAt = useMemo(() => {
     const last = [...timeline].reverse().find((t) => t.kind === "run_started");
-    return last ? new Date(last.at).toLocaleString("zh-CN", { hour12: false }) : "";
+    return last ? dateTimeStamp(last.at) : "";
   }, [timeline]);
 
   // 产物溯源：每份产物对应到真正生成它的工具调用（按结果里的 fileName/path 基名匹配）
@@ -1020,7 +1020,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
               text: u.match,
               key,
               className: "md-annot-ok",
-              label: `已人工核对（${new Date(ack.at).toLocaleString("zh-CN", { hour12: false })}）${
+              label: `已人工核对（${dateTimeStamp(ack.at)}）${
                 ack.note ? ` · 备注：${ack.note}` : ""
               } · 点击撤销标记`,
             }
@@ -1457,7 +1457,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     // 唯一一个不翻译的字段，而且 failed 到底是「服务重启打断、续跑即可」还是「Agent 执行报错」，
     // 在交付材料里完全看不出来（manifest 写枚举是对的，它是给归档系统检索的机器可读清单）。
     `- 案例：${task.caseId}　状态：${statusFull}　运行次数：${runCount}`,
-    `- 创建：${new Date(task.createdAt).toLocaleString("zh-CN", { hour12: false })}　导出：${new Date().toLocaleString("zh-CN", { hour12: false })}`,
+    `- 创建：${dateTimeStamp(task.createdAt)}　导出：${dateTimeStamp(new Date())}`,
     "",
     "## 交付自检",
     "",
@@ -1915,11 +1915,11 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
               </button>
             )}
             <span className="text-line">|</span>
-            <span>创建 {new Date(task.createdAt).toLocaleString("zh-CN", { hour12: false })}</span>
+            <span>创建 {dateTimeStamp(task.createdAt)}</span>
             {task.updatedAt !== task.createdAt && (
               <>
                 <span className="text-line">|</span>
-                <span>更新 {new Date(task.updatedAt).toLocaleString("zh-CN", { hour12: false })}</span>
+                <span>更新 {dateTimeStamp(task.updatedAt)}</span>
               </>
             )}
           </div>
@@ -2190,7 +2190,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                   <div className="text-[13px] font-semibold text-gray-900">税务智能审查平台 · 审查结论</div>
                   <div className="mt-0.5 text-[11px] text-gray-600">
                     任务：{task.title}　案例：{task.caseId}　状态：{liveStatus}　打印时间：
-                    {new Date().toLocaleString("zh-CN", { hour12: false })}
+                    {dateTimeStamp(new Date())}
                   </div>
                   <div className="mt-0.5 text-[10.5px] text-gray-600">
                     任务 ID：{task.id}　模型：{agent.model ?? "—"}　运行次数：{runCount}
@@ -2401,7 +2401,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                           已复查 {refSummary.total} · 找到出处 {refSummary.matched} · 候选 {refSummary.candidate} ·
                           未检索到 {refSummary.empty} · 失败 {refSummary.error}
                           {refSummary.checkedAt
-                            ? ` · ${new Date(refSummary.checkedAt).toLocaleString("zh-CN", { hour12: false })}`
+                            ? ` · ${dateTimeStamp(refSummary.checkedAt)}`
                             : ""}
                         </span>
                       )}
@@ -2787,7 +2787,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                         )}
                         {f.createdAt && (
                           <span className="block truncate text-[10.5px] text-mist-600">
-                            上传于 {new Date(f.createdAt).toLocaleString("zh-CN", { hour12: false })}
+                            上传于 {dateTimeStamp(f.createdAt)}
                           </span>
                         )}
                         {p?.preview && (
@@ -2817,7 +2817,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
             <ul className="mt-1.5 space-y-1">
               {artifacts.map((a) => {
                 const src = artSrc.get(a.name);
-                const srcAt = src ? new Date(src.at).toLocaleString("zh-CN", { hour12: false }) : "";
+                const srcAt = src ? dateTimeStamp(src.at) : "";
                 return (
                   <li key={a.name} className="flex items-stretch gap-1">
                     <button
@@ -4066,7 +4066,7 @@ function ResultView({
           </p>
           {linkCheckedAt && (
             <p className="mt-1.5 text-[11px] text-mist-600">
-              最近核验 {new Date(linkCheckedAt).toLocaleString("zh-CN", { hour12: false })} · 可访问 {linkSummary.ok}/
+              最近核验 {dateTimeStamp(linkCheckedAt)} · 可访问 {linkSummary.ok}/
               {linkSummary.total}
               {freshness(linkCheckedAt) === "stale" && (
                 <span className="text-amber-300"> · 核验已超过 72 小时，建议重新核验</span>
@@ -4309,7 +4309,7 @@ function ResultView({
         <div className="kicker">交付</div>
         <p className="mt-1 text-[11px] text-mist-600">
           {bundleFresh.lastPackedAt
-            ? `最近打包：${new Date(bundleFresh.lastPackedAt).toLocaleString("zh-CN", { hour12: false })}`
+            ? `最近打包：${dateTimeStamp(bundleFresh.lastPackedAt)}`
             : "尚未打包交付包"}
           {bundleFresh.stale ? (
             <span className="text-amber-300" title={bundleFresh.newer.map((c) => `${c.label}（${c.at}）`).join("\n")}>

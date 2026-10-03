@@ -17,7 +17,7 @@ import {
   writeTaskOrder,
 } from "../local-store.ts";
 import { fmtBytes } from "../run-artifacts.ts";
-import { dayStamp, relTime } from "../time-format.ts";
+import { dateTimeStamp, dayStamp, relTime } from "../time-format.ts";
 // 状态文案只有 task-status.ts 一份。这里此前自己存了一份**同名**的 STATUS_TEXT，
 // 且 failed 写「已中断」而共享那份写「执行失败」——同名不同值最容易骗过人眼。
 import { STATUS_TEXT, taskStatusShort } from "../task-status.ts";
@@ -293,7 +293,7 @@ export function Sidebar({
         t.title,
         taskStatusShort(t.status, t.interrupted),
         t.caseId,
-        new Date(t.createdAt).toLocaleString("zh-CN", { hour12: false }),
+        dateTimeStamp(t.createdAt),
         // 缺失按 0 兜底，不按 1：同一行里工具次数与进度缺失都写 0，只有运行次数写 1，
         // 那等于替一个「建了没跑」的任务凭空造出一次运行，而 CSV 是对外交付物。
         t.runCount ?? 0,
@@ -423,7 +423,7 @@ export function Sidebar({
                           </span>
                         )}
             <span className="truncate">
-              · {new Date(task.createdAt).toLocaleString("zh-CN", { hour12: false })}（{relTime(task.createdAt)}）
+              · {dateTimeStamp(task.createdAt)}（{relTime(task.createdAt)}）
             </span>
           </span>
           {task.status === "processing" && (
@@ -890,7 +890,7 @@ export function Sidebar({
                   onClick={() => {
                     const lines = starList.map(
                       (t) =>
-                        `- ${t.title}（${taskStatusShort(t.status, t.interrupted)} · ${new Date(t.createdAt).toLocaleString("zh-CN", { hour12: false })}）`,
+                        `- ${t.title}（${taskStatusShort(t.status, t.interrupted)} · ${dateTimeStamp(t.createdAt)}）`,
                     );
                     void navigator.clipboard?.writeText(`# 收藏清单\n${lines.join("\n")}`).catch(() => undefined);
                   }}
@@ -930,9 +930,9 @@ export function Sidebar({
                   onClick={() => setCollapsed((prev) => ({ ...prev, [g.id]: !closed }))}
                   title={
                     list.length
-                      ? `最早 ${new Date(Math.min(...list.map((t) => Date.parse(t.createdAt)))).toLocaleString("zh-CN", {
-                          hour12: false,
-                        })} · 最晚 ${new Date(Math.max(...list.map((t) => Date.parse(t.createdAt)))).toLocaleString("zh-CN", { hour12: false })}`
+                      ? `最早 ${dateTimeStamp(
+                          Math.min(...list.map((t) => Date.parse(t.createdAt))),
+                        )} · 最晚 ${dateTimeStamp(Math.max(...list.map((t) => Date.parse(t.createdAt))))}`
                       : undefined
                   }
                   className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-[10.5px] font-medium uppercase tracking-[0.14em] text-mist-600 transition-colors hover:text-mist-300"

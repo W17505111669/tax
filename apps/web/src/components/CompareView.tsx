@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { CompareDiff, CompareRecord, CompareRef, UnusableCompare } from "../types.ts";
 import { IconAlert, IconCheck, IconCopy, IconDownload } from "./Icons.tsx";
 import { downloadCsv, downloadText } from "../download.ts";
-import { dayStamp } from "../time-format.ts";
+import { dateTimeStamp, dayStamp } from "../time-format.ts";
 import { KEYS, readEnum, writeRaw } from "../local-store.ts";
 import { compareModeLabel, compareModeOf } from "../compare-mode.ts";
 
@@ -234,7 +234,7 @@ export function CompareView({ compares, unusable = [], onOpenTarget, onOpenPair 
           {unusable.map((u) => (
             <li key={u.id} className="font-mono">
               #{u.id.slice(0, 8)}
-              {u.at ? ` · ${new Date(u.at).toLocaleString("zh-CN", { hour12: false })}` : ""}
+              {u.at ? ` · ${dateTimeStamp(u.at)}` : ""}
             </li>
           ))}
         </ul>
@@ -461,7 +461,7 @@ export function CompareView({ compares, unusable = [], onOpenTarget, onOpenPair 
             <div className="flex flex-wrap items-baseline gap-3">
               <span className="kicker">Workpaper Compare</span>
               <span className="text-[12px] text-mist-600">
-                {rec.at ? new Date(rec.at).toLocaleString("zh-CN", { hour12: false }) : ""} ·{" "}
+                {rec.at ? dateTimeStamp(rec.at) : ""} ·{" "}
                 {compareModeLabel(compareModeOf(rec.result.sheets), rec.result.sheets[0]?.mode)}
               </span>
               <button
