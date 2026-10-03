@@ -75,6 +75,7 @@
     "verify:tfails": "pnpm --filter @tax/api verify:tfails",
     "repair:toolcalls": "pnpm --filter @tax/api repair:toolcalls",
     "scan:uimd": "pnpm --filter @tax/api scan:uimd",
+    "perf:render": "pnpm --filter @tax/api perf:render",
     "verify:fresh": "pnpm --filter @tax/api verify:fresh",
     "verify:manifest": "pnpm --filter @tax/api verify:manifest",
     "verify:amounts": "pnpm --filter @tax/api verify:amounts",

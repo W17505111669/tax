@@ -24,6 +24,7 @@
     "verify:mdrender": "tsx scripts/verify-md-render.ts",
     "verify:jsxkeys": "tsx scripts/verify-jsx-keys.ts",
     "scan:uimd": "tsx scripts/scan-ui-markdown.ts",
+    "perf:render": "tsx scripts/scan-render-perf.ts",
     "verify:tfails": "tsx scripts/verify-tool-failures.ts",
     "repair:toolcalls": "tsx scripts/repair-tool-calls.ts",
     "verify:dcheck": "tsx scripts/verify-delivery-check.ts",
