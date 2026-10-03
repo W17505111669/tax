@@ -75,7 +75,7 @@ import { amountSection } from "../delivery-amount.ts";
 import { citeSection } from "../delivery-cite.ts";
 import { gradeCitation, GRADE_HINT, GRADE_TEXT, summarizeGrades } from "../citation-grade.ts";
 import { offTopicCitationTitles } from "../ref-check.ts";
-import { isInterruptedOnRestart, taskStatusLabel, taskStatusShort } from "../task-status.ts";
+import { isInterruptedOnRestart, statusWithReopen, taskStatusLabel, taskStatusShort } from "../task-status.ts";
 import { topDomainWords, topicHint } from "../domain-keywords.ts";
 import { deltaDetail, deltaText, deltaVerdict, evidenceDelta, evidenceSnapshot } from "../revision-impact.ts";
 import {
@@ -289,14 +289,19 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   const lastFocusRef = useRef<HTMLElement | null>(null);
 
   const liveStatus = status === "created" ? task.status : status;
-  const meta = STATUS_META[liveStatus] ?? STATUS_META.created!;
+  // 对外声称的状态只有这一个：本地「打回待复核」优先，其次是事件流的实时状态。
+  // 此前 `reopened ? "waiting_review" : task.status` 这个三元在本文件里手写了四遍，
+  // 而 MD 头部、徽标、复制文本三处漏了它——打回之后下载的交付包头部还写着「已完成」，
+  // 同一份包里 manifest 却写 waiting_review（缘由见 task-status.ts 的 statusWithReopen）。
+  const effectiveStatus = statusWithReopen(liveStatus, reopened);
+  const meta = STATUS_META[effectiveStatus] ?? STATUS_META.created!;
   const running = liveStatus === "processing";
   // failed 有两种事实：服务重启打断（续跑就行）与执行真的失败（要查错误原因）。
   // 徽章在一排操作按钮之间，文案加长会挤动整行，所以徽章只放短标签，完整说法与错误串进 title；
   // 复制文本与核对表没有宽度约束，用完整说法。
   const interrupted = isInterruptedOnRestart({ status: liveStatus, error: task.error });
-  const statusLabel = taskStatusShort(liveStatus, interrupted);
-  const statusFull = taskStatusLabel(liveStatus, task.error);
+  const statusLabel = taskStatusShort(effectiveStatus, interrupted);
+  const statusFull = taskStatusLabel(effectiveStatus, task.error);
   const statusHint =
     liveStatus === "failed"
       ? interrupted
@@ -1312,7 +1317,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
 
   // 交付自检输入：结论字数、产物与溯源、工具调用结果、待复核与联网引用
   const deliveryInput = (): CheckInput => ({
-    status: reopened ? "waiting_review" : task.status,
+    status: effectiveStatus,
     error: task.error,
     resultChars: finalResult.trim().length,
     artifacts: artifacts.length,
@@ -1516,7 +1521,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     "",
     "## 人工复核记录",
     "",
-    ...reviewSection(issues, reviews, reopened ? "waiting_review" : task.status),
+    ...reviewSection(issues, reviews, effectiveStatus),
     "",
     // 「政策文号溯源」整节搬到 delivery-docref.ts：留在组件闭包里就没法单测，新加的那张
     // 「留存正文出处」表因此一条断言都没有（列数、链接、依据档位全靠肉眼）。
@@ -1547,7 +1552,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
         title: task.title,
         caseId: task.caseId,
         agentId: task.agentId,
-        status: reopened ? "waiting_review" : task.status,
+        status: effectiveStatus,
         createdAt: task.createdAt,
         runCount,
       },
@@ -2667,7 +2672,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                 issues={issues}
                 reviews={reviews}
                 pending={pendingReviews}
-                status={reopened ? "waiting_review" : task.status}
+                status={effectiveStatus}
                 agentId={agent.id}
                 onReview={handleReview}
                 onReopen={handleReopenReview}

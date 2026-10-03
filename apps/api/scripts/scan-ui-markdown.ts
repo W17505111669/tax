@@ -372,6 +372,14 @@ const TOGGLE_SKIP = /(会话侧栏)/;
  */
 const TOGGLE_ALLOW = /^生成修订指令/;
 /**
+ * 合成 DOM 里必须被 BLOCK 排掉的按钮：点下去会写库或发请求，扫描器一个都不能点。
+ * 前两个是早就点过名的（下载交付包、复核并提交）；第三个「转为待复核」是本轮补上的——
+ * 它调 `api.reopenReview` 把已完成的任务打回待复核，此前只靠文案里的「复核」二字被
+ * `TOGGLE_BLOCK` 挡住，不在任何点名名单里。将来谁把文案改成「打回重审」这种不含 BLOCK 词的
+ * 说法，全库扫就会真的去改任务状态，而扫描照样报绿。点名验一次，改文案就会红。
+ */
+const BANNED_TOGGLES = ["下载交付包", "复核并提交", "转为待复核"];
+/**
  * 这些入口必须真的点到，否则「交互覆盖」就是空跑绿：面板没展开，里面的残留永远扫不到。
  * 「键盘快捷键」是图标按钮（只有 title，没有文字），此前 OPEN 词汇表里没有它，于是这个浮层的
  * 内容从来没被扫过一次——实测 34 页 201 次点击、14 类入口，全是带文字的按钮。
@@ -798,6 +806,7 @@ async function main(): Promise<void> {
       `<button>生成修订指令（5）</button>`,
       `<button title="展开下载">下载交付包</button>`,
       `<button title="展开">复核并提交</button>`,
+      `<button title="把任务状态改回待复核，避免带着未复核问题交付">转为待复核</button>`,
     ].join(""),
   );
   const probeLabels = (await listToggles()).map((x) => x.label);
@@ -809,7 +818,7 @@ async function main(): Promise<void> {
       );
     }
   }
-  for (const banned of ["下载交付包", "复核并提交"]) {
+  for (const banned of BANNED_TOGGLES) {
     specChecks += 1;
     if (probeLabels.some((l) => l.includes(banned))) {
       numFails.push(`枚举判据放行了不该点的「${banned}」（BLOCK 词表被改松了，扫描会触发写库或发请求）`);
@@ -1812,7 +1821,7 @@ async function main(): Promise<void> {
     );
     console.log(`[scan] 「续跑任务」面板（修订模式对话框）：点开并扫过 ${revisionPanels} 次`);
     console.log(
-      `[scan] 枚举判据自检：${specChecks} 项（必需入口 ${REQUIRED_TOGGLES.length} 个必须枚举得到、声明的每个 tab 逐个核归属 ${tabSpecChecks} 条，2 个写库/发请求按钮必须被排掉）· 必需入口 tab 归属虚标 ${overstated.length} 处`,
+      `[scan] 枚举判据自检：${specChecks} 项（必需入口 ${REQUIRED_TOGGLES.length} 个必须枚举得到、声明的每个 tab 逐个核归属 ${tabSpecChecks} 条，${BANNED_TOGGLES.length} 个写库/发请求按钮必须被排掉）· 必需入口 tab 归属虚标 ${overstated.length} 处`,
     );
     if (requiredMissing.length > 0) {
       console.log(`[scan] 必需入口一次都没点到：${requiredMissing.join("；")}（这些面板里的内容等于没扫）`);

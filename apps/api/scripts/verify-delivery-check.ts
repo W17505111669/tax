@@ -13,6 +13,7 @@ import {
   INTERRUPTED_ON_RESTART,
   isInterruptedOnRestart,
   STATUS_TEXT,
+  statusWithReopen,
   taskStatusLabel,
   taskStatusShort,
 } from "../../web/src/task-status.ts";
@@ -700,9 +701,55 @@ expect("两份源码都真读到了（静态走查不能空跑）", [sidebarSrc.
 expect("侧栏不再自己存一份状态文案名单（同名不同值最骗人眼）", sidebarSrc.includes("const STATUS_TEXT"), false);
 expect("侧栏接上了服务端早就返回的 interrupted 字段", sidebarSrc.includes("taskStatusShort(t.status, t.interrupted)"), true);
 expect("任务页的 STATUS_META 只管配色、不再存文案", benchSrc.includes("{ label: string; className: string }"), false);
-expect("任务页徽标走共享短标签", benchSrc.includes("taskStatusShort(liveStatus, interrupted)"), true);
+expect("任务页徽标走共享短标签", benchSrc.includes("taskStatusShort(effectiveStatus, interrupted)"), true);
 expect("交付 MD 头部不再写状态枚举值", benchSrc.includes("状态：${liveStatus}"), false);
 expect("交付 MD 头部走完整说法", benchSrc.includes("状态：${statusFull}"), true);
+
+// ---- 「打回待复核」的状态改口只能有一份 ----
+// 打回是**本地**状态（用户在结果页点一下，服务端还没落库），所以在落库之前凡是对外声称状态的
+// 地方都必须改口成 waiting_review。此前那个三元在 TaskWorkbench 里手写了四遍（交付自检输入、
+// 人工复核记录节、manifest 的 task.status、ReviewView 的 status prop），而**另外三处漏了**：
+// 交付 MD 头部的「状态」、任务页徽标、复制文本与核对表用的完整说法。后果是用户打回之后下载
+// 交付包，头部写「已完成」、交付自检按待复核判、manifest 写 waiting_review——一份材料两种答案。
+expect("打回待复核时状态改口", statusWithReopen("completed", true), "waiting_review");
+expect(
+  "没打回时原样透传（含 failed：改口只针对「打回」这一件事，不碰别的状态）",
+  [statusWithReopen("completed", false), statusWithReopen("failed", false), statusWithReopen("processing", false)],
+  ["completed", "failed", "processing"],
+);
+expect("改口之后的完整说法与共享名单同源", taskStatusLabel(statusWithReopen("completed", true)), STATUS_TEXT.waiting_review);
+expect("徽标短标签同样跟着改口", taskStatusShort(statusWithReopen("completed", true)), STATUS_TEXT.waiting_review);
+// 静态走查：组件里消费 reopened 来定状态的地方只许有一处
+const reopenUses = benchSrc
+  .split("\n")
+  .filter(
+    (l) =>
+      l.includes("reopened") &&
+      !l.trim().startsWith("//") &&
+      !l.includes("setReopened") &&
+      !l.includes("useState"),
+  ).length;
+// 这条不能直接 includes 全文：解释这个缺陷的注释里就得写出那个三元，于是注释把断言骗红了
+//（实测第一次跑就是这么红的）。静态走查要盯**代码**，所以先滤掉注释行再找。
+const reopenTernary = benchSrc
+  .split("\n")
+  .filter((l) => !l.trim().startsWith("//") && !l.trim().startsWith("*"))
+  .some((l) => l.includes('reopened ? "waiting_review"'));
+expect("组件代码里不再散落「reopened ? waiting_review」三元（注释里提到不算）", reopenTernary, false);
+expect("状态改口只经由 statusWithReopen 一处", benchSrc.includes("statusWithReopen(liveStatus, reopened)"), true);
+expect(
+  "组件里消费 reopened 的只剩 effectiveStatus 与 useMemo 依赖两处（再长出第三处就是又散落了一份）",
+  reopenUses,
+  2,
+);
+// 数出现次数而不是 includes：交付自检输入与 manifest 是两处，都写 `status: effectiveStatus,`。
+// 用 includes 的话，改坏其中一处另一处仍然匹配，断言照绿——第一版就是这么写的，
+// 变异测试（把 manifest 那处改回三元）只红了 2 条，这条一声没出。
+expect(
+  "交付自检输入与 manifest 的状态都从 effectiveStatus 派生（两处，少一处就是又散落了）",
+  benchSrc.split("status: effectiveStatus,").length - 1,
+  2,
+);
 expect(
   "非 failed 状态即使带这句也不算中断",
   isInterruptedOnRestart({ status: "completed", error: INTERRUPTED_ON_RESTART }),

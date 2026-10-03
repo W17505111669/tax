@@ -52,3 +52,17 @@ export function taskStatusShort(status: string, interrupted = false): string {
   if (status !== "failed") return STATUS_TEXT[status] ?? status;
   return interrupted ? "已中断" : "失败";
 }
+
+/**
+ * 「打回待复核」是本地状态：用户在结果页点一下就把已完成的任务退回待复核，服务端此时还没落库，
+ * 所以在它落库之前，凡是对外声称状态的地方都必须改口成 `waiting_review`。
+ *
+ * 这个三元此前在 TaskWorkbench 里手写了四遍（交付自检输入、人工复核记录节、manifest 的
+ * `task.status`、ReviewView 的 status prop），而**另外三处漏了**：交付 MD 头部的「状态」、
+ * 任务页徽标、复制文本与核对表用的完整说法。后果是用户打回之后下载交付包，同一份包里
+ * 头部写「已完成」、交付自检按待复核判、人工复核记录节按待复核写、manifest 写
+ * `waiting_review`——一份材料四种口径两种答案。收成一个函数，消费点逐个接上。
+ */
+export function statusWithReopen(liveStatus: string, reopened: boolean): string {
+  return reopened ? "waiting_review" : liveStatus;
+}

@@ -3044,3 +3044,32 @@ after：按实测把这两条的 `tabs` 改成 `["result"]`。附带一个收益
 实测：`scan:uimd` 新增两行常驻报告（「字数最多的 5 次扫描」与「每次扫描明细 N 条 · 与总数同源自检 2 项」），`--json` 多一个 `perScan` 字段（全库跑时 1076 条）；`typecheck:all` 通过；`qa:all` 全绿（verify 脚本 50 个）。全库 `scan:uimd --all --strict`：151 页 / 1076 次交互 / **850161** 个文本节点 / **23454595** 字 / 残留 **0** / 明细 1076 条、与总数同源自检 2 项通过 / 界面数字核对 414 项 + 台账 1760 单元格 + 比对页 280 + 看板 KPI 50 + 状态分布 42 + hero 10 + 周环比与缺口 20 + 趋势 4 + 最近活动 14 / 不一致 **0**。本轮不改界面、不改任何判据，门禁项数沿用上一轮（`verify:reltime` 61、`verify:gates` 45、`verify:tlcalls` 87、`verify:dcheck` 169）。
 
 挂账状态更新：上一轮那笔「字数少 5836」**已结**——原因是全库 scan 总字数本身的抖动，与代码改动无关，四组窄扫对比与本轮复扫两侧证据一致。新挂账一条：**scan 的总字数不是确定量（±6000 字量级），而 `chars < 400` 的薄页判据抓不到半加载状态**，所以总字数不能当逐轮基线用；定位能力（perScan 明细）已就位，根治方案（每次扫描前等渲染稳定）待下一次抖动时拿着 diff 再定。
+
+### 用户点一下「打回待复核」，下载的交付包里头部写「已完成」、manifest 写 waiting_review
+
+起点是上一轮留下的靶（交付 MD 头部还内联）。逐字段把头部与 manifest 的 `task` 对了一遍，状态那一格两边取数不同：头部走 `statusFull`（由 `liveStatus` 算），manifest 写 `reopened ? "waiting_review" : task.status`。
+
+`reopened` 是**前端本地 state**（`useState(false)`），用户在结果页点「打回待复核」时置真，服务端此时还没落库。所以它是一个必须被所有对外声称点接上的状态。数了一遍消费点：那个三元在 `TaskWorkbench` 里**手写了四遍**（交付自检输入 `deliveryInput`、人工复核记录节 `reviewSection`、manifest 的 `task.status`、`ReviewView` 的 status prop），而**另外三处漏了**——交付 MD 头部的「状态」、任务页徽标 `statusLabel`、复制文本与核对表用的完整说法 `statusFull`。
+
+后果是一条正常用户路径就能踩到的：打回待复核 → 下载交付包 → 同一份包里头部写「已完成」、交付自检按待复核判、人工复核记录节按待复核写、manifest 写 `waiting_review`。一份材料两种答案，而那四种口径里只有头部那一种是给人看的中文句子。
+
+还有第二层差异：那四处三元用的是 `task.status`（列表加载时的快照），头部用的是 `liveStatus`（事件流的实时状态，`status === "created" ? task.status : status`）。任务正在跑时，manifest 写的是列表快照的旧状态、头部写的是实时状态。
+
+修法：`task-status.ts` 新增 `statusWithReopen(liveStatus, reopened)`，组件里定义**一个** `effectiveStatus`，七处全部接上（`meta` 配色、`statusLabel` 徽标、`statusFull` 完整说法、`deliveryInput`、`reviewSection`、manifest、`ReviewView`），顺带把 `task.status` 换成由 `liveStatus` 派生，两层差异一次消掉。改完组件里 `reopened` 只剩四处引用：定义、注释、`effectiveStatus`、`useMemo` 依赖数组。
+
+断言 8 条（落在 `verify:dcheck`）：改口行为、没打回时原样透传（含 `failed`——改口只针对「打回」这一件事，不碰别的状态）、改口之后的长短说法都与共享名单同源；静态走查三条（代码里不再散落三元、改口只经由 `statusWithReopen`、消费 `reopened` 的只剩 2 处）加一条计数（`status: effectiveStatus,` 必须出现 2 次）。
+
+**两次翻车都是断言自己的问题，都值得记：**
+
+1. 第一版写 `expect(benchSrc.includes('reopened ? "waiting_review"'), false)`，跑出来红了——因为**解释这个缺陷的注释里就得写出那个三元**，注释把断言骗红了。静态走查要盯的是代码，所以先滤掉 `//` 与 `*` 开头的行再找。这与「自证其说」正好是一对：一个把实现当期望，一个把注释当代码。
+2. 「manifest 与 MD 头部同源」那条第一版写的是 `includes("status: effectiveStatus,")`，变异测试（把 manifest 那处改回三元）时它**一声没出**——因为 `deliveryInput` 那处也匹配，`includes` 只判存在、不判每一处。改成数出现次数（必须 2 次）之后，同一个变异红 3 条。这与上一轮 `runCount ?? 0` 那条的精度问题是同一个毛病，两轮连着犯：**`includes` 型静态断言只能证明「至少有一处对」，证明不了「每一处都对」**。凡是要钉「不许再散落一份」的断言，都得数次数或者列出全部匹配位置。
+
+变异测试：把 manifest 那处改回 `reopened ? "waiting_review" : task.status` → 红 **3 条**（代码里散落三元、消费 `reopened` 的地方变成 3 处、`status: effectiveStatus,` 只剩 1 次）；还原后 177 项 / 失败 0。
+
+实测：`verify:dcheck` 检查项 **169 → 177**、失败 0；`typecheck:all` 通过；`qa:all` 全绿（verify 脚本 50 个）。变异跑完已还原，还原后复跑仍 177 项 / 失败 0。全库 `scan:uimd --all --strict`：151 页 / 1076 次交互 / **850392** 个文本节点 / **23458595** 字 / 残留 **0** / 每次扫描明细 1076 条、与总数同源自检 2 项通过 / 界面数字核对 414 项 + 台账 1760 单元格 + 比对页 280 + 看板 KPI 50 + 状态分布 42 + hero 10 + 周环比与缺口 20 + 趋势 4 + 最近活动 14 / 不一致 **0**。
+
+两个数字要如实说明：字数比上一轮多 4000、节点多 231。本轮改动在默认状态（`reopened === false`）下 `effectiveStatus === liveStatus`，**DOM 输出不应有任何变化**，所以差异不来自代码。字数 +4000 落在上一轮量到的 ±6000 抖动范围内；节点 +231 则超出此前几轮 ±60 的波动幅度，**未追因**——`perScan` 明细已经就位，下一次再出现同类偏移可以直接两次跑 diff 到具体页面，本轮没有为了这 231 个节点再花一次 16 分钟的全库跑。
+
+真正会被这轮改动影响的是「打回待复核之后」的那条路径。触发它的按钮叫**「转为待复核」**（在 `ReviewView` 里，点了会调 `api.reopenReview` 写库），文案含「复核」二字所以被 `TOGGLE_BLOCK` 挡住、scan 不会点它。但顺着追下去发现一件事：**它此前不在任何点名名单里**——scan 的枚举判据自检只验了「下载交付包」与「复核并提交」两个必须被排掉的按钮，「转为待复核」纯粹是靠文案里那两个字碰巧被挡住的。也就是说，将来谁把它改成「打回重审」这种不含 BLOCK 词的说法，全库扫就会真的去点它、把已完成的任务打回待复核，而扫描照样报绿。本轮把它补进点名名单 `BANNED_TOGGLES`，报告行里「N 个写库 / 发请求按钮必须被排掉」的 N 也改由数组长度给出、不再手写 2。自检项因此 **5 → 7**（3 个必需入口 + 1 条 tab 归属 + 3 个必须被排掉的按钮），窄扫实测「转为待复核」确实被排掉、不一致 0。这一档在真实界面上仍然没有被扫过（也不该被扫），它的正确性由 `verify:dcheck` 那 8 条断言与 `statusWithReopen` 的纯函数测试兜住。
+
+补一句范围说明：上面那次全库复扫是在 `effectiveStatus` 改完之后跑的，所以界面改动已被全库覆盖；`BANNED_TOGGLES` 是之后加的，它只影响自检那段合成 DOM、不影响真实扫描的判据与范围，用窄扫验过即可，没有为它再花一次 16 分钟的全库跑。
