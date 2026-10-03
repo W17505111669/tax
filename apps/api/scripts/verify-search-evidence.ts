@@ -465,6 +465,7 @@ let retainTruncated = 0;
 let retainCharsSum = 0;
 let retainOmittedSum = 0;
 const retainBad: string[] = [];
+const retainByTool = new Map<string, { n: number; trunc: number; chars: number; max: number }>();
 let taskTotal = 0;
 let withSearch = 0;
 let metaOnlyCalls = 0;
@@ -507,6 +508,12 @@ for (const t of listTasks()) {
     retainCharsSum += chars;
     retainOmittedSum += om;
     if (om > 0) retainTruncated += 1;
+    const b = retainByTool.get(c.toolName) ?? { n: 0, trunc: 0, chars: 0, max: 0 };
+    b.n += 1;
+    if (om > 0) b.trunc += 1;
+    b.chars += chars;
+    if (chars > b.max) b.max = chars;
+    retainByTool.set(c.toolName, b);
     checks += 1;
     for (const why of retentionDefects(rec)) retainBad.push(`${t.id.slice(0, 8)} ${c.toolName}：${why}`);
   }
@@ -549,8 +556,24 @@ for (const t of listTasks()) {
 }
 expect("确实量到了库里的留存正文（不是这个功能没跑过在这儿空跑）", retainTotal >= 1, true);
 expect("库里每一行留存正文的三个字段都自洽（不自洽＝界面在报一个错的截断数）", retainBad, []);
+// 上限「够覆盖」这句话是 agent-factory.ts 注释里对外讲的理由，它必须可被证伪：
+// 一旦三分之一的联网调用都顶到上限，那就不是「个别长页面」而是「常态截断」，
+// 该重新评估上限（或改成按页分段留存），而不是继续默默截掉、只在界面上写一句「留存不完整」。
+expect(
+  `留存上限 ${MAX_RETAINED_TEXT} 字仍然「够覆盖」：顶到上限被截断的不超过三分之一（超了就该重新评估上限，而不是继续默默截掉）`,
+  retainTruncated <= Math.ceil(retainTotal / 3),
+  true,
+);
 console.log(
   `[verify] 留存正文截断实测：${retainTotal} 条留存 · 平台层截断 ${retainTruncated} 条 · 留住 ${retainCharsSum} 字 / 截掉 ${retainOmittedSum} 字（占原文 ${((retainOmittedSum / Math.max(1, retainCharsSum + retainOmittedSum)) * 100).toFixed(1)}%）`,
+);
+// 逐工具的分布是常驻输出：agent-factory.ts 里那句「上限够覆盖正文」此前把实测数字写死在注释里
+//（「charCount 多在 3,000～8,000」），库里数据一变注释就过期，而且没人会发现。数字改由这里报。
+console.log(
+  `[verify] 留存正文逐工具：${[...retainByTool.entries()]
+    .sort((a, b) => b[1].chars - a[1].chars)
+    .map(([k, v]) => `${k} ${v.n} 条 / 均 ${Math.round(v.chars / Math.max(1, v.n))} 字 / 最长 ${v.max} 字${v.trunc > 0 ? ` / 截断 ${v.trunc} 条` : ""}`)
+    .join(" · ")}`,
 );
 console.log(
   `[verify] 真实任务走查：${taskTotal} 个任务 · ${withSearch} 个用过联网检索 · 引用 ${citeTotal} 条（工具留存 ${toolCiteTotal} + 结论正文 ${textCiteTotal}，去重后 ${citeTotal}；政府/税务机关站点 ${officialTotal} 条）· 只留元数据的检索 ${metaOnlyCalls} 次`,
