@@ -11,6 +11,8 @@ import {
   fmtDurationZh,
   fmtMs,
   fmtSecondsShort,
+  groupNumber,
+  moneyText,
   needsUnitSpace,
   percentFrom,
   percentOf,
@@ -172,6 +174,46 @@ ok("工作台不再自己拼分钟", !workbench.includes("Math.round(s / 60)} �
 ok("工作台不再自己拼紧凑秒", !workbench.includes("toFixed(0)}s") && !workbench.includes("toFixed(1)}s"));
 const runTools = fs.readFileSync(path.join(webSrc, "run-tools.ts"), "utf8");
 ok("run-tools 的耗时委托给 format.ts", runTools.includes("return fmtMs(ms);"));
+
+// ---- 千分位与金额：门禁与界面必须用同一个函数 ----
+// 此前 toLocaleString("zh-CN") 内联了 10 处，其中最要紧的是 scan:uimd 的**期望值**与看板 KPI 卡
+// 的**渲染值**各格式化一遍：两边各自维护格式串，改一边就假红、两边一起改就假绿（它比的是字符串，
+// 一起错就一起过）。金额那一档（比对页）用的是两位小数的选项，也各写了一份。
+expect("千分位", groupNumber(1234567), "1,234,567");
+expect("0 与负数", [groupNumber(0), groupNumber(-1234)], ["0", "-1,234"]);
+expect(
+  "非有限值给「—」而不是 NaN（这个字符串会直接上看板与交付材料）",
+  [groupNumber(NaN), groupNumber(Infinity)],
+  ["—", "—"],
+);
+expect("金额固定两位小数并带千分位", moneyText(1234.5), "1,234.50");
+expect("金额的非有限值同样给「—」", moneyText(NaN), "—");
+
+// 全库走查：日期时间与数字的格式化只许在 time-format.ts 与 format.ts 里各留一份。
+// 刻意不点名清单——点名会腐化（新文件不在清单里就管不到），所以直接遍历目录。
+const FMT_DIRS = [path.resolve(here, "..", "..", "web", "src"), path.resolve(here, "..", "src")];
+const FMT_ALLOWED = new Set(["time-format.ts", "format.ts"]);
+const INLINE_FMT = /toLocaleString\(\s*"zh-CN"/;
+const offenders: string[] = [];
+let fmtFiles = 0;
+const walkFmt = (dir: string): void => {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) {
+      walkFmt(p);
+      continue;
+    }
+    if (!/\.(ts|tsx)$/.test(e.name) || FMT_ALLOWED.has(e.name)) continue;
+    fmtFiles += 1;
+    if (INLINE_FMT.test(fs.readFileSync(p, "utf8"))) {
+      offenders.push(path.relative(path.resolve(here, "..", ".."), p));
+    }
+  }
+};
+for (const d of FMT_DIRS) walkFmt(d);
+expect("格式化走查确实走到了文件（不是空跑）", fmtFiles > 30, true);
+expect("界面与服务端都不再内联 toLocaleString（只留 format.ts / time-format.ts 两份实现）", offenders, []);
+console.log(`[verify] 格式化实现点走查：${fmtFiles} 个 .ts/.tsx 文件 · 内联残留 ${offenders.length} 处`);
 
 console.log(`[verify] 数字与单位排版检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {

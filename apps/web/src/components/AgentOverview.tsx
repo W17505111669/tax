@@ -19,7 +19,7 @@ import {
 } from "../evidence-ledger.ts";
 import { downloadBlob, downloadText } from "../download.ts";
 import { asSnapshotRecord, KEYS, readJson, writeJson } from "../local-store.ts";
-import { needsUnitSpace, percentFrom, percentOf, percentValue } from "../format.ts";
+import { groupNumber, needsUnitSpace, percentFrom, percentOf, percentValue } from "../format.ts";
 import { dateTimeStamp, dayStamp, relTime } from "../time-format.ts";
 import { groupSummary } from "../review-queue.ts";
 import {
@@ -74,7 +74,7 @@ function Odometer({ value }: { value: number }) {
     const t = window.setTimeout(() => setOn(true), 60);
     return () => window.clearTimeout(t);
   }, []);
-  const text = value.toLocaleString("zh-CN");
+  const text = groupNumber(value);
   return (
     // role="img" + aria-label：数字位是 0-9 的滚动列，文本层读出来是「0\n1\n…\n9」两串，不是这个数
     //（实测 innerText 就是两串 0-9，aria-label / title / role 三个全为空）。读屏与任何按文本取数的
@@ -795,8 +795,8 @@ export function AgentOverview({
             {/* data-kpi-grid：scan:uimd 靠它定位这一排卡片，逐个核对数字与单位串 */}
             <div className="mt-2 grid gap-3 sm:grid-cols-2 xl:grid-cols-6" data-kpi-grid="1">
               {[
-                { label: "平台累计任务", key: "tasks", value: stats.platform.tasks.toLocaleString("zh-CN"), unit: "个", desc: "全平台已创建任务总数（含未完成）；本作品的任务数见页首 hero 与「任务状态分布 · 共 N 件」" },
-                { label: "平台已完成", key: "completed", value: stats.platform.completed.toLocaleString("zh-CN"), unit: "个", desc: "全平台状态为 completed 的任务数；本作品的已完成数见「任务状态分布」第一条" },
+                { label: "平台累计任务", key: "tasks", value: groupNumber(stats.platform.tasks), unit: "个", desc: "全平台已创建任务总数（含未完成）；本作品的任务数见页首 hero 与「任务状态分布 · 共 N 件」" },
+                { label: "平台已完成", key: "completed", value: groupNumber(stats.platform.completed), unit: "个", desc: "全平台状态为 completed 的任务数；本作品的已完成数见「任务状态分布」第一条" },
                 {
                   label: "工具成功率",
                   desc: `有返回结果的工具调用中 ok=1 的占比，分母 ${resolvedCalls(
@@ -809,7 +809,7 @@ export function AgentOverview({
                   value: percentValue(stats.platform.toolOk, resolvedCalls(outcomeOf(stats.platform))),
                   unit: "%",
                 },
-                { label: "底稿产物", key: "artifacts", value: stats.platform.artifacts.toLocaleString("zh-CN"), unit: "份", desc: "各任务 outputs 目录文件计数" },
+                { label: "底稿产物", key: "artifacts", value: groupNumber(stats.platform.artifacts), unit: "份", desc: "各任务 outputs 目录文件计数" },
                 {
                   label: "记录级比对准确率",
                   desc: `最近一次记录级比对的准确率（同行评审共 ${stats.platform.compareRuns} 次，按调用时间取最新${

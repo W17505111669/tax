@@ -3,6 +3,7 @@ import type { CompareDiff, CompareRecord, CompareRef, UnusableCompare } from "..
 import { IconAlert, IconCheck, IconCopy, IconDownload } from "./Icons.tsx";
 import { downloadCsv, downloadText } from "../download.ts";
 import { dateTimeStamp, dayStamp } from "../time-format.ts";
+import { moneyText } from "../format.ts";
 import { KEYS, readEnum, writeRaw } from "../local-store.ts";
 import { compareModeLabel, compareModeOf } from "../compare-mode.ts";
 
@@ -17,7 +18,7 @@ const KIND_META = {
 
 function fmt(v: string | number | null): string {
   if (v === null || v === undefined) return "∅";
-  if (typeof v === "number") return v.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (typeof v === "number") return moneyText(v);
   return String(v);
 }
 

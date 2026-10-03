@@ -1,6 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+// 默认任务标题里的时间戳与全站同一份格式（这是第 34 处日期格式化，也是唯一一处在服务端：
+// 它不带 { hour12: false }，实测 zh-CN 默认就是 24 小时制、输出与 dateTimeStamp 逐字相同，
+// 但它会落库进 tasks.title，所以更要走共享函数，别让它成为下一处口径分叉）
+import { dateTimeStamp } from "../../../web/src/time-format.ts";
 import type { FastifyInstance } from "fastify";
 import { CreateTaskInputSchema } from "@tax/shared-schemas";
 import { parseOne } from "@tax/document-tools";
@@ -60,7 +64,7 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     const task = createTask({
       agentId: input.agentId,
       caseId: input.caseId,
-      title: input.title?.trim() || `${agent.shortName}任务 ${new Date().toLocaleString("zh-CN")}`,
+      title: input.title?.trim() || `${agent.shortName}任务 ${dateTimeStamp(new Date())}`,
       instruction: input.instruction,
     });
     fs.mkdirSync(path.join(dirs.uploads, task.id), { recursive: true });

@@ -81,3 +81,25 @@ export function fmtMs(ms: number | null): string {
   if (ms < 1000) return `${Math.round(ms)} ms`;
   return `${(ms / 1000).toFixed(1)} s`;
 }
+
+/**
+ * 千分位整数：1234567 → `1,234,567`。
+ *
+ * 这个格式化此前内联了 10 处，其中最要紧的是**门禁与界面各写一遍同一件事**：`scan:uimd` 拿
+ * `board.tasks.toLocaleString("zh-CN")` 当期望值，看板 KPI 卡拿 `stats.platform.tasks
+ * .toLocaleString("zh-CN")` 渲染，两边的格式串各自维护。只要有一边改了记法，比对就会假红；
+ * 更坏的是两边一起改成另一种记法，比对照样绿——它比的是字符串，两边一起错就一起过。
+ * 收成一个函数之后，「界面上那个数」与「门禁认为该显示的数」不可能再各说一套。
+ *
+ * 非有限值给「—」而不是 `NaN`：这个字符串会直接出现在看板与交付材料上。
+ */
+export function groupNumber(n: number): string {
+  return Number.isFinite(n) ? n.toLocaleString("zh-CN") : "—";
+}
+
+/** 金额与准确率：固定两位小数（比对页那一列的口径），同样走千分位 */
+export function moneyText(n: number): string {
+  return Number.isFinite(n)
+    ? n.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : "—";
+}

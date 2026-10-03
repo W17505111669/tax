@@ -6,6 +6,7 @@
 
 import { STALE_HOURS } from "./link-check.ts";
 import type { GradeSummary } from "./citation-grade.ts";
+import { groupNumber } from "./format.ts";
 import { isInterruptedOnRestart } from "./task-status.ts";
 
 export type CheckInput = {
@@ -129,7 +130,7 @@ export function deliveryCheck(i: CheckInput): CheckResult {
     items.push({ level: "block", text: `任务仍在${i.status === "processing" ? "执行中" : "待执行"}，尚未产出最终结论` });
   }
   if (i.resultChars <= 0) items.push({ level: "block", text: "缺少审查结论正文" });
-  else items.push({ level: "ok", text: `审查结论 ${i.resultChars.toLocaleString("zh-CN")} 字` });
+  else items.push({ level: "ok", text: `审查结论 ${groupNumber(i.resultChars)} 字` });
 
   if (i.status === "completed" && i.pendingReview > 0) {
     items.push({

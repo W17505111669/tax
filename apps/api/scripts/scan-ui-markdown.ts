@@ -31,7 +31,9 @@ import { loadTaskDocRefs } from "./docref-lib.ts";
 import { revisionPlanFor } from "./revision-lib.ts";
 import { TEXT_AMOUNT_TOOLS, traceAmounts } from "../../web/src/amount-trace.ts";
 import { retentionNote, retentionStats } from "../../web/src/search-evidence.ts";
-import { percentValue } from "../../web/src/format.ts";
+// groupNumber 与看板 KPI 卡共用一份：门禁的期望值与界面渲染值必须是同一个函数算出来的，
+// 否则两边各自维护格式串，改一边就假红、两边一起改就假绿
+import { groupNumber, percentValue } from "../../web/src/format.ts";
 import { outcomeOf, resolvedCalls } from "../../web/src/tool-outcome.ts";
 import { STATUS_BARS, statusBreakdown } from "../../web/src/status-breakdown.ts";
 import {
@@ -474,10 +476,10 @@ async function main(): Promise<void> {
   // 就是为了不在这里再抄一遍四个字段名——抄错一个，成功率的分母就悄悄换了）。
   const boardOutcome = outcomeOf(board);
   const kpiWant: Array<{ label: string; value: string; unit: string }> = [
-    { label: "平台累计任务", value: board.tasks.toLocaleString("zh-CN"), unit: "个" },
-    { label: "平台已完成", value: board.completed.toLocaleString("zh-CN"), unit: "个" },
+    { label: "平台累计任务", value: groupNumber(board.tasks), unit: "个" },
+    { label: "平台已完成", value: groupNumber(board.completed), unit: "个" },
     { label: "工具成功率", value: percentValue(board.toolOk, resolvedCalls(boardOutcome)), unit: "%" },
-    { label: "底稿产物", value: board.artifacts.toLocaleString("zh-CN"), unit: "份" },
+    { label: "底稿产物", value: groupNumber(board.artifacts), unit: "份" },
     {
       label: "记录级比对准确率",
       value: board.compareAccuracy !== null ? String(board.compareAccuracy) : "—",
@@ -521,7 +523,7 @@ async function main(): Promise<void> {
     agentWant.set(agentId, {
       total: list.length,
       bars: STATUS_BARS.map((b) => ({ label: b.label, value: String(bd[b.key]) })),
-      hero: list.length.toLocaleString("zh-CN"),
+      hero: groupNumber(list.length),
       runDays: runDaysOf(createdAts),
       dayAvg: dayAvgOf(buckets).toFixed(1),
       today: String(buckets[TREND_DAYS - 1] ?? 0),
