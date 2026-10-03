@@ -2801,3 +2801,21 @@ B 之所以能只红一条，是因为它保留了「同一轮内 `detail` 与 `
 还有一处是我自己漏跑造成的：加完断言只跑了 `verify:gates`（`tsx` 不做类型检查，绿的），没跑 typecheck，直到 `qa:all` 才报出两处 `string | undefined`——本项目开了 `noUncheckedIndexedAccess`，`matchAll` 的捕获组与 `exec` 的 `m[1]` 都是可空的。修法是 `m?.[1]` 与 `.filter((n): n is string => n !== undefined)`。教训：**`tsx` 跑绿不等于类型通过**，改了 `.ts` 就得当场跑 `typecheck:all`，别等 `qa:all` 才发现。
 
 实测：`verify:gates` 检查项 **37 → 42**、失败 0（verify 脚本 49 个：走真实数据 28 / 纯函数 20；scan 门禁 2 个走静态判据）。`qa:all` 全绿。本轮不动界面也不动生成逻辑，`scan:uimd` 沿用上一轮基线（151 页 / 1076 次交互 / 850137 节点 / 残留 0 / 比对页 280 项 / 不一致 0）。
+
+### hook 对外返回了一个没人读的字段，而它按全任务所有轮次累积、与时间线里的正文完全重复
+
+起点是上一轮补断言时顺手查了一下 `acc.stream` 的消费者：界面侧只有一个写入点（`useTaskEvents.ts` 里的 `setStream(acc.stream)`），而唯一的消费者 `TaskWorkbench.tsx:219` 只解构 `{ timeline, toolCalls, status, connected, reconnect }`。`rg "\bstream\b" -g "*.tsx" apps/web/src` 返回 **0 行**——没有任何组件读过它。
+
+量化 before：hook 对外返回 **6 个字段，其中 1 个无消费者**；每批 flush（`FLUSH_MS = 80`）写它一次；`acc.stream` 按全任务**所有轮次**累积、永不清空，而库里单任务最多 24717 行 delta、平均每行约 6.7 字 → 最坏约 16 万字的字符串被镜像进 React state，且与时间线条目的 `detail` 是同一份文本存两处。
+
+**删的是镜像，不是聚合器里的那一份。** `acc.stream` 不是死代码：它是 `detail` 的互为校验对象，`verify:tlcalls` 有 3 条断言读它（「delta 累计进 stream」「时间线行的 detail 与 stream 同源」「stream 不随 agent_text 收口清空」），上一轮的两次变异测试证明这 3 条各自咬得住不同的破坏方式。删了它，那 3 条断言就没了对象。所以本轮只删 `useState` / `setStream` / 返回字段，聚合器原样保留。
+
+顺带修了一处注释与实现不符：hook 的 JSDoc 写着「聚合成时间线、工具调用列表与**流式文本**」，而流式文本从来没被消费过。改成「与任务状态」，并把「刻意不往外暴露」的理由写进注释（流式回显用的是时间线条目的 `detail`，每次运行一段、带 `streaming` 标记）。这是待办池 P1-10「注释 vs 实现」那一类，只是这次不是审计出来的，是补断言时撞上的。
+
+断言不逐个点名 `stream`，而是钉住这一类：**hook 返回的字段集合必须与唯一消费者的解构集合相等**，多出来的就是没人读的死字段。这样将来再往返回值里塞一个没人用的字段同样会被抓住，而不是只挡住 `stream` 这一个。它并入既有的「hook 那侧必须真的批处理」那段走查、复用同一个 `hookSrc`，不另起一份。
+
+**翻车一次，而且与上一轮是同一个形状。** 第一版把断言插在流式正文那段中间，自己又声明了一遍 `const here` 与 `const hookSrc` → typecheck 报 `Cannot redeclare block-scoped variable 'hookSrc'`。文件里 220 行起本就有一段 hook 静态走查（钉批处理、钉 `FLUSH_MS` 两边同源、钉聚合口径不在 hook 里重复实现）。上一轮是「用被截断的 grep 判断这里没有覆盖」，这一轮是「没往下翻就自己写一份」——同一个毛病的两种长相：**在长文件里判断「有没有人做过这件事」，必须看完整匹配**。这次是 typecheck 拦住的，不是变异测试；如果变量名碰巧不撞，我就会留下两份重复走查。
+
+变异测试：往 hook 返回值里塞一个已有但没人解构的 `nonce` → 红 **1 项**，报的正是集合差 `实际 ["connected","nonce","reconnect","status","timeline","toolCalls"]，期望 ["connected","reconnect","status","timeline","toolCalls"]`；还原后 81 项 / 失败 0。
+
+实测：`verify:tlcalls` 检查项 **77 → 81**、失败 0；`typecheck:all` 通过（这一轮就是它拦住了重复声明）；`qa:all` 全绿。hook 动了，全库 `scan:uimd --all --strict` 复扫：151 页 / 1076 次交互 / **850149** 个文本节点 / 23454559 字 / 残留 **0** / 比对页数字核对 280 项 / 界面数字核对 414 项 + 台账 1760 单元格 + 看板 KPI 50 + 状态分布 42 + hero 10 + 周环比与缺口 20 + 趋势 4 + 最近活动 14 / 不一致 **0**。节点数比上一轮多 12 个、字数多 36 字，来自这两轮新写进页面的文案（比对页的「模式未记录」等），不是渲染多出东西。删掉一个只写不读的 state 不改变任何 DOM 输出，这一点由复扫的 0 残留与 0 不一致兜住。

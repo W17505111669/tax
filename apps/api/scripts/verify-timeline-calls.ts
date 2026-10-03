@@ -202,6 +202,23 @@ expect("hook 里不再每条事件复制一次调用数组", hookSrc.includes("s
 expect("hook 按固定间隔批量刷新", hookSrc.includes("setTimeout(flush, FLUSH_MS)"), true);
 expect("刷新间隔取自 task-events.ts（两边不各写一个数）", [hookSrc.includes("FLUSH_MS"), FLUSH_MS > 0], [true, true]);
 expect("聚合口径不在 hook 里重复实现", hookSrc.includes("STATUS_LABEL"), false);
+// 返回的字段还必须与唯一消费者的解构一一对应：多出来的就是只写不读的死字段。
+// 实测踩过：useTaskEvents 曾把 acc.stream 镜像进 useState 并对外返回，而 TaskWorkbench 从来没
+// 解构过它——每批 flush 白写一次 state，那个字符串还按全任务所有轮次累积（实测单任务最多
+// 24717 行 delta、平均每行约 6.7 字）。聚合器里的 stream 留着（上面「delta 累计进 stream」
+// 「不随收口清空」那几条钉它），只是不再对外暴露。判据写成「两个集合相等」而不是逐个点名，
+// 将来再往返回值里塞一个没人读的字段同样会被抓住。
+const benchTlSrc = fs.readFileSync(
+  path.resolve(here, "..", "..", "web", "src", "components", "TaskWorkbench.tsx"),
+  "utf8",
+);
+const fieldsOfHook = (s: string): string[] => s.split(",").map((x) => x.trim()).filter(Boolean).sort();
+const hookRet = fieldsOfHook(/return \{ ([^}]+) \};/.exec(hookSrc)?.[1] ?? "");
+const benchUse = fieldsOfHook(/const \{ ([^}]+) \} = useTaskEvents\(/.exec(benchTlSrc)?.[1] ?? "");
+expect("TaskWorkbench 源码真读到了（这条走查不能空跑）", benchTlSrc.length > 10000, true);
+expect("hook 的返回字段确实解析出来了（正则没失配）", hookRet.length >= 5, true);
+expect("hook 返回的字段与唯一消费者的解构一一对应（多出来的就是没人读的死字段）", hookRet, benchUse);
+expect("hook 不再把只写不读的 stream 镜像进 state", hookSrc.includes("setStream"), false);
 
 // ---- 结论正文的两份存放必须一致 ----
 // `tasks.result` 是运行结束时写下的那一份；`events` 里的 agent_text_delta 分片按 listConclusions
