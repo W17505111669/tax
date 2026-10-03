@@ -713,7 +713,8 @@ export function AgentOverview({
                   查看全部
                 </button>
               </div>
-              <ul className="mt-2 space-y-1">
+              {/* data-recent：scan:uimd 靠它定位「最近活动」这几条，逐条核对标题与顺序 */}
+              <ul className="mt-2 space-y-1" data-recent="1">
                 {recent.length === 0 && <li className="px-1.5 text-[11.5px] text-mist-600">暂无任务</li>}
                 {recent.map((r) => (
                   <li key={r.id}>

@@ -250,6 +250,27 @@ const SPARK_READ = `(() => {
   };
 })()`;
 
+/**
+ * 看板「最近活动」那几条：标题取按钮的 title 属性（列表里的可见标题带 truncate，靠 CSS 省略号截断，
+ * 文本本身是全的，但 title 更稳），没有任务时读「暂无任务」空态。
+ */
+const RECENT_READ = `(() => {
+  const ul = document.querySelector("[data-recent]");
+  const items = [];
+  let empty = false;
+  if (ul) {
+    for (let i = 0; i < ul.children.length; i++) {
+      const btn = ul.children[i].querySelector("button");
+      if (btn) {
+        items.push(btn.getAttribute("title") || "");
+        continue;
+      }
+      if (/暂无任务/.test(ul.children[i].textContent || "")) empty = true;
+    }
+  }
+  return { found: Boolean(ul), items: items, empty: empty };
+})()`;
+
 interface Args {
   tasks?: string[];
   tabs: string[];
@@ -474,6 +495,8 @@ async function main(): Promise<void> {
     week: { now: string; prev: string; delta: string };
     /** 近 14 天趋势：折线点位串与日均虚线的 y1（都要与界面同一份 sparkPoints / sparkY 算） */
     spark: { points: string; avgY: string };
+    /** 「最近活动」那几条的标题（按创建时间倒序取最近 5 个，与界面同一个 comparator） */
+    recent: string[];
   };
   const agentWant = new Map<string, AgentWant>();
   for (const agentId of AGENT_IDS) {
@@ -498,6 +521,10 @@ async function main(): Promise<void> {
         points: sparkPoints(buckets),
         avgY: String(sparkY(dayAvgOf(buckets), dayMaxOf(buckets))),
       },
+      recent: [...list]
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .slice(0, 5)
+        .map((t) => t.title),
     });
   }
   // 复核缺口卡上并排写着两个数：「N 个已完成任务仍有 X 项问题未复核（全平台待复核合计 Y 项）」。
@@ -648,6 +675,8 @@ async function main(): Promise<void> {
   let weekChecks = 0;
   /** 看板近 14 天趋势：折线点位 + 日均虚线高度 */
   let sparkChecks = 0;
+  /** 看板「最近活动」：条数 + 逐条标题与顺序 */
+  let recentChecks = 0;
   /**
    * 枚举时**见过**的入口（点没点到另说）。「必需入口」的判据是「范围内出现过就必须点到」，
    * 不是「任何时候都必须点到」：窄范围跑（--tasks 指定几个任务、--no-overview）时，
@@ -1312,6 +1341,41 @@ async function main(): Promise<void> {
           );
         }
       }
+      // 「最近活动」：这一栏是看板上唯一按时间排序的清单，排序 comparator 改反、slice 取错条数、
+      // 或者拿错了任务集合（全平台而不是本作品），界面上都只是一串看起来很合理的标题——没有数字
+      // 可对，所以此前谁都不会发现。这里按顺序逐条对标题。
+      const recentUi = (await page.evaluate(RECENT_READ)) as {
+        found: boolean;
+        items: string[];
+        empty: boolean;
+      };
+      if (aw) {
+        recentChecks += 1;
+        if (!recentUi.found) {
+          numFails.push(`${p.label} 没找到「最近活动」列表（data-recent 钩子失效或版式改了）`);
+        } else {
+          recentChecks += 1;
+          if (recentUi.items.length !== aw.recent.length) {
+            numFails.push(
+              `${p.label} 「最近活动」列了 ${recentUi.items.length} 条，取数是最近 ${aw.recent.length} 个任务`,
+            );
+          }
+          aw.recent.forEach((title, i) => {
+            recentChecks += 1;
+            if (recentUi.items[i] !== title) {
+              numFails.push(
+                `${p.label} 「最近活动」第 ${i + 1} 条「${recentUi.items[i] ?? "(缺)"}」≠ 取数「${title}」（按创建时间倒序取最近 5 个）`,
+              );
+            }
+          });
+          if (aw.recent.length === 0) {
+            recentChecks += 1;
+            if (!recentUi.empty) {
+              numFails.push(`${p.label} 该作品一个任务都没有，「最近活动」却没给「暂无任务」空态`);
+            }
+          }
+        }
+      }
       const LEDGER_TOTAL =
         /全平台证据核对台账（(\d+) 个任务）文号 (\d+)\/(\d+) 有出处（其中复查取得 (\d+) · 仅正文提到 (\d+)）· 待复查 (\d+)（已标注 (\d+)） · 引用 (\d+) 条（官方 (\d+) · 弱 (\d+)，待处置 (\d+)）· 金额待确认 (\d+)（引自联网正文 (\d+) · 三处均无出处 (\d+)） · 欠账任务 (\d+) 个/;
       const m = LEDGER_TOTAL.exec(bodyText);
@@ -1629,6 +1693,8 @@ async function main(): Promise<void> {
   if (args.overview) console.log(`[scan] 看板周环比 + 复核缺口核对：${weekChecks} 项`);
   const sparkMissing = args.overview && sparkChecks === 0;
   if (args.overview) console.log(`[scan] 看板近 ${TREND_DAYS} 天趋势核对：${sparkChecks} 项（折线点位 + 日均虚线，× 总览页数）`);
+  const recentMissing = args.overview && recentChecks === 0;
+  if (args.overview) console.log(`[scan] 看板「最近活动」核对：${recentChecks} 项（条数 + 逐条标题与顺序 + 空态，× 总览页数）`);
   // 侧边阅读器：尝试过却一次都没打开 = 这项覆盖是空的（入口 title 改了 / 被折叠区挡住 / 没有产物）
   const readerMissing = args.reader && readerTried > 0 && readerOpened === 0;
   if (args.reader) {
@@ -1650,7 +1716,7 @@ async function main(): Promise<void> {
     );
   }
   console.log(
-    `[scan] 界面数字与库取数核对：${numChecks} 项 + 台账单元格 ${ledgerCellChecks} 个 + 比对页 ${cmpChecks} 项 + 看板 KPI ${kpiChecks} 项 + 状态分布 ${barsChecks} 项 + hero 区 ${heroChecks} 项 + 周环比与缺口 ${weekChecks} 项 + 趋势 ${sparkChecks} 项（不一致 ${ledgerCellBad} 个）· 合计不一致 ${numFails.length} 处`,
+    `[scan] 界面数字与库取数核对：${numChecks} 项 + 台账单元格 ${ledgerCellChecks} 个 + 比对页 ${cmpChecks} 项 + 看板 KPI ${kpiChecks} 项 + 状态分布 ${barsChecks} 项 + hero 区 ${heroChecks} 项 + 周环比与缺口 ${weekChecks} 项 + 趋势 ${sparkChecks} 项 + 最近活动 ${recentChecks} 项（不一致 ${ledgerCellBad} 个）· 合计不一致 ${numFails.length} 处`,
   );
   for (const f of numFails.slice(0, 10)) console.log(`  - ${f}`);
   if (numFails.length > 10) console.log(`  …另有 ${numFails.length - 10} 处`);
@@ -1670,6 +1736,7 @@ async function main(): Promise<void> {
       heroMissing ||
       weekMissing ||
       sparkMissing ||
+      recentMissing ||
       readerMissing ||
       (args.tabs.includes("result") && targets.length > 0 && artifactBtnChecks === 0) ||
       artifactPanelGone)
@@ -1703,7 +1770,9 @@ async function main(): Promise<void> {
                                 ? "[FAIL] 一个结果页都没渲染「生成产物」区块，这项覆盖是空的"
                                 : sparkMissing
                                   ? "[FAIL] 看板近 14 天趋势一个数都没核对到，这项覆盖是空的"
-                                  : "[FAIL] 界面上的数字与库里的取数对不上",
+                                  : recentMissing
+                                    ? "[FAIL] 看板「最近活动」一条都没核对到，这项覆盖是空的"
+                                    : "[FAIL] 界面上的数字与库里的取数对不上",
     );
     process.exit(1);
   }
