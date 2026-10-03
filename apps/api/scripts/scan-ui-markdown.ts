@@ -803,17 +803,12 @@ async function main(): Promise<void> {
         // 后面还跟着「解析：…」，精确匹配匹不到），界面每个产物渲染一个按钮且不截断，所以按钮数必须
         // 等于产物数。上一轮量出「8 个结果页只有 4 个能打开阅读器」，但打不开究竟是本来就没产物、
         // 还是入口悄悄没了，报告分不出来——这里把「入口在不在」变成可断言的，点开与否仍受折叠态影响。
-        // 「生成产物」区块不是无条件渲染的：全库实测 37 个结果页里有 2 个整块不出现（都是 0 产物的
-        // 任务，结果页走的是另一套布局），等 15 秒也不出现——那不是取数时机问题，是布局就没有这一块。
-        // 所以判据分两个方向，**硬的一边是「库里有产物就必须有入口」**（那才是点开原文的通道断了）；
-        // 0 产物而整块不渲染属合法状态，只计数、如实报，不判失败——否则就是拿一个布局差异当缺陷，
-        // 或者为了变绿去要求界面渲染一块本来不该在这套布局里出现的区块。
-        const artDeadline = Date.now() + 8000;
-        let flat = bodyText.replace(/\s+/g, " ");
-        while (Date.now() < artDeadline && !flat.includes("生成产物")) {
-          await page.waitForTimeout(400);
-          flat = ((await page.evaluate(`document.body.innerText`)) as string).replace(/\s+/g, " ");
-        }
+        // 「生成产物」在右侧 <aside> 里，而那个 aside 在阅读器打开时整块 hidden（class 由 `hidden xl:block`
+        // 变成 `hidden`）。innerText 只收**可见**文本，于是交互循环把阅读器开着收场的那几页读不到这一块：
+        // 全库跑实测 2 页误红（报「没有『生成产物』区块」），而单独跑同一页是绿的（那次阅读器是关着的）。
+        // 判「入口在不在」要看 DOM 里有没有，不是看当前有没有被浮层遮住——所以这一项改用 textContent
+        //（含隐藏内容），按钮也用 querySelectorAll 数，两者都不受可见性影响。
+        const flat = ((await page.evaluate(`document.body.textContent`)) as string).replace(/\s+/g, " ");
         const artBtns = Number(
           await page.evaluate(`document.querySelectorAll('button[title="在侧边阅读器中预览"]').length`),
         );
