@@ -622,6 +622,14 @@ async function main(): Promise<void> {
   let revisionPanels = 0;
   /** 枚举判据自检核到的项数（合成 DOM 上跑真正的 listToggles，见下面） */
   let specChecks = 0;
+  /**
+   * `--reader` 的覆盖计数。此前这个旗标一个计数器都没有：`openReader()` 返回 null（入口 title 改了、
+   * 被折叠区挡住、产物没生成）就静默跳过，跑完照样 [PASS]——「点开侧边阅读器」这项覆盖可以是空的
+   * 而报告里一个字都不提。这也是历轮全库基线一直没带 --reader 却没人发现的原因。
+   */
+  let readerTried = 0;
+  let readerOpened = 0;
+  const readerVias = new Set<string>();
   const toggleLabels = new Set<string>();
   let nodesTotal = 0;
   let charsTotal = 0;
@@ -1389,8 +1397,13 @@ async function main(): Promise<void> {
       }
     }
     if (args.reader && p.tab === "result") {
+      readerTried += 1;
       const via = await openReader();
-      if (via) await scanOnce(`${p.label} · 侧边阅读器（${via}）`);
+      if (via) {
+        readerOpened += 1;
+        readerVias.add(via);
+        await scanOnce(`${p.label} · 侧边阅读器（${via}）`);
+      }
     }
   }
   await browser.close();
@@ -1509,6 +1522,15 @@ async function main(): Promise<void> {
   if (args.overview) console.log(`[scan] 看板 hero 区核对：${heroChecks} 项（大数字 + 口径标签 + 运行天数 + 日均 + 今日，× 总览页数）`);
   const weekMissing = args.overview && weekChecks === 0;
   if (args.overview) console.log(`[scan] 看板周环比 + 复核缺口核对：${weekChecks} 项`);
+  // 侧边阅读器：尝试过却一次都没打开 = 这项覆盖是空的（入口 title 改了 / 被折叠区挡住 / 没有产物）
+  const readerMissing = args.reader && readerTried > 0 && readerOpened === 0;
+  if (args.reader) {
+    console.log(
+      `[scan] 侧边阅读器：在 ${readerTried} 个结果页上尝试打开，成功 ${readerOpened} 次（${
+        [...readerVias].join("；") || "无"
+      }）`,
+    );
+  }
   if (args.tabs.includes("result")) {
     console.log(
       `[scan] 结果页「联网留存不完整」提示：应有 ${retentionNotes} 个任务（其余任务走「这句不该出现」那半边判据）`,
@@ -1533,7 +1555,8 @@ async function main(): Promise<void> {
       kpiMissing ||
       barsMissing ||
       heroMissing ||
-      weekMissing)
+      weekMissing ||
+      readerMissing)
   ) {
     console.log(
       allHits.length > 0
@@ -1556,7 +1579,9 @@ async function main(): Promise<void> {
                         ? "[FAIL] 看板 hero 区一个数都没核对到，这项覆盖是空的"
                         : weekMissing
                           ? "[FAIL] 看板周环比与复核缺口一个数都没核对到，这项覆盖是空的"
-                          : "[FAIL] 界面上的数字与库里的取数对不上",
+                          : readerMissing
+                            ? "[FAIL] 带 --reader 跑却一个侧边阅读器都没打开，这项覆盖是空的"
+                            : "[FAIL] 界面上的数字与库里的取数对不上",
     );
     process.exit(1);
   }
