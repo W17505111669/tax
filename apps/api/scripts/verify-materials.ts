@@ -177,13 +177,43 @@ const ev = stats.evidence;
 const readme = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
 checks += 1;
 if (readme.length < 3000) failures.push(`README.md 只有 ${readme.length} 字，像是被截断了`);
-// 两个「真开浏览器」的实测门禁刻意不进 qa:all（要前端在跑、失败原因常与代码无关），所以它们
-// 唯一的曝光位置就是 README 的命令清单——此前清单里一个都没提，读的人不知道它们存在，等于这两道
-// 门禁没人跑：界面 Markdown 残留、界面数字与取数是否一致、交付物字节是否合规，全都无人复核。
-expect("README 写了界面实测怎么跑", readme.includes("pnpm scan:uimd"), true);
-expect("README 写了交付物实测怎么跑", readme.includes("pnpm scan:deliverables"), true);
+// 「真开浏览器」的实测门禁刻意不进 qa:all（要前端在跑、失败原因常与代码无关），所以它们唯一的
+// 曝光位置就是 README 的命令清单——此前清单里一个都没提，读的人不知道它们存在，等于这几道门禁
+// 没人跑：界面 Markdown 残留、界面数字与取数是否一致、交付物字节是否合规、渲染耗时，全都无人复核。
+//
+// 判据从 package.json 枚举，不点名：点名清单每加一道 scan 门禁就得回来补一行，而本轮新增
+// `perf:render` 时正是这么漏的——README 里写了，却没有任何断言盯着它，下次有人重写那段清单
+// 就会静默掉一道门禁，而且掉的正是唯一不在 qa:all 里的那一类（掉了没有任何门禁会红）。
+const rootScripts = (
+  JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")) as { scripts?: Record<string, string> }
+).scripts;
+const apiScripts = (
+  JSON.parse(fs.readFileSync(path.join(ROOT, "apps", "api", "package.json"), "utf8")) as {
+    scripts?: Record<string, string>;
+  }
+).scripts;
+const qaAllCmd = rootScripts?.["qa:all"] ?? "";
+/** 顺着 root 那条 `pnpm --filter @tax/api <name>` 找到最终跑的脚本文件名 */
+const scriptFileOf = (name: string): string => {
+  const filtered = /--filter\s+@tax\/api\s+([a-z0-9:-]+)\s*$/.exec(rootScripts?.[name] ?? "")?.[1] ?? name;
+  return /scripts\/([\w.-]+\.ts)/.exec(apiScripts?.[filtered] ?? "")?.[1] ?? "";
+};
+const browserGates = Object.keys(rootScripts ?? {}).filter(
+  (n) => !qaAllCmd.includes(`pnpm ${n}`) && scriptFileOf(n).startsWith("scan-"),
+);
+expect("确实枚举到了要浏览器与前端的门禁（不是 package.json 没读到在这儿空跑）", browserGates.length >= 3, true);
 expect(
-  "README 说清这两个 scan 不进 qa:all（否则会被当成全量门的一部分，以为跑过 qa:all 就跑过了）",
+  "枚举结果确实包含已知的两道（--filter 链解析不出来时会静默少项，那条 >= 3 也就跟着失效）",
+  [browserGates.includes("scan:uimd"), browserGates.includes("scan:deliverables")],
+  [true, true],
+);
+expect(
+  "每道要浏览器与前端的门禁都在 README 里写清了怎么跑（漏了等于这道门禁没人知道要跑）",
+  browserGates.filter((n) => !readme.includes(`pnpm ${n}`)),
+  [],
+);
+expect(
+  "README 说清这几道 scan 不进 qa:all（否则会被当成全量门的一部分，以为跑过 qa:all 就跑过了）",
   (readme.match(/不进 qa:all/g) ?? []).length >= 1 && readme.includes("需要先 pnpm dev"),
   true,
 );
@@ -191,6 +221,9 @@ expect(
   "README 写明 --strict 的退出码语义（供门禁化使用）",
   readme.includes("--strict") && readme.includes("退出码 1"),
   true,
+);
+console.log(
+  `[verify] 要浏览器与前端的门禁 ${browserGates.length} 道（不进 qa:all，只靠 README 曝光），逐个核对命令清单：${browserGates.join("、")}`,
 );
 
 // 证据包目录：qa:all 末尾的 pack:evidence 会按当天日期多留一轮，所以「第几轮 / 最后一轮是哪天」
