@@ -22,7 +22,10 @@
  *   pnpm scan:uimd --nointeract         # 不点折叠面板，只扫默认挂载的内容（快，但覆盖有缺口）
  *   pnpm scan:uimd --interact-limit=4   # 每个页面最多点开几个折叠入口（默认 10）
  */
+import fs from "node:fs";
+import path from "node:path";
 import { db } from "../src/db.ts";
+import { dirs } from "../src/config.ts";
 import { launchChromium, WEB_URL } from "./browser-lib.ts";
 import { loadTaskDocRefs } from "./docref-lib.ts";
 import { TEXT_AMOUNT_TOOLS, traceAmounts } from "../../web/src/amount-trace.ts";
@@ -491,6 +494,8 @@ async function main(): Promise<void> {
       amtTotal: number;
       /** 结果页那句「本任务的联网留存不完整…」；没有截断时为 null，此时界面就不该出现这句 */
       retention: string | null;
+      /** 生成产物份数：与 /api/reader 的产物清单同一个判据（目录下 isFile 的个数） */
+      artifacts: number;
     }
   >();
   for (const t of targets) {
@@ -522,6 +527,7 @@ async function main(): Promise<void> {
     // 与界面同一份取数：/api/tasks/:id 下发的 toolCalls 是 { toolName, result: 解析后的对象 }，
     // retentionStats 读的就是这个形状（result.retainedChars / omittedChars / truncated / toolOmittedChars）
     const uiCalls = callRows.map((r, i) => ({ toolName: r.tool_name, result: parsedAll[i] }));
+    const outDir = path.join(dirs.outputs, t.id);
     expectOf.set(t.id, {
       calls: callRows.length,
       docTraced: dr.traced,
@@ -529,6 +535,9 @@ async function main(): Promise<void> {
       amtTraced: amt.traced,
       amtTotal: amt.total,
       retention: retentionNote(retentionStats(uiCalls)),
+      artifacts: fs.existsSync(outDir)
+        ? fs.readdirSync(outDir, { withFileTypes: true }).filter((e) => e.isFile()).length
+        : 0,
     });
     // 比对页的期望值走 /api/tasks/:id/compares 用的那一份 listStoredCompares，顺序也是同一个
     // listToolCalls（ORDER BY started_at ASC）：界面少渲染一条、或把比率换成读留存字段，这里都会红。
@@ -630,6 +639,11 @@ async function main(): Promise<void> {
   let readerTried = 0;
   let readerOpened = 0;
   const readerVias = new Set<string>();
+  /** 产物预览入口逐页核对的次数（等于扫到的结果页数；为 0 说明这项覆盖是空的） */
+  let artifactBtnChecks = 0;
+  /** 其中真渲染出「生成产物」区块的页数，与整块不渲染的页数（后者只计数、如实报，不判失败） */
+  let artifactPanelSeen = 0;
+  let artifactPanelMissing = 0;
   const toggleLabels = new Set<string>();
   let nodesTotal = 0;
   let charsTotal = 0;
@@ -784,6 +798,51 @@ async function main(): Promise<void> {
           }
         } else if (bodyFlat.includes("本任务的联网留存不完整")) {
           numFails.push(`${p.label} 取数说该任务留存没有截断，界面却写着「本任务的联网留存不完整」`);
+        }
+        // 产物预览入口：`title="在侧边阅读器中预览"` 这个精确值只有**产物**那一处用（上传资料的 title
+        // 后面还跟着「解析：…」，精确匹配匹不到），界面每个产物渲染一个按钮且不截断，所以按钮数必须
+        // 等于产物数。上一轮量出「8 个结果页只有 4 个能打开阅读器」，但打不开究竟是本来就没产物、
+        // 还是入口悄悄没了，报告分不出来——这里把「入口在不在」变成可断言的，点开与否仍受折叠态影响。
+        // 「生成产物」区块不是无条件渲染的：全库实测 37 个结果页里有 2 个整块不出现（都是 0 产物的
+        // 任务，结果页走的是另一套布局），等 15 秒也不出现——那不是取数时机问题，是布局就没有这一块。
+        // 所以判据分两个方向，**硬的一边是「库里有产物就必须有入口」**（那才是点开原文的通道断了）；
+        // 0 产物而整块不渲染属合法状态，只计数、如实报，不判失败——否则就是拿一个布局差异当缺陷，
+        // 或者为了变绿去要求界面渲染一块本来不该在这套布局里出现的区块。
+        const artDeadline = Date.now() + 8000;
+        let flat = bodyText.replace(/\s+/g, " ");
+        while (Date.now() < artDeadline && !flat.includes("生成产物")) {
+          await page.waitForTimeout(400);
+          flat = ((await page.evaluate(`document.body.innerText`)) as string).replace(/\s+/g, " ");
+        }
+        const artBtns = Number(
+          await page.evaluate(`document.querySelectorAll('button[title="在侧边阅读器中预览"]').length`),
+        );
+        artifactBtnChecks += 1;
+        if (flat.includes("生成产物")) {
+          artifactPanelSeen += 1;
+          numChecks += 1;
+          if (artBtns !== want.artifacts) {
+            numFails.push(
+              `${p.label} 产物预览入口 ${artBtns} 个 ≠ 库里产物 ${want.artifacts} 份（有产物却没入口 = 点开原文的通道断了）`,
+            );
+          }
+          if (want.artifacts === 0) {
+            numChecks += 1;
+            if (!flat.includes("暂无产物")) {
+              numFails.push(
+                `${p.label} 没有产物时界面没给「暂无产物」空态提示（空白一块，用户分不清是没生成还是没加载）`,
+              );
+            }
+          }
+        } else {
+          artifactPanelMissing += 1;
+          numChecks += 1;
+          // 区块整块不渲染时唯一不能放过的：库里有产物、或界面上冒出入口，两者对不上就是通道断了
+          if (want.artifacts > 0 || artBtns > 0) {
+            numFails.push(
+              `${p.label} 结果页没有「生成产物」区块，而库里有 ${want.artifacts} 份产物 / 界面上有 ${artBtns} 个预览入口（点开原文的通道断了）`,
+            );
+          }
         }
         // 单任务「证据核对表」：这张表同时会作为核对表 MD 进交付包，界面渲染与导出用的是同一份
         // 取数（evidence-sheet.ts），但**渲染路径**此前没人核对过——表少一行、或某一行的数字
@@ -1531,6 +1590,12 @@ async function main(): Promise<void> {
       }）`,
     );
   }
+  if (artifactBtnChecks > 0) {
+    console.log(
+      `[scan] 产物预览入口逐页核对：${artifactBtnChecks} 个结果页（渲染出「生成产物」区块 ${artifactPanelSeen} 页：入口数必须等于产物数、无产物时必须有「暂无产物」空态；整块不渲染 ${artifactPanelMissing} 页：只在库里有产物时才算失败）`,
+    );
+  }
+  const artifactPanelGone = artifactBtnChecks > 0 && artifactPanelSeen === 0;
   if (args.tabs.includes("result")) {
     console.log(
       `[scan] 结果页「联网留存不完整」提示：应有 ${retentionNotes} 个任务（其余任务走「这句不该出现」那半边判据）`,
@@ -1556,7 +1621,9 @@ async function main(): Promise<void> {
       barsMissing ||
       heroMissing ||
       weekMissing ||
-      readerMissing)
+      readerMissing ||
+      (args.tabs.includes("result") && targets.length > 0 && artifactBtnChecks === 0) ||
+      artifactPanelGone)
   ) {
     console.log(
       allHits.length > 0
@@ -1581,7 +1648,11 @@ async function main(): Promise<void> {
                           ? "[FAIL] 看板周环比与复核缺口一个数都没核对到，这项覆盖是空的"
                           : readerMissing
                             ? "[FAIL] 带 --reader 跑却一个侧边阅读器都没打开，这项覆盖是空的"
-                            : "[FAIL] 界面上的数字与库里的取数对不上",
+                            : args.tabs.includes("result") && targets.length > 0 && artifactBtnChecks === 0
+                              ? "[FAIL] 一个结果页都没核对到产物预览入口，这项覆盖是空的"
+                              : artifactPanelGone
+                                ? "[FAIL] 一个结果页都没渲染「生成产物」区块，这项覆盖是空的"
+                                : "[FAIL] 界面上的数字与库里的取数对不上",
     );
     process.exit(1);
   }
