@@ -30,10 +30,12 @@ export function percentValue(part: number, total: number, digits = 2): string {
   return v === null ? "—" : String(v);
 }
 
-/** 百分比完整文案：94.64%；算不出来给「—」，不会写成「—%」 */
+/**
+ * 百分比完整文案：94.64%；算不出来给「—」，不会写成「—%」。
+ * 委托 `percentFrom`：「数值 → 百分比文案」全库只许有一份实现，否则去零规则改了这边不会跟着改。
+ */
 export function percentText(part: number, total: number, digits = 2): string {
-  const v = percentOf(part, total, digits);
-  return v === null ? "—" : `${v}%`;
+  return percentFrom(percentOf(part, total, digits));
 }
 
 /** 已经算好的百分比数值转文案：null / undefined / 非有限数一律「—」 */

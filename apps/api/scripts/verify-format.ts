@@ -78,7 +78,28 @@ expect("null 转破折号", percentFrom(null), "—");
 expect("undefined 转破折号", percentFrom(undefined), "—");
 expect("NaN 转破折号", percentFrom(Number.NaN), "—");
 expect("0 是 0% 不是破折号", percentFrom(0), "0%");
-
+// percentText 此前自己拼 `${v}%`，等于「数值 → 百分比文案」有两份实现：去零规则改了 percentFrom
+// 不会带动 percentText。现在它委托 percentFrom，这里把委托钉住——改回自己拼就会红。
+const PERCENT_CASES: Array<[number, number, number]> = [
+  [106, 112, 2],
+  [106, 112, 1],
+  [106, 112, 0],
+  [1, 3, 2],
+  [2, 3, 2],
+  [5, 5, 2],
+  [0, 5, 2],
+  [60, 100, 2],
+];
+expect(
+  "percentText 与 percentFrom∘percentOf 逐字相同（小数位与去零都跟着走）",
+  PERCENT_CASES.map(([a, b, d]) => percentText(a, b, d)),
+  PERCENT_CASES.map(([a, b, d]) => percentFrom(percentOf(a, b, d))),
+);
+expect(
+  "算不出来时两边都给「—」（不会一边「—」一边「—%」）",
+  [percentText(5, 0), percentText(-1, 5), percentFrom(percentOf(5, 0))],
+  ["—", "—", "—"],
+);
 // 4) 数字与单位的空隙
 expect("中文单位留空隙", needsUnitSpace("个"), true);
 expect("份留空隙", needsUnitSpace("份"), true);
@@ -215,10 +236,86 @@ expect("格式化走查确实走到了文件（不是空跑）", fmtFiles > 30, 
 expect("界面与服务端都不再内联 toLocaleString（只留 format.ts / time-format.ts 两份实现）", offenders, []);
 console.log(`[verify] 格式化实现点走查：${fmtFiles} 个 .ts/.tsx 文件 · 内联残留 ${offenders.length} 处`);
 
+// 走查二：format.ts 导出的每个格式化函数都必须真有**运行时**消费点。
+// 本轮查出来的：percentText 此前零消费点，只有本脚本在测它——**测过 ≠ 有人用**，它是全库唯一
+// 一个「门禁看着最有保障、实际没人拿它渲染」的格式化函数。死导出的坏处不是浪费字节，是下一个人
+// 按名字挑中它（percentText 比 percentFrom(percentOf(...)) 顺手得多），从而绕开这边的口径。
+// 上面那组等值断言抓不住「改回自己拼」：percentOf 返回的是 Math.round(x*f)/f，String() 出来
+// 永远没有多余的零，所以自己拼 `${v}%` 与走 trimZeros 的 percentFrom 结果逐字相同——等值恒真。
+// 真正要钉的是**实现只有一份**，所以直接查源码：percentText 的函数体必须调 percentFrom、且不含 % 字面量。
+const fmtSrc = fs.readFileSync(path.join(webSrc, "format.ts"), "utf8");
+const bodyOf = (name: string): string =>
+  new RegExp(`export function ${name}\\([^)]*\\)[^{]*\\{([\\s\\S]*?)\\n\\}`).exec(fmtSrc)?.[1] ?? "";
+expect("确实取到了 percentText 的函数体（不是正则失效在这儿空跑）", bodyOf("percentText").length > 0, true);
+expect("percentText 委托 percentFrom（「数值 → 百分比文案」全库只许有一份实现）", bodyOf("percentText").includes("percentFrom("), true);
+expect("percentText 自己不再拼 % 字面量", /%/.test(bodyOf("percentText")), false);
+const fmtExports = [...fmtSrc.matchAll(/^export function (\w+)/gm)].map((m) => m[1] ?? "");
+/**
+ * 「消费点」必须是真调用，不能是 import 行或注释里提一嘴。这个漏洞是变异测试当场抓到的：
+ * 把 percentText 的两处调用都改回 `percentOf(...) ?? 0` 之后，AgentOverview 的 import 行和一句
+ * 注释里还留着 percentText 这个词，走查就以为它有人用、照样绿。所以先剥掉 import 与注释再找名字。
+ */
+const stripNoise = (src: string): string =>
+  src
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\/\/[^\n]*/g, "")
+    .replace(/import\s+[\s\S]*?from\s*["'][^"']*["'];?/g, "");
+const runtimeChunks: string[] = [];
+const walkRuntime = (dir: string): void => {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) {
+      walkRuntime(p);
+      continue;
+    }
+    if (!/\.(ts|tsx)$/.test(e.name) || e.name === "format.ts") continue;
+    runtimeChunks.push(stripNoise(fs.readFileSync(p, "utf8")));
+  }
+};
+for (const d of FMT_DIRS) walkRuntime(d);
+const runtimeSrc = runtimeChunks.join("\n");
+const unusedExports = fmtExports.filter((n) => n !== "" && !new RegExp(`\\b${n}\\b`).test(runtimeSrc));
+expect("确实取到了 format.ts 的导出（不是正则失效在这儿空跑）", fmtExports.length >= 10, true);
+expect("剥掉 import 与注释后确实还剩代码（不是把文件剥空了、于是所有导出都算「有人用」的反面）", runtimeSrc.length > 10000, true);
+expect("format.ts 的每个导出都真有运行时消费点（导出了没人渲染的格式化函数＝下一个人会挑中的坑）", unusedExports, []);
+console.log(`[verify] format.ts 导出消费点走查：${fmtExports.length} 个导出 · 零消费点 ${unusedExports.length} 个`);
+
+// 走查三：percentOf 算不出来时给 null，这是它的契约（「成功率 0%」和「没有调用」是两件事）。
+// 所以 `?? 0` 只许出现在一个地方：把 null 兜成 0 之后**只用于几何尺寸**（条宽、扇形角度），
+// 约定是赋值目标名含 width。`const rate = percentOf(...) ?? 0` 再渲染成 `${rate}%`，
+// 就是把「还没有任务」说成「完成率 0%」——本轮界面上 1 处、下载的概览快照 MD 里 1 处都是这么写的。
+const WIDTH_TARGET = /(?:const|let)\s+\w*[Ww]idth\w*\s*=/;
+const percentOfSites: string[] = [];
+const badNullDefault: string[] = [];
+const walkPct = (dir: string): void => {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) {
+      walkPct(p);
+      continue;
+    }
+    if (!/\.(ts|tsx)$/.test(e.name) || e.name === "format.ts") continue;
+    const rel = path.relative(path.resolve(here, "..", ".."), p);
+    const lines = fs.readFileSync(p, "utf8").split(/\r?\n/);
+    for (let i = 0; i < lines.length; i += 1) {
+      const text = lines[i] ?? "";
+      if (!text.includes("percentOf(")) continue;
+      percentOfSites.push(`${rel}:${i + 1}`);
+      if (/\?\?\s*0\b|\|\|\s*0\b/.test(text) && !WIDTH_TARGET.test(text)) badNullDefault.push(`${rel}:${i + 1}`);
+    }
+  }
+};
+for (const d of FMT_DIRS) walkPct(d);
+expect("percentOf 走查确实走到了调用点（不是空跑）", percentOfSites.length >= 1, true);
+expect("percentOf 的 null 没有被 ?? 0 兜底成「0%」（只许兜给名字含 width 的几何尺寸变量）", badNullDefault, []);
+console.log(`[verify] percentOf 调用点走查：${percentOfSites.length} 处 · 把 null 兜成 0 当文案的 ${badNullDefault.length} 处`);
+
 console.log(`[verify] 数字与单位排版检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
   for (const f of failures.slice(0, 20)) console.log(`  - ${f}`);
   console.log("[FAIL] 数字与单位排版口径不符");
   process.exit(1);
 }
-console.log("[PASS] 数字与单位排版正确（去零 / 百分比取值与兜底 / 单位空隙 / 字节数 / 组件不再各自 round）");
+console.log(
+  "[PASS] 数字与单位排版正确（去零 / 百分比取值与兜底 / 单位空隙 / 字节数 / 组件不再各自 round / 导出无死代码 / null 不被兜成 0%）",
+);

@@ -19,7 +19,7 @@ import {
 } from "../evidence-ledger.ts";
 import { downloadBlob, downloadText } from "../download.ts";
 import { asSnapshotRecord, KEYS, readJson, writeJson } from "../local-store.ts";
-import { groupNumber, needsUnitSpace, percentFrom, percentOf, percentValue } from "../format.ts";
+import { groupNumber, needsUnitSpace, percentFrom, percentOf, percentText, percentValue } from "../format.ts";
 import { dateTimeStamp, dayStamp, relTime } from "../time-format.ts";
 import { groupSummary } from "../review-queue.ts";
 import {
@@ -448,8 +448,9 @@ export function AgentOverview({
       "| 智能体 | 任务 | 已完成 | 完成率 |",
       "| --- | --- | --- | --- |",
       ...(p?.perAgent ?? []).map((pa) => {
-        const rate = percentOf(pa.completed, pa.tasks, 0) ?? 0;
-        return `| ${pa.agentId} | ${pa.tasks} | ${pa.completed} | ${rate}% |`;
+        // 完成率算不出来（这个智能体一个任务都没有）时必须写「—」，不能写 0%：
+        // 0% 是「有任务、一个都没完成」，与「还没有任务」是两件事，而这是要下载出去的快照
+        return `| ${pa.agentId} | ${pa.tasks} | ${pa.completed} | ${percentText(pa.completed, pa.tasks, 0)} |`;
       }),
       "",
       "| 工具 | 调用 | 成功 |",
@@ -1346,19 +1347,22 @@ export function AgentOverview({
             {stats.platform.perAgent.length > 0 && (
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {stats.platform.perAgent.map((pa) => {
-                  const rate = percentOf(pa.completed, pa.tasks, 0) ?? 0;
+                  // 条宽必须是数（null 会渲染成 "width: null%"），文案必须由 percentText 给：
+                  // 一个任务都没有的智能体，完成率不是 0%，是「—」
+                  const barWidth = percentOf(pa.completed, pa.tasks, 0) ?? 0;
+                  const rateText = percentText(pa.completed, pa.tasks, 0);
                   const info = agents.find((a) => a.id === pa.agentId);
                   return (
                     <div key={pa.agentId} className="glow-card flex items-center gap-3 px-3 py-2">
                       <span className="min-w-0 truncate text-[12px] text-mist-300">{info?.shortName ?? pa.agentId}</span>
                       <span className="bar-track flex-1">
-                        <span className="bar-fill block" style={{ width: `${rate}%` }} />
+                        <span className="bar-fill block" style={{ width: `${barWidth}%` }} />
                       </span>
                       <span
-                        className={`shrink-0 font-mono text-[11px] ${rate >= 80 ? "text-jade-400" : "text-mist-500"}`}
+                        className={`shrink-0 font-mono text-[11px] ${barWidth >= 80 ? "text-jade-400" : "text-mist-500"}`}
                         title={`已完成 ${pa.completed}/${pa.tasks}`}
                       >
-                        {rate}%
+                        {rateText}
                       </span>
                       {(() => {
                         const b = buckets14(perAgentCreatedAts[pa.agentId] ?? []);
