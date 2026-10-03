@@ -46,6 +46,18 @@ const strict = process.argv.includes("--strict");
 const asJson = process.argv.includes("--json");
 const OUT = fs.mkdtempSync(path.join(os.tmpdir(), "tax-deliverables-"));
 const BOM = Buffer.from([0xef, 0xbb, 0xbf]);
+/**
+ * 公式注入判据。提到具名函数上是为了让阳性对照与判据用**同一份实现**——内联写在 for 循环里
+ * 就没法自检，而这条判据的断言方向是「injected 必须为空」：字符类少一个符号（比如漏了 `@`）、
+ * 或者转义写错，它就永远不命中、永远绿，绿的样子与「交付的 CSV 确实干净」一模一样。
+ * 这是对外那句「Excel 打开不乱码不串列、不会被当公式执行」的唯一落盘验证。
+ */
+const FORMULA_START = /^[=+\-@]/;
+const isInjectable = (cell: string): boolean => FORMULA_START.test(cell) && !cell.startsWith("'");
+expect("公式注入判据确实能命中 = 开头（否则那条残留判据是假绿）", isInjectable("=SUM(A1:A9)"), true);
+expect("公式注入判据确实能命中 + - @ 开头", [isInjectable("+8610"), isInjectable("-1"), isInjectable("@SUM(A1)")], [true, true, true]);
+expect("公式注入判据认前置单引号为已挡下（生成侧正是这么防的）", isInjectable("'=SUM(A1)"), false);
+expect("公式注入判据不误伤普通中文与数字", [isInjectable("合计"), isInjectable("1,234.00")], [false, false]);
 
 type Got = { label: string; name: string; file: string; buf: Buffer };
 const got: Got[] = [];
@@ -95,7 +107,7 @@ function checkCsv(g: Got): void {
   );
   // 公式注入：任何以 = + - @ 开头的格子，Excel 会当公式执行。生成侧靠前置单引号挡，这里验落盘的字节。
   const injected: string[] = [];
-  for (const r of rows) for (const c of r) if (/^[=+\-@]/.test(c) && !c.startsWith("'")) injected.push(c.slice(0, 30));
+  for (const r of rows) for (const c of r) if (isInjectable(c)) injected.push(c.slice(0, 30));
   expect(`${g.label}：没有能被 Excel 当公式执行的格子`, injected, []);
   console.log(`  ${g.label}：${rows.length} 行 × ${(rows[0] ?? []).length} 列，${(g.buf.length / 1024).toFixed(1)} KB`);
 }

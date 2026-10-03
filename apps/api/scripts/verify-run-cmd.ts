@@ -192,10 +192,19 @@ const realCount = qaVerifyCount(rootPkg.scripts);
 expect("确实从 qa:all 里数到了 verify 条目（不是 package.json 没读到在这儿空跑）", realCount >= 40, true);
 expect("确实从 README 里取到了那个写死的项数（正则没匹配上就是 NaN，同样算红）", Number.isFinite(docCount), true);
 expect(`README 写的「${docCount} 项 verify」必须等于 qa:all 里真实的 verify 条目数`, docCount, realCount);
-// 作品说明那份由 gen:materials 生成，改成取数之后就不该再出现手写死的脚本名清单
-const materialsHardcoded = docFiles
-  .filter((f) => f.endsWith("作品说明.md"))
-  .filter((f) => fs.existsSync(f) && /自动化验证：verify:/.test(fs.readFileSync(f, "utf8")))
+// 作品说明那份由 gen:materials 生成，改成取数之后就不该再出现手写死的脚本名清单。
+// 这条也是「列表必须为空」型，所以两头各钉一条：探针要能命中已知违规写法（全角冒号写成半角
+// 就永远不命中、永远绿），文件筛选要真的筛到了两份（文件名一改就静默扫 0 份，同样是绿）。
+const HARDCODED_VERIFY_LIST = /自动化验证：verify:/;
+const materialDocs = docFiles.filter((f) => f.endsWith("作品说明.md"));
+expect("确实找到了两份作品说明（文件名改了会让这条走查静默扫 0 份）", materialDocs.length, 2);
+expect(
+  "手写脚本名清单的探针确实能命中已知违规写法（探针写废会让这条走查永远绿）",
+  HARDCODED_VERIFY_LIST.test("- 自动化验证：verify:pi / verify:docs 全部 PASS"),
+  true,
+);
+const materialsHardcoded = materialDocs
+  .filter((f) => fs.existsSync(f) && HARDCODED_VERIFY_LIST.test(fs.readFileSync(f, "utf8")))
   .map((f) => path.basename(f));
 expect("作品说明里不再手写死验证脚本名清单（改由 gen:materials 取数）", materialsHardcoded, []);
 console.log(

@@ -156,7 +156,7 @@ const withResidue = allGates.filter((f) => RESIDUE.test(srcOf(f)));
 const withCtl = withResidue.filter((f) => POSITIVE_CTL.test(srcOf(f)));
 const noCtl = withResidue.filter((f) => !POSITIVE_CTL.test(srcOf(f)));
 expect("确实找到了带残留判据的门禁（不是这条走查自己空跑）", withResidue.length >= 20, true);
-expect("带阳性对照的门禁数不许跌（补齐一个就抬一格，目标是有残留判据的全都带）", withCtl.length >= 7, true);
+expect("带阳性对照的门禁数不许跌（补齐一个就抬一格；分诊规则见上，不是名单上每个都要补）", withCtl.length >= 10, true);
 console.log(
   `[verify] 残留判据阳性对照覆盖：${withResidue.length} 个门禁有「必须为空」型判据 · 其中 ${withCtl.length} 个带已知违规样本自检 · 待分诊 ${noCtl.length} 个（含纯函数空输入单测，不都需要补）`,
 );
