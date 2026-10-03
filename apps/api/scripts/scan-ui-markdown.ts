@@ -33,7 +33,16 @@ import { retentionNote, retentionStats } from "../../web/src/search-evidence.ts"
 import { percentValue } from "../../web/src/format.ts";
 import { outcomeOf, resolvedCalls } from "../../web/src/tool-outcome.ts";
 import { STATUS_BARS, statusBreakdown } from "../../web/src/status-breakdown.ts";
-import { dayAvgOf, dayBuckets, runDaysOf, TREND_DAYS, weekHalves } from "../../web/src/task-trend.ts";
+import {
+  dayAvgOf,
+  dayBuckets,
+  dayMaxOf,
+  runDaysOf,
+  sparkPoints,
+  sparkY,
+  TREND_DAYS,
+  weekHalves,
+} from "../../web/src/task-trend.ts";
 import { computePlatformStats } from "../src/services/stats.ts";
 import { listAgents } from "../src/agents.ts";
 import { AGENT_IDS } from "@tax/shared-schemas";
@@ -225,6 +234,20 @@ const WEEK_READ = `(() => {
     }
   }
   return { rows: rows };
+})()`;
+
+/**
+ * 近 14 天趋势的折线点位与日均虚线高度。这两个数是「近 14 天日桶」在界面上唯一的表示
+ *（导出概览 MD 里同一份数据写成 `- 近 14 天日桶：0, 0, …`），此前哪儿都没核过：
+ * 点位串错一位、或折线与日均线不再同一个尺度，图上看不出来、文字里也没有数可对。
+ */
+const SPARK_READ = `(() => {
+  const pl = document.querySelector("[data-spark]");
+  const av = document.querySelector("[data-spark-avg]");
+  return {
+    points: pl ? pl.getAttribute("points") : null,
+    avgY: av ? av.getAttribute("y1") : null,
+  };
 })()`;
 
 interface Args {
@@ -449,6 +472,8 @@ async function main(): Promise<void> {
     today: string;
     /** 周环比：本周 / 上周件数与增量文本（增量为 0 时界面上不渲染那个角标） */
     week: { now: string; prev: string; delta: string };
+    /** 近 14 天趋势：折线点位串与日均虚线的 y1（都要与界面同一份 sparkPoints / sparkY 算） */
+    spark: { points: string; avgY: string };
   };
   const agentWant = new Map<string, AgentWant>();
   for (const agentId of AGENT_IDS) {
@@ -468,6 +493,10 @@ async function main(): Promise<void> {
         now: String(wk.now),
         prev: String(wk.prev),
         delta: wk.delta === 0 ? "" : wk.delta > 0 ? `+${wk.delta}` : String(wk.delta),
+      },
+      spark: {
+        points: sparkPoints(buckets),
+        avgY: String(sparkY(dayAvgOf(buckets), dayMaxOf(buckets))),
       },
     });
   }
@@ -617,6 +646,8 @@ async function main(): Promise<void> {
   let heroChecks = 0;
   /** 看板周环比两行 + 复核缺口卡三个数 */
   let weekChecks = 0;
+  /** 看板近 14 天趋势：折线点位 + 日均虚线高度 */
+  let sparkChecks = 0;
   /**
    * 枚举时**见过**的入口（点没点到另说）。「必需入口」的判据是「范围内出现过就必须点到」，
    * 不是「任何时候都必须点到」：窄范围跑（--tasks 指定几个任务、--no-overview）时，
@@ -1261,6 +1292,26 @@ async function main(): Promise<void> {
           `${p.label} 取数里没有已完成任务留未复核问题，界面却写着「${bm[1]} 个任务 ${bm[2]} 项」`,
         );
       }
+      // 近 14 天趋势：折线点位串必须与同一份 dayBuckets + sparkPoints 算出来的逐字相同（14 个日桶
+      // 一个都不能错位），日均虚线的 y1 必须与 sparkY 相同——两者不同尺度时图上看不出来。
+      const sparkUi = (await page.evaluate(SPARK_READ)) as { points: string | null; avgY: string | null };
+      if (aw) {
+        sparkChecks += 1;
+        if (sparkUi.points !== aw.spark.points) {
+          numFails.push(
+            `${p.label} 近 ${TREND_DAYS} 天趋势折线点位与取数不一致（界面「${(sparkUi.points ?? "(没读到)").slice(
+              0,
+              46,
+            )}…」/ 取数「${aw.spark.points.slice(0, 46)}…」）`,
+          );
+        }
+        sparkChecks += 1;
+        if (sparkUi.avgY !== aw.spark.avgY) {
+          numFails.push(
+            `${p.label} 日均虚线 y1「${sparkUi.avgY ?? "(没读到)"}」≠ 取数「${aw.spark.avgY}」（折线与均线不再同一个尺度）`,
+          );
+        }
+      }
       const LEDGER_TOTAL =
         /全平台证据核对台账（(\d+) 个任务）文号 (\d+)\/(\d+) 有出处（其中复查取得 (\d+) · 仅正文提到 (\d+)）· 待复查 (\d+)（已标注 (\d+)） · 引用 (\d+) 条（官方 (\d+) · 弱 (\d+)，待处置 (\d+)）· 金额待确认 (\d+)（引自联网正文 (\d+) · 三处均无出处 (\d+)） · 欠账任务 (\d+) 个/;
       const m = LEDGER_TOTAL.exec(bodyText);
@@ -1576,6 +1627,8 @@ async function main(): Promise<void> {
   if (args.overview) console.log(`[scan] 看板 hero 区核对：${heroChecks} 项（大数字 + 口径标签 + 运行天数 + 日均 + 今日，× 总览页数）`);
   const weekMissing = args.overview && weekChecks === 0;
   if (args.overview) console.log(`[scan] 看板周环比 + 复核缺口核对：${weekChecks} 项`);
+  const sparkMissing = args.overview && sparkChecks === 0;
+  if (args.overview) console.log(`[scan] 看板近 ${TREND_DAYS} 天趋势核对：${sparkChecks} 项（折线点位 + 日均虚线，× 总览页数）`);
   // 侧边阅读器：尝试过却一次都没打开 = 这项覆盖是空的（入口 title 改了 / 被折叠区挡住 / 没有产物）
   const readerMissing = args.reader && readerTried > 0 && readerOpened === 0;
   if (args.reader) {
@@ -1597,7 +1650,7 @@ async function main(): Promise<void> {
     );
   }
   console.log(
-    `[scan] 界面数字与库取数核对：${numChecks} 项 + 台账单元格 ${ledgerCellChecks} 个 + 比对页 ${cmpChecks} 项 + 看板 KPI ${kpiChecks} 项 + 状态分布 ${barsChecks} 项 + hero 区 ${heroChecks} 项 + 周环比与缺口 ${weekChecks} 项（不一致 ${ledgerCellBad} 个）· 合计不一致 ${numFails.length} 处`,
+    `[scan] 界面数字与库取数核对：${numChecks} 项 + 台账单元格 ${ledgerCellChecks} 个 + 比对页 ${cmpChecks} 项 + 看板 KPI ${kpiChecks} 项 + 状态分布 ${barsChecks} 项 + hero 区 ${heroChecks} 项 + 周环比与缺口 ${weekChecks} 项 + 趋势 ${sparkChecks} 项（不一致 ${ledgerCellBad} 个）· 合计不一致 ${numFails.length} 处`,
   );
   for (const f of numFails.slice(0, 10)) console.log(`  - ${f}`);
   if (numFails.length > 10) console.log(`  …另有 ${numFails.length - 10} 处`);
@@ -1616,6 +1669,7 @@ async function main(): Promise<void> {
       barsMissing ||
       heroMissing ||
       weekMissing ||
+      sparkMissing ||
       readerMissing ||
       (args.tabs.includes("result") && targets.length > 0 && artifactBtnChecks === 0) ||
       artifactPanelGone)
@@ -1647,7 +1701,9 @@ async function main(): Promise<void> {
                               ? "[FAIL] 一个结果页都没核对到产物预览入口，这项覆盖是空的"
                               : artifactPanelGone
                                 ? "[FAIL] 一个结果页都没渲染「生成产物」区块，这项覆盖是空的"
-                                : "[FAIL] 界面上的数字与库里的取数对不上",
+                                : sparkMissing
+                                  ? "[FAIL] 看板近 14 天趋势一个数都没核对到，这项覆盖是空的"
+                                  : "[FAIL] 界面上的数字与库里的取数对不上",
     );
     process.exit(1);
   }

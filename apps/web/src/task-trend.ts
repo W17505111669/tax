@@ -42,3 +42,30 @@ export function weekHalves(buckets: number[]): { now: number; prev: number; delt
   const prev = buckets.slice(0, half).reduce((a, b) => a + b, 0);
   return { now, prev, delta: now - prev };
 }
+
+/**
+ * sparkline 的纵轴映射：viewBox 高 30，绘图区从 y=SPARK_BASE 往上画 SPARK_SPAN 高。
+ * 这条公式此前在组件里写了三遍（折线点位一次、日均虚线的 y1 / y2 各一次），28 与 24 两个魔数
+ * 也散在三处；改一处忘两处，折线与日均线就会不再同一个尺度——图上看着「差不多」，其实差一截，
+ * 而这种偏差没有任何文字数字可供核对，只能靠把映射收成一份来杜绝。
+ */
+export const SPARK_BASE = 28;
+export const SPARK_SPAN = 24;
+
+/** 纵轴分母：至少为 1，否则全 0 的窗口会除零得到 NaN，整条折线消失 */
+export function dayMaxOf(buckets: number[]): number {
+  return Math.max(1, ...buckets);
+}
+
+/** 一个日桶值在 sparkline 上的 y 坐标 */
+export function sparkY(v: number, dayMax: number): number {
+  return SPARK_BASE - (v / dayMax) * SPARK_SPAN;
+}
+
+/** 折线点位串（与 <polyline points> 直接对得上，也是门禁核对的期望值） */
+export function sparkPoints(buckets: number[]): string {
+  const max = dayMaxOf(buckets);
+  return buckets
+    .map((v, i) => `${((i / (TREND_DAYS - 1)) * 100).toFixed(2)},${sparkY(v, max).toFixed(2)}`)
+    .join(" ");
+}

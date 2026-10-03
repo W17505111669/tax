@@ -32,7 +32,7 @@ import {
 } from "../tool-outcome.ts";
 import { failureSummary, groupFailures } from "../tool-failures.ts";
 import { STATUS_BARS, type StatusBreakdown } from "../status-breakdown.ts";
-import { dayAvgOf, dayBuckets, runDaysOf, TREND_DAYS, weekHalves } from "../task-trend.ts";
+import { dayAvgOf, dayBuckets, dayMaxOf, runDaysOf, sparkPoints, sparkY, TREND_DAYS, weekHalves } from "../task-trend.ts";
 import { UNTRACED_ORIGIN_HINT, UNTRACED_ORIGIN_TEXT } from "../amount-trace.ts";
 
 /** 大数字 odometer：每位数字独立滚轮到目标值，对齐参考片数据页质感。 */
@@ -209,12 +209,11 @@ export function AgentOverview({
   // 近 14 天任务创建分布（按本地日桶）：口径收在 task-trend.ts，门禁算期望值用的是同一份，
   // 窗口长度也只在那一处写着（此前 14 / 13 / 7 三个魔数散在下面五六处）
   const days = useMemo(() => dayBuckets(createdAts), [createdAts]);
-  const dayMax = Math.max(1, ...days);
+  const dayMax = dayMaxOf(days);
   const dayAvg = dayAvgOf(days);
   const runDays = useMemo(() => runDaysOf(createdAts), [createdAts]);
-  const sparkPts = days
-    .map((v, i) => `${((i / (TREND_DAYS - 1)) * 100).toFixed(2)},${(28 - (v / dayMax) * 24).toFixed(2)}`)
-    .join(" ");
+  // 折线点位与日均虚线共用 sparkY 那一份映射（此前 28 / 24 两个魔数在三处各写一遍）
+  const sparkPts = sparkPoints(days);
   const week = weekHalves(days);
   const weekNow = week.now;
   const weekPrev = week.prev;
@@ -651,6 +650,7 @@ export function AgentOverview({
                 />
                 <polyline
                   points={sparkPts}
+                  data-spark="1"
                   fill="none"
                   stroke="#22d3ee"
                   strokeWidth="1.5"
@@ -658,9 +658,10 @@ export function AgentOverview({
                 />
                 <line
                   x1="0"
-                  y1={28 - (dayAvg / dayMax) * 24}
+                  y1={sparkY(dayAvg, dayMax)}
                   x2="100"
-                  y2={28 - (dayAvg / dayMax) * 24}
+                  y2={sparkY(dayAvg, dayMax)}
+                  data-spark-avg="1"
                   stroke="rgba(230, 237, 247, 0.25)"
                   strokeWidth="1"
                   strokeDasharray="3 3"
