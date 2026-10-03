@@ -109,13 +109,18 @@ ok("csv.ts 保持纯函数不碰 DOM（api 侧可直接引用与验证）", !rea
 ok("下载助手单独一个模块", read("download.ts").includes("export function downloadCsv"));
 // 组件里不许再手写 createObjectURL：抄一份就可能漏掉 charset、BOM 或 revokeObjectURL
 const componentsDir = path.join(webSrc, "components");
+const HAND_ROLLED_MARK = "createObjectURL";
 const handRolled = fs
   .readdirSync(componentsDir)
   .filter((f) => f.endsWith(".tsx") || f.endsWith(".ts"))
-  .filter((f) => fs.readFileSync(path.join(componentsDir, f), "utf8").includes("createObjectURL"))
+  .filter((f) => fs.readFileSync(path.join(componentsDir, f), "utf8").includes(HAND_ROLLED_MARK))
   .sort();
 expect("组件里不再手写 createObjectURL（统一走 download.ts）", handRolled, []);
 const dl = read("download.ts");
+// 阳性对照：上面那条断的是「handRolled 必须为空」，而探针是一个字符串字面量——写错一个大小写
+//（createObjectUrl）就永远匹配不到、永远绿，绿的样子与「组件确实都走 download.ts」一模一样。
+// 拿已知含这个调用的 download.ts 反着验一次：同一个探针必须能命中它。
+expect("createObjectURL 探针确实能命中已知违规写法（否则上面那条走查是假绿）", dl.includes(HAND_ROLLED_MARK), true);
 expect("下载助手里只有一处 createObjectURL 调用", dl.split("URL.createObjectURL(").length - 1, 1);
 expect("每处 createObjectURL 都对应一次回收", dl.split("URL.revokeObjectURL(").length - 1, 1);
 ok("台账模块从 csv.ts 取口径", ledger.includes('from "./csv.ts"'));

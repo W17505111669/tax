@@ -3242,3 +3242,25 @@ after：按实测把这两条的 `tabs` 改成 `["result"]`。附带一个收益
 剩余 18 个待补名单每次跑都逐个点名打印，不重复抄在这里。下一批仍按负向断言优先，但要先分诊：`verify-ref-check.ts` 里那一批 `.some(...) === false` 多数是数据驱动的（模式坏了会变红而不是变绿），不该一概算作待补——这正是上一轮说「20 个是上界」的具体含义。
 
 实测：`verify:mdtext` **71 → 78**、`verify:searchev` **656 → 662**、`verify:format` **111 → 113**、`verify:gates` **47**（本轮只改探针与下限，项数不变）/ 失败 0，报告行 `残留判据阳性对照覆盖：23 个门禁有「必须为空」型判据 · 其中 5 个带已知违规样本自检 · 待补 18 个`；`typecheck:all` 通过（8 包）；`qa:all` 全绿、退出码 **0**（verify 脚本仍 50 个）。本轮只动门禁脚本，没动界面与交付文案，故未跑 `scan:uimd`。
+
+### 待补名单第二批：三个门禁五条探针补上对照，顺带查出「23 个」这个分母本身是高估的
+
+上一轮把待补名单点到 20 个，这轮清第二批；同时把分母本身查了一遍——**它是个高估，而且高估得厉害**，这件事必须写清楚，否则后面几轮会照着错的清单干活。
+
+先说清掉的三个。
+
+1. `verify:csv` 的 `handRolled`（「组件里不再手写 createObjectURL」）。探针是一个**字符串字面量**，写错一个大小写（`createObjectUrl`）就永远匹配不到、永远绿。提到具名常量 `HAND_ROLLED_MARK`，再拿已知含这个调用的 `download.ts` 反着断一次：同一个探针必须能命中它。这条对照用的是**真实文件而不是我手打的样本**，比样本更强——它顺带钉住了「download.ts 里确实有这个调用」，紧跟着那句「只有一处 createObjectURL」的断言也就有了着落。检查项 **58 → 59**。
+2. `verify:localstore` 的三条走查（「除 local-store 外没有文件直接碰 localStorage」「收藏键的字面量只在 local-store 里」「标签键的字面量只在 local-store 里」）。一条正则 + 两个字符串字面量，都是「列表必须为空」型。正则提为 `DIRECT_LS`，正反各断（命中点号写法、命中下标写法、不误伤 `scopedStorage` 这类别的标识符）；两个键名探针**不取样例字符串**，而是直接断 `STARRED_PROBE === JSON.stringify(KEYS.starred)`。`KEYS` 是唯一权威来源，探针与它同源，改键名时两边一起动——这比手写样本强：手写样本只能证明「探针能命中我以为的键名」，同源断言能证明「探针跟的就是真键名」。检查项 **94 → 99**。
+3. `verify:format` 的 `badNullDefault`（上一轮新加的走查三）。这条判据由两个模式合作：一个认「兜底成 0」，一个认「例外（几何尺寸）」。上一轮只给 `BARE_PCT` 与 `INLINE_FMT` 配了对照，把它漏了。而它的失效方式有两种：认兜底那条失效是漏报，**认例外那条失效成「什么都算例外」同样是漏报**，所以两条都正反各断一次。检查项 **113 → 117**。
+
+变异测试（`verify:localstore`）：把 `DIRECT_LS` 里的 `localStorage` 改成 `localStorageXX`（等于废掉）→ **失败恰好 2 条，全是新加的阳性对照**；同一条正则驱动的「除 local-store 外没有文件直接碰 localStorage」**继续报绿**，连「扫过 65 个前端文件」那行照旧打印。也就是说这个门禁在本轮之前判据被完全废掉不会有动静，而它管的正是「前端不许绕过 local-store 这一个入口」这条架构约束。还原后 99 / 0。
+
+覆盖率 **5 → 7**，`verify:gates` 的下限跟着抬到 7，待补 **18 → 16**。
+
+**再说分母。** 把 23 个「有 `, []);` 断言」的门禁逐条看了断言名，这个探针把大量**纯函数单测**也算进来了，例如 `verify-bundle-freshness.ts:41`「空变更列表」（`bundleFreshness(PACKED, []).newer`）、`verify-localstore.ts:76`「空数组是合法值」（`asStringArray([])`）、`verify-artifact-sources.ts:108`「非对象结果返回空」（`namesInResult("底稿.xlsx")`）。这些是**输入为空时期望输出为空**的正常单测，判据坏了会变红不会变绿，压根不需要阳性对照。所以「待补 16」仍然是上界，真实工作量比这小。
+
+试过把分母收窄：用「脚本里有 `readdirSync` 且有空数组断言」当探针，得到 8 个门禁。**这个收窄是错的，已放弃**——`verify-md-text.ts` 的 `ARTIFACTS` 走查遍历的是库里的真实结论而不是文件，它不含 `readdirSync`，会被窄探针漏掉，而它恰恰是上一轮刚补过对照、也是「界面任何位置都不出现 Markdown 原文」这句对外承诺的唯一门禁判据。**宁可分母高估，不可漏报**，所以 `verify:gates` 里保留宽探针，并把这段取舍写进了它的注释。
+
+下一批的分诊结论一并记下，省得重查：`verify-ref-check.ts` 里那批 `.some(...) === false` 多数是数据驱动（模式坏了会变红）；`scan-render-perf.ts` 的薄页列表也是数据驱动，而它的源码探针 `/found\.chars\s*<\s*(\d+)/` 失效时得 NaN、断言直接红，属自保护。真正还需要补的是 `verify-manifest.ts`、`verify-textfind.ts`、`verify-rd-tools.ts` 与 `verify-lv-tools.ts`（工具名单类）、`scan-deliverables.ts` 这几个。
+
+实测：`verify:csv` **58 → 59**、`verify:localstore` **94 → 99**、`verify:format` **113 → 117**、`verify:gates` **47**（项数不变，本轮只抬下限与补注释）/ 失败 0，报告行 `残留判据阳性对照覆盖：23 个门禁有「必须为空」型判据 · 其中 7 个带已知违规样本自检 · 待补 16 个`；`typecheck:all` 通过（8 包）；`qa:all` 全绿、退出码 **0**（verify 脚本仍 50 个）。变异已还原、复跑仍 99 / 0。本轮只动门禁脚本，没动界面与交付文案，故未跑 `scan:uimd`。

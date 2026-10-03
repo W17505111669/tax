@@ -178,20 +178,33 @@ const files: string[] = [];
   }
 })(webSrc);
 ok("确实扫到了前端源码", files.length > 20, `${files.length} 个文件`);
+const DIRECT_LS = /\blocalStorage\b\s*[.[]/;
+const STARRED_PROBE = '"taxai-starred"';
+const TAGS_PROBE = '"taxai-tags"';
+// 阳性对照：下面三条断的都是「列表必须为空」，判据一个是正则、两个是字符串字面量。正则少个 \b、
+// 字面量少个引号或键名改了，列表就永远空、永远绿，绿的样子与「前端确实都走 local-store 这一个
+// 入口」一模一样；`files.length > 20` 那条防空跑断言查的是文件那一侧，查不出判据坏了。
+// 两个键名探针不取样例字符串，而是直接断它等于 JSON.stringify(KEYS.x)：KEYS 是唯一权威来源，
+// 探针与它同源，改键名时两边一起动，否则这条走查会静默失效。
+expect("localStorage 探针确实能命中点号写法", DIRECT_LS.test("localStorage.getItem(KEYS.starred)"), true);
+expect("localStorage 探针确实能命中下标写法", DIRECT_LS.test('localStorage["taxai-starred"]'), true);
+expect("localStorage 探针不误伤别的标识符", DIRECT_LS.test("const scopedStorage = { getItem: 1 }"), false);
+expect("收藏键探针确实等于真实键名（与 KEYS 同源，否则走查静默失效）", STARRED_PROBE, JSON.stringify(KEYS.starred));
+expect("标签键探针确实等于真实键名（与 KEYS 同源，否则走查静默失效）", TAGS_PROBE, JSON.stringify(KEYS.tags));
 const direct = files
   .filter((f) => path.basename(f) !== "local-store.ts")
-  .filter((f) => /\blocalStorage\b\s*[.[]/.test(fs.readFileSync(f, "utf8")))
+  .filter((f) => DIRECT_LS.test(fs.readFileSync(f, "utf8")))
   .map((f) => path.relative(webSrc, f).replace(/\\/g, "/"))
   .sort();
 expect("除 local-store 外没有文件直接碰 localStorage", direct, []);
 const starredLiterals = files
   .filter((f) => path.basename(f) !== "local-store.ts")
-  .filter((f) => fs.readFileSync(f, "utf8").includes('"taxai-starred"'))
+  .filter((f) => fs.readFileSync(f, "utf8").includes(STARRED_PROBE))
   .map((f) => path.relative(webSrc, f).replace(/\\/g, "/"));
 expect("收藏键的字面量只在 local-store 里", starredLiterals, []);
 const tagsLiterals = files
   .filter((f) => path.basename(f) !== "local-store.ts")
-  .filter((f) => fs.readFileSync(f, "utf8").includes('"taxai-tags"'))
+  .filter((f) => fs.readFileSync(f, "utf8").includes(TAGS_PROBE))
   .map((f) => path.relative(webSrc, f).replace(/\\/g, "/"));
 expect("标签键的字面量只在 local-store 里", tagsLiterals, []);
 for (const rel of ["tags.ts", "hooks/usePaperTheme.ts", "components/Sidebar.tsx", "components/SideReader.tsx", "components/TaskWorkbench.tsx", "components/AgentOverview.tsx", "components/CompareView.tsx", "components/ReviewView.tsx"]) {

@@ -290,6 +290,14 @@ console.log(`[verify] format.ts 导出消费点走查：${fmtExports.length} 个
 // 约定是赋值目标名含 width。`const rate = percentOf(...) ?? 0` 再渲染成 `${rate}%`，
 // 就是把「还没有任务」说成「完成率 0%」——本轮界面上 1 处、下载的概览快照 MD 里 1 处都是这么写的。
 const WIDTH_TARGET = /(?:const|let)\s+\w*[Ww]idth\w*\s*=/;
+const NULL_DEFAULT = /\?\?\s*0\b|\|\|\s*0\b/;
+// 阳性对照：这条判据由两个模式合作——一个认「兜底成 0」，一个认「例外（几何尺寸）」。
+// 任一个写废都会让 badNullDefault 永远为空、永远绿：认兜底的那条失效是漏报，认例外的这条
+// 失效成「什么都算例外」同样是漏报。所以两条都正反各断一次，用的就是判据里那两个对象。
+expect("null 兜底探针确实能命中 ?? 0", NULL_DEFAULT.test("const rate = percentOf(a, b, 0) ?? 0;"), true);
+expect("null 兜底探针确实能命中 || 0", NULL_DEFAULT.test("const rate = percentOf(a, b) || 0;"), true);
+expect("width 例外探针确实能命中合法写法", WIDTH_TARGET.test("const barWidth = percentOf(a, b, 0) ?? 0;"), true);
+expect("width 例外探针不误伤普通变量名（否则例外会吃掉一切）", WIDTH_TARGET.test("const rate = percentOf(a, b, 0) ?? 0;"), false);
 /**
  * 走查四：百分比文案不许自己拼。「数值 → 百分比文案」全库只许 format.ts 的 percentFrom 一份实现。
  * 此前运行时目录里有 13 处裸拼（`${t.accuracyPercent}%`、JSX 里 `{s.accuracyPercent}%`），
@@ -321,7 +329,7 @@ const walkPct = (dir: string): void => {
       const at = `${rel}:${i + 1}`;
       if (text.includes("percentOf(")) {
         percentOfSites.push(at);
-        if (/\?\?\s*0\b|\|\|\s*0\b/.test(text) && !WIDTH_TARGET.test(text)) badNullDefault.push(at);
+        if (NULL_DEFAULT.test(text) && !WIDTH_TARGET.test(text)) badNullDefault.push(at);
       }
       if (BARE_PCT.test(text) && !CSS_GEOM.test(text)) barePct.push(at);
     }
