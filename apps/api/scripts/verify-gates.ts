@@ -45,21 +45,49 @@ const empty = fs.mkdtempSync(path.join(os.tmpdir(), "tax-gates-empty-"));
  * `every(...)` 在空索引上恰恰全部通过。改成认整个 `services/` 与 `routes/` 目录：判据是「有没有
  * 从服务端取数」，不是「从哪个文件取数」。
  */
-// 共享取数 lib 也要算「走真实数据」：verify:delivart 通过 ./artifacts-lib.ts 间接读库与产物目录，
-// 只认直接 import 会把它判成纯函数、于是跳过空库复跑——它那条「确实走到了带产物的任务」的
-// 防空跑断言就永远不会被自动验证。白名单是手写的，下一个 lib 出现时会再漏一次；
-// 根治要按 import 做传递闭包，见 phase0 文档「留给下一轮」。
-const READS_DB =
-  /from "\.\.\/src\/(?:db|services\/[a-z-]+|routes\/[a-z-]+)\.ts"|from "\.\/(?:docref|artifacts|revision)-lib\.ts"/;
+// 判据按 import 做**传递闭包**，不靠手写白名单。此前是「匹配脚本自己的 import 行 + 一份手写的
+// lib 白名单（docref / artifacts / revision-lib）」。白名单每加一个 lib 都得记得回来改这里，
+// 忘了就漏判——verify:delivart 正是这么被判成「纯函数」的：它通过 ./artifacts-lib.ts 间接读库
+// 与产物目录，而 lib 名字当时不在白名单里，于是它不进空库复跑，那条「确实走到了带产物的任务」
+// 的防空跑断言永远不会被自动验证（上一个提交里刚踩到，靠手工加名字补上）。
+// 判据的实质是「这个脚本运行时会不会碰到真实库 / 真实产物」，那就顺着 import 走过去看，
+// 而不是靠谁记得登记名字。递归只走同目录的 ./xxx.ts：../src/ 一命中就算取数；
+// ../../web/src/ 是前端纯函数模块、不读库，不参与递归（它们由各自的 web 侧门禁覆盖）。
+const DIRECT_DB = /from "\.\.\/src\/(?:db|services\/[a-z-]+|routes\/[a-z-]+)\.ts"/;
+const LOCAL_IMPORT = /from "\.\/([a-z0-9-]+\.ts)"/g;
 const SELF = "verify-gates.ts";
 const files = fs.readdirSync(here).filter((f) => /^verify-.*\.ts$/.test(f)).sort();
 const srcOf = (f: string): string => fs.readFileSync(path.join(here, f), "utf8");
-const real = files.filter((f) => f !== SELF && READS_DB.test(srcOf(f)));
-const pure = files.filter((f) => f !== SELF && !READS_DB.test(srcOf(f)));
+/** seen 防环：本地模块之间互相 import 时不会无限递归，也避免同一个 lib 被重复读盘 */
+function readsRealData(src: string, seen: Set<string>): boolean {
+  if (DIRECT_DB.test(src)) return true;
+  for (const m of src.matchAll(LOCAL_IMPORT)) {
+    const dep = m[1];
+    if (!dep || seen.has(dep)) continue;
+    seen.add(dep);
+    const p = path.join(here, dep);
+    if (!fs.existsSync(p)) continue;
+    if (readsRealData(fs.readFileSync(p, "utf8"), seen)) return true;
+  }
+  return false;
+}
+const readsReal = (f: string): boolean => readsRealData(srcOf(f), new Set([f]));
+const real = files.filter((f) => f !== SELF && readsReal(f));
+const pure = files.filter((f) => f !== SELF && !readsReal(f));
 
 expect("确实找到了 verify 脚本（不是目录空了在这儿空跑）", files.length >= 40, true);
 expect("确实找到了走真实数据的脚本", real.length >= 15, true);
 expect("确实有不读库的纯函数脚本（两类分得开）", pure.length >= 10, true);
+// 闭包不是白写的：确实有脚本自己一行 ../src/ 都不 import，只因为 import 了取数 lib 才算走真实数据。
+// 这条盯的是递归本身——把递归去掉（只看脚本自己的 import），real 会静默缩小、空库复跑少跑几个，
+// 而其它断言一条都不会红（上面那条 real.length >= 15 照样过）。**漏判是静默的**，所以必须直接钉住，
+// 不能指望「项数没掉」来发现问题：项数从来不会因为你少审了几个脚本而变少。
+const directOnly = files.filter((f) => f !== SELF && DIRECT_DB.test(srcOf(f)));
+const viaLib = real.filter((f) => !directOnly.includes(f));
+expect("确实有脚本是靠 import 闭包才认出来的（递归没白写）", viaLib.length > 0, true);
+console.log(
+  `[verify] 靠 import 闭包才认出「走真实数据」的脚本 ${viaLib.length} 个（自己一行 ../src/ 都不 import，只 import 了取数 lib）：${viaLib.join("、")}`,
+);
 
 // 走真实数据的脚本必须自带防空跑断言。下面的空库复跑查的是「判据能不能被空输入骗过」，查不出
 // 「真实数据这一侧压根没走到」——例如全库都没有某类记录时，`every(...)` 与「全部满足」这类断言
@@ -80,7 +108,7 @@ expect("走真实数据的脚本都自带防空跑断言", unguarded, []);
  * 上必红。所以复跑名单仍然只含 `verify-*`，并把这个排除本身钉住：名单里冒出 scan 就是有人改坏了。
  */
 const scanFiles = fs.readdirSync(here).filter((f) => /^scan-.*\.ts$/.test(f)).sort();
-const realScans = scanFiles.filter((f) => READS_DB.test(srcOf(f)));
+const realScans = scanFiles.filter((f) => readsReal(f));
 expect("确实找到了 scan 门禁脚本（不是目录空了在这儿空跑）", scanFiles.length >= 2, true);
 expect("scan 门禁都从服务端取数（不读库的 scan 等于没在验真实数据）", realScans.length, scanFiles.length);
 expect("scan 门禁都自带防空跑断言", realScans.filter((f) => !GUARD.test(srcOf(f))), []);
