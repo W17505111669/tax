@@ -294,7 +294,9 @@ export function Sidebar({
         taskStatusShort(t.status, t.interrupted),
         t.caseId,
         new Date(t.createdAt).toLocaleString("zh-CN", { hour12: false }),
-        t.runCount ?? 1,
+        // 缺失按 0 兜底，不按 1：同一行里工具次数与进度缺失都写 0，只有运行次数写 1，
+        // 那等于替一个「建了没跑」的任务凭空造出一次运行，而 CSV 是对外交付物。
+        t.runCount ?? 0,
         t.toolCount ?? 0,
         t.progress ?? 0,
         (tagsMap[t.id] ?? []).join("|"),
@@ -415,7 +417,7 @@ export function Sidebar({
                 #{t}
               </span>
             ))}
-                        {(task.runCount ?? 1) > 1 && (
+                        {(task.runCount ?? 0) > 1 && (
                           <span className="font-mono text-[9.5px] text-glow-300" title={`共 ${task.runCount} 次运行（含续跑）`}>
                             ↻{task.runCount}
                           </span>

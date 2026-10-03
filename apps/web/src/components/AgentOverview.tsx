@@ -739,7 +739,7 @@ export function AgentOverview({
                         return <RIcon className="h-3 w-3 shrink-0 text-glow-400" />;
                       })()}
                       <span className="min-w-0 flex-1 truncate text-[12px] text-mist-300">{r.title}</span>
-                      {(r.runCount ?? 1) > 1 && (
+                      {(r.runCount ?? 0) > 1 && (
                         <span className="shrink-0 font-mono text-[9.5px] text-glow-300" title="运行次数（含续跑）">
                           ↻{r.runCount}
                         </span>

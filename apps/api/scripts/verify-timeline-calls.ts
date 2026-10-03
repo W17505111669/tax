@@ -10,7 +10,7 @@ import { matchToolCalls } from "../../web/src/timeline-calls.ts";
 import { applyEvent, createEventsAcc, FLUSH_MS } from "../../web/src/task-events.ts";
 import type { AgentEvent } from "../../web/src/types.ts";
 import { db } from "../src/db.ts";
-import { listConclusions, listTasks } from "../src/services/task-store.ts";
+import { listConclusions, listEvents, listTasks } from "../src/services/task-store.ts";
 
 const failures: string[] = [];
 let checks = 0;
@@ -254,6 +254,66 @@ const noResultTasks = (
 ).n;
 expect("没有结论的任务不参与比对，但数目必须与库里一致", conclNone, noResultTasks);
 console.log(`[verify] 结论两份存放：一致 ${conclSame} · 不一致 ${conclDiff} · 无结论 ${conclNone}`);
+
+// ---- 运行次数的两份实现必须逐个任务相等 ----
+// 服务端 runCountOf 数的是 events 表里 kind='run_started' 的行数，listTasks 把它下发给侧栏列表、
+// CSV 导出与看板「最近活动」；任务页与交付 MD 头部、manifest 用的是组件里
+// timeline.filter(kind === "run_started").length（事件聚合后的时间线，为的是运行中能实时 +1）。
+// 两份实现各有理由（一个要持久、一个要实时），所以不合并，但必须钉住相等：只要 applyEvent 对
+// run_started 的处理变了（例如与别的事件合并成一行），任务页与交付 MD 就会与侧栏、CSV 各说
+// 一个数，而两边看起来都挺对的——这类分歧不会让任何一侧报错，只会让对外数字悄悄分家。
+let rcSame = 0;
+let rcDiff = 0;
+let rcTasks = 0;
+let rcRuns = 0;
+const rcBad: string[] = [];
+for (const t of listTasks()) {
+  const acc = createEventsAcc();
+  for (const ev of listEvents(t.id)) applyEvent(acc, ev);
+  const fromTimeline = acc.timeline.filter((x) => x.kind === "run_started").length;
+  const fromDb = t.runCount ?? 0;
+  rcTasks += 1;
+  rcRuns += fromDb;
+  if (fromTimeline === fromDb) rcSame += 1;
+  else {
+    rcDiff += 1;
+    rcBad.push(`${t.id.slice(0, 8)} 时间线 ${fromTimeline} 次 vs 库 ${fromDb} 次`);
+  }
+}
+expect("运行次数确实走到了任务（不是空跑）", rcTasks > 0, true);
+// 全库累计为 0 时「两份都是 0」也相等，那条相等断言就成了空真——所以累计次数必须大于 0
+expect("确实数到了运行（累计运行次数 > 0，否则「相等」是空真）", rcRuns > 0, true);
+expect("运行次数两份实现逐个任务相等", rcBad, []);
+console.log(
+  `[verify] 运行次数两份实现：任务 ${rcTasks} 个 · 一致 ${rcSame} · 不一致 ${rcDiff} · 全库累计运行 ${rcRuns} 次`,
+);
+// 兜底方向也要钉住：runCount 在类型上是 optional，缺失时按 0 处理，不按 1。
+// 侧栏那张 CSV 里工具次数与进度缺失都写 0，只有运行次数写 `?? 1`——那等于替一个「建了没跑」
+// 的任务凭空造出一次运行，而 CSV 是对外交付物。徽标那两处 `(runCount ?? 1) > 1` 行为上没错
+//（1 与 0 都不大于 1，缺失时都不显示徽标），但它是**用兜底值来表达「不显示」**：
+// 将来谁把条件改成 >= 1，缺失字段的任务就会显示「↻1」，同样是凭空造一次运行。
+const sidebarSrc = fs.readFileSync(
+  path.resolve(here, "..", "..", "web", "src", "components", "Sidebar.tsx"),
+  "utf8",
+);
+const overviewSrc = fs.readFileSync(
+  path.resolve(here, "..", "..", "web", "src", "components", "AgentOverview.tsx"),
+  "utf8",
+);
+expect("两份组件源码都真读到了（静态走查不能空跑）", [sidebarSrc.length > 5000, overviewSrc.length > 5000], [
+  true,
+  true,
+]);
+expect(
+  "运行次数缺失时按 0 兜底、不凭空造一次运行",
+  [sidebarSrc.includes("runCount ?? 1"), overviewSrc.includes("runCount ?? 1")],
+  [false, false],
+);
+expect(
+  "运行次数确实带着兜底（字段是 optional，漏了兜底会渲染出 undefined）",
+  [sidebarSrc.includes("runCount ?? 0"), overviewSrc.includes("runCount ?? 0")],
+  [true, true],
+);
 
 console.log(`[verify] 时间线配对检查项=${checks} 失败=${failures.length}`);
 if (failures.length > 0) {
