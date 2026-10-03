@@ -730,6 +730,12 @@ async function main(): Promise<void> {
   const toggleLabels = new Set<string>();
   let nodesTotal = 0;
   let charsTotal = 0;
+  /**
+   * 每一次扫描各自的节点数与字数。此前只累计总数，于是「总字数比上一轮少了 5836 字」这种
+   * 挂账根本无从查起——不知道是哪一页、哪一次交互态变的。带上逐次明细并写进 --json，
+   * 下一笔同类挂账就能两次跑一遍直接 diff 到具体页面。
+   */
+  const perScan: Array<{ label: string; nodes: number; chars: number }> = [];
   const thin: string[] = [];
   const scanOnce = async (label: string): Promise<void> => {
     // 字符串形式的 pageFunction 在 playwright 里是「表达式求值」，不会自动调用也不接参数，
@@ -742,6 +748,7 @@ async function main(): Promise<void> {
     scanned += 1;
     nodesTotal += found.nodes;
     charsTotal += found.chars;
+    perScan.push({ label, nodes: found.nodes, chars: found.chars });
     // 页面内容太少说明没渲染出来（路由错、任务不存在、数据还在加载）：这种页面扫出 0 处不算通过
     if (found.chars < 400) thin.push(`${label}（${found.chars} 字）`);
     for (const h of found.hits) allHits.push({ page: label, ...h });
@@ -1756,6 +1763,7 @@ async function main(): Promise<void> {
           numFails,
           nodesTotal,
           charsTotal,
+          perScan,
           thin,
           hits: allHits,
         },
@@ -1767,6 +1775,28 @@ async function main(): Promise<void> {
   }
   console.log(
     `[scan] 扫描页面 ${pageScans} 个（含交互态共扫 ${scanned} 次）· 文本节点 ${nodesTotal} 个 · 合计 ${charsTotal} 字 · 残留 ${allHits.length} 处`,
+  );
+  // 字数最多的几次扫描：总字数一变，先看这几条是否变了，比翻 --json 快
+  const topScans = [...perScan].sort((a, b) => b.chars - a.chars).slice(0, 5);
+  // 明细必须与总数同源：perScan 逐次累加出来的就是 nodesTotal / charsTotal。这条钉住
+  // 「只累加不记录」与「记了明细但漏掉某几次」两种退化——明细一旦不全，拿它做两次跑的 diff
+  // 就会得出「某些页面字数变了」的假结论，而那正是它唯一被用来做的事。
+  let detailChecks = 0;
+  detailChecks += 1;
+  if (perScan.length !== scanned) {
+    numFails.push(`每次扫描的明细 ${perScan.length} 条 ≠ 实际扫描 ${scanned} 次（明细不全，diff 会给出假结论）`);
+  }
+  detailChecks += 1;
+  const sumChars = perScan.reduce((a, s) => a + s.chars, 0);
+  const sumNodes = perScan.reduce((a, s) => a + s.nodes, 0);
+  if (sumChars !== charsTotal || sumNodes !== nodesTotal) {
+    numFails.push(`明细合计（${sumNodes} 节点 / ${sumChars} 字）≠ 报告的总数（${nodesTotal} / ${charsTotal}）`);
+  }
+  console.log(
+    `[scan] 字数最多的 5 次扫描：${topScans.map((s) => `${s.label} ${s.chars} 字`).join("；")}`,
+  );
+  console.log(
+    `[scan] 每次扫描明细 ${perScan.length} 条（与总数同源自检 ${detailChecks} 项）· 已写进 --json 的 perScan 字段，两次跑 diff 它就能定位到具体页面`,
   );
   if (args.interact) {
     console.log(
