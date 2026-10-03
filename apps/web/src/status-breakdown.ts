@@ -33,7 +33,9 @@ export const STATUS_BARS: Array<{ label: string; key: keyof StatusBreakdown; hin
     hint: "服务重启打断了执行，结论未完成；在结果页续跑即可，不是 Agent 出错",
   },
   {
-    label: "已创建",
+    // 与 task-status.ts 的 STATUS_TEXT.created 同词：同一批任务在看板叫一个名、在侧栏与任务页
+    // 叫另一个名，用户就对不上数。语境差异靠下面这句 hint 说明，不靠换一个词。
+    label: "待执行",
     key: "created",
     hint: "建了任务但一次都没跑起来（服务在建任务与开跑之间重启过）；不计入失败，在结果页运行即可",
   },

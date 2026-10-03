@@ -18,6 +18,9 @@ import {
 } from "../local-store.ts";
 import { fmtBytes } from "../run-artifacts.ts";
 import { dayStamp, relTime } from "../time-format.ts";
+// 状态文案只有 task-status.ts 一份。这里此前自己存了一份**同名**的 STATUS_TEXT，
+// 且 failed 写「已中断」而共享那份写「执行失败」——同名不同值最容易骗过人眼。
+import { STATUS_TEXT, taskStatusShort } from "../task-status.ts";
 import {
   IconBuilding,
   IconCopy,
@@ -45,14 +48,6 @@ interface Props {
   onNewTask: () => void;
   onRerunTask: (id: string) => void;
 }
-
-const STATUS_TEXT: Record<string, string> = {
-  created: "待执行",
-  processing: "执行中",
-  waiting_review: "待复核",
-  completed: "已完成",
-  failed: "已中断",
-};
 
 const STATUS_DOT: Record<string, string> = {
   created: "bg-mist-600",
@@ -296,7 +291,7 @@ export function Sidebar({
     for (const t of filtered) {
       rows.push([
         t.title,
-        STATUS_TEXT[t.status] ?? t.status,
+        taskStatusShort(t.status, t.interrupted),
         t.caseId,
         new Date(t.createdAt).toLocaleString("zh-CN", { hour12: false }),
         t.runCount ?? 1,
@@ -402,7 +397,7 @@ export function Sidebar({
           </span>
           <span className="mt-1 flex items-center gap-1.5 text-[11px] text-mist-600">
             <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[task.status] ?? "bg-mist-600"}`} />
-           <span>{STATUS_TEXT[task.status] ?? task.status}</span>
+            <span>{taskStatusShort(task.status, task.interrupted)}</span>
             {task.status === "completed" && (task.reviewPending ?? 0) > 0 && (
               <span
                 className="shrink-0 rounded bg-amber-400/15 px-1 text-[9.5px] text-amber-300"
@@ -564,6 +559,9 @@ export function Sidebar({
     return acc;
   }, {});
   const reviewBreakdown = Object.entries(reviewByStatus)
+    // 这一行是按状态聚合的统计，拿不到单个任务的 interrupted，拆不出「已中断」；
+    // 用完整名单如实写「执行失败」，不用短标签——短标签在 interrupted 缺省时会写「失败」，
+    // 而把服务重启打断的任务混进「失败」与把它们说成「已中断」是两种不同的错，前者只是没拆分。
     .map(([s, n]) => `${STATUS_TEXT[s] ?? s} ${n}`)
     .join(" · ");
 
@@ -890,7 +888,7 @@ export function Sidebar({
                   onClick={() => {
                     const lines = starList.map(
                       (t) =>
-                        `- ${t.title}（${STATUS_TEXT[t.status] ?? t.status} · ${new Date(t.createdAt).toLocaleString("zh-CN", { hour12: false })}）`,
+                        `- ${t.title}（${taskStatusShort(t.status, t.interrupted)} · ${new Date(t.createdAt).toLocaleString("zh-CN", { hour12: false })}）`,
                     );
                     void navigator.clipboard?.writeText(`# 收藏清单\n${lines.join("\n")}`).catch(() => undefined);
                   }}

@@ -75,7 +75,7 @@ import { amountSection } from "../delivery-amount.ts";
 import { citeSection } from "../delivery-cite.ts";
 import { gradeCitation, GRADE_HINT, GRADE_TEXT, summarizeGrades } from "../citation-grade.ts";
 import { offTopicCitationTitles } from "../ref-check.ts";
-import { isInterruptedOnRestart, taskStatusLabel } from "../task-status.ts";
+import { isInterruptedOnRestart, taskStatusLabel, taskStatusShort } from "../task-status.ts";
 import { topDomainWords, topicHint } from "../domain-keywords.ts";
 import { deltaDetail, deltaText, deltaVerdict, evidenceDelta, evidenceSnapshot } from "../revision-impact.ts";
 import {
@@ -164,12 +164,18 @@ interface Props {
   secInto: number | null;
 }
 
-const STATUS_META: Record<string, { label: string; className: string }> = {
-  created: { label: "待执行", className: "border-line bg-night-800 text-mist-500" },
-  processing: { label: "执行中", className: "border-amber-400/40 bg-amber-400/10 text-amber-300" },
-  waiting_review: { label: "待复核", className: "border-sky-400/40 bg-sky-400/10 text-sky-300" },
-  completed: { label: "已完成", className: "border-jade-400/40 bg-jade-400/10 text-jade-400" },
-  failed: { label: "已中断", className: "border-rose-400/40 bg-rose-400/10 text-rose-300" },
+/**
+ * 状态徽标的**配色**。文案刻意不放在这里：那会与 task-status.ts 的 STATUS_TEXT 各存一份，
+ * 而 failed 的说法还要按「是不是服务重启打断的」分两种，只有判据函数给得出来。
+ * 此前这里存着 `failed: { label: "已中断" }`，而徽标那行是个三元（failed 时绕过 STATUS_META），
+ * 于是这个 label 永远不会被读到——一份写着错误文案的死值，谁改文案都会漏掉它。
+ */
+const STATUS_META: Record<string, { className: string }> = {
+  created: { className: "border-line bg-night-800 text-mist-500" },
+  processing: { className: "border-amber-400/40 bg-amber-400/10 text-amber-300" },
+  waiting_review: { className: "border-sky-400/40 bg-sky-400/10 text-sky-300" },
+  completed: { className: "border-jade-400/40 bg-jade-400/10 text-jade-400" },
+  failed: { className: "border-rose-400/40 bg-rose-400/10 text-rose-300" },
 };
 
 /** 文号复查四级判定的配色（与引用核验四级同一套语义色） */
@@ -289,8 +295,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   // 徽章在一排操作按钮之间，文案加长会挤动整行，所以徽章只放短标签，完整说法与错误串进 title；
   // 复制文本与核对表没有宽度约束，用完整说法。
   const interrupted = isInterruptedOnRestart({ status: liveStatus, error: task.error });
-  const statusLabel =
-    liveStatus === "failed" ? (interrupted ? "已中断" : "失败") : (STATUS_META[liveStatus]?.label ?? liveStatus);
+  const statusLabel = taskStatusShort(liveStatus, interrupted);
   const statusFull = taskStatusLabel(liveStatus, task.error);
   const statusHint =
     liveStatus === "failed"
@@ -1447,7 +1452,11 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     "",
     `- 任务 ID：${task.id}`,
     `- 智能体：${agent.shortName}${agent.model ? `（${agent.model}）` : ""}`,
-    `- 案例：${task.caseId}　状态：${liveStatus}　运行次数：${runCount}`,
+    // 状态写完整说法（与复制文本、核对表、无障碍播报同一个 taskStatusLabel）。此前这里直接写
+    // liveStatus，于是交付 MD 的头部出现 "completed" / "failed" 这种英文枚举值——对外文档里
+    // 唯一一个不翻译的字段，而且 failed 到底是「服务重启打断、续跑即可」还是「Agent 执行报错」，
+    // 在交付材料里完全看不出来（manifest 写枚举是对的，它是给归档系统检索的机器可读清单）。
+    `- 案例：${task.caseId}　状态：${statusFull}　运行次数：${runCount}`,
     `- 创建：${new Date(task.createdAt).toLocaleString("zh-CN", { hour12: false })}　导出：${new Date().toLocaleString("zh-CN", { hour12: false })}`,
     "",
     "## 交付自检",

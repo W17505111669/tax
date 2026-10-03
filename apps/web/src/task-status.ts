@@ -34,3 +34,21 @@ export function taskStatusLabel(status: string, error?: string | null): string {
   if (status !== "failed") return STATUS_TEXT[status] ?? status;
   return isInterruptedOnRestart({ status, error }) ? "已中断（服务重启）" : "执行失败";
 }
+
+/**
+ * 短标签：侧栏列表、任务页徽标这类宽度紧张的地方用。
+ *
+ * `failed` 在短版里同样分两种（「已中断」/「失败」），**不能因为地方小就统一写一种**：侧栏此前
+ * 自己存了一份同名 `STATUS_TEXT`，failed 一律写「已中断」，于是 Agent 真报错的任务在列表里也被
+ * 说成「续跑即可」，用户不会去查错误原因。而服务端 `listTasks` 早就返回了 `interrupted` 字段
+ *（它的注释写着「列表不带 error 全文，所以在这里判好：前端只需要知道这个 failed 能不能续跑」），
+ * 侧栏压根没用它。
+ *
+ * 判据结果由调用方传进来而不是在这里读 error：列表数据里没有 error 全文，服务端已经判好了。
+ * 拿不到 `interrupted` 的调用方（例如按状态聚合的统计行）应当改用完整的 `STATUS_TEXT`，
+ * 宁可写「执行失败」也不要写「已中断」——前者只是没拆分，后者是把处置方式说反了。
+ */
+export function taskStatusShort(status: string, interrupted = false): string {
+  if (status !== "failed") return STATUS_TEXT[status] ?? status;
+  return interrupted ? "已中断" : "失败";
+}

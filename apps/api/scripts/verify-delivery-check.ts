@@ -9,7 +9,17 @@ import type { GradeSummary } from "../../web/src/citation-grade.ts";
 import { pendingReviewIssues } from "../src/services/issues.ts";
 import { listTasks, getTask } from "../src/services/task-store.ts";
 import { db } from "../src/db.ts";
-import { INTERRUPTED_ON_RESTART, isInterruptedOnRestart, taskStatusLabel } from "../../web/src/task-status.ts";
+import {
+  INTERRUPTED_ON_RESTART,
+  isInterruptedOnRestart,
+  STATUS_TEXT,
+  taskStatusLabel,
+  taskStatusShort,
+} from "../../web/src/task-status.ts";
+import { STATUS_BARS } from "../../web/src/status-breakdown.ts";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const failures: string[] = [];
 let checks = 0;
@@ -641,6 +651,58 @@ expect(
 expect("服务重启打断算中断", isInterruptedOnRestart({ status: "failed", error: INTERRUPTED_ON_RESTART }), true);
 expect("执行报错不算中断", isInterruptedOnRestart({ status: "failed", error: "模型调用超时" }), false);
 expect("没有错误串不算中断", isInterruptedOnRestart({ status: "failed", error: null }), false);
+
+// ---- 状态文案只许有一份名单 ----
+// 实测此前有四份：task-status.ts 的 STATUS_TEXT（failed =「执行失败」）、TaskWorkbench 的
+// STATUS_META（failed =「已中断」，而且徽标那行是个三元、failed 时绕过 STATUS_META，所以那个
+// label 永远读不到——一份写着错误文案的死值）、Sidebar 里另一份**同名**的 STATUS_TEXT
+//（failed =「已中断」）、status-breakdown 的 STATUS_BARS（把 failed 与 interrupted 拆成两条）。
+// 对外的后果是三处不一致：侧栏把 Agent 真报错的任务也说成「已中断」（用户以为续跑就行，不去查
+// 错误原因），而服务端 listTasks 早就返回了 interrupted 字段、侧栏没用它；交付 MD 的头部更直接
+// 写英文枚举 "failed"。修法：文案只留 task-status.ts 一份，STATUS_META 只管配色，侧栏与 MD 头部
+// 逐个接上，看板的 created 也从「已创建」改成与共享名单同词的「待执行」。
+const dcheckHere = path.dirname(fileURLToPath(import.meta.url));
+expect(
+  "failed 的完整说法按错误串分两种",
+  [taskStatusLabel("failed", INTERRUPTED_ON_RESTART), taskStatusLabel("failed", "模型调用超时")],
+  ["已中断（服务重启）", "执行失败"],
+);
+expect(
+  "failed 的短说法同样分两种（地方小不是统一写一种的理由）",
+  [taskStatusShort("failed", true), taskStatusShort("failed", false)],
+  ["已中断", "失败"],
+);
+expect(
+  "短标签与完整说法共用同一份 STATUS_TEXT",
+  [taskStatusShort("created"), taskStatusShort("processing"), taskStatusShort("waiting_review"), taskStatusShort("completed")],
+  [STATUS_TEXT.created, STATUS_TEXT.processing, STATUS_TEXT.waiting_review, STATUS_TEXT.completed],
+);
+expect("未知状态原样返回、不猜一个文案", [taskStatusShort("weird"), taskStatusLabel("weird")], ["weird", "weird"]);
+// 看板条名与共享名单同源：同一批任务不能在看板叫一个名、在侧栏与任务页叫另一个名
+const barOf = (k: string): string => STATUS_BARS.find((b) => b.key === k)?.label ?? "";
+expect("看板「执行失败」条与完整说法同词", barOf("failed"), taskStatusLabel("failed", "模型调用超时"));
+expect("看板「已中断」条与短标签同词", barOf("interrupted"), taskStatusShort("failed", true));
+expect(
+  "看板 created 条与共享名单同词（此前叫「已创建」，同一批任务在侧栏与任务页叫「待执行」）",
+  barOf("created"),
+  STATUS_TEXT.created,
+);
+// 静态走查：名单不许再长出第二份
+const sidebarSrc = fs.readFileSync(
+  path.resolve(dcheckHere, "..", "..", "web", "src", "components", "Sidebar.tsx"),
+  "utf8",
+);
+const benchSrc = fs.readFileSync(
+  path.resolve(dcheckHere, "..", "..", "web", "src", "components", "TaskWorkbench.tsx"),
+  "utf8",
+);
+expect("两份源码都真读到了（静态走查不能空跑）", [sidebarSrc.length > 5000, benchSrc.length > 10000], [true, true]);
+expect("侧栏不再自己存一份状态文案名单（同名不同值最骗人眼）", sidebarSrc.includes("const STATUS_TEXT"), false);
+expect("侧栏接上了服务端早就返回的 interrupted 字段", sidebarSrc.includes("taskStatusShort(t.status, t.interrupted)"), true);
+expect("任务页的 STATUS_META 只管配色、不再存文案", benchSrc.includes("{ label: string; className: string }"), false);
+expect("任务页徽标走共享短标签", benchSrc.includes("taskStatusShort(liveStatus, interrupted)"), true);
+expect("交付 MD 头部不再写状态枚举值", benchSrc.includes("状态：${liveStatus}"), false);
+expect("交付 MD 头部走完整说法", benchSrc.includes("状态：${statusFull}"), true);
 expect(
   "非 failed 状态即使带这句也不算中断",
   isInterruptedOnRestart({ status: "completed", error: INTERRUPTED_ON_RESTART }),
