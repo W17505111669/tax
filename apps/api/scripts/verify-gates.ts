@@ -81,6 +81,44 @@ expect("scan 门禁都从服务端取数（不读库的 scan 等于没在验真�
 expect("scan 门禁都自带防空跑断言", realScans.filter((f) => !GUARD.test(srcOf(f))), []);
 expect("空库复跑名单里只有 verify-*（scan 要浏览器与前端，复跑只会误红）", real.every((f) => f.startsWith("verify-")), true);
 
+/**
+ * 生成物循环依赖：`report:test` 内部会逐个跑 `VERIFY_SCRIPTS`（42 个）再把 PASS/FAIL 写进
+ * 测试报告第二节与「总体结论」。所以任何**读 `test-report-*.md` 的门禁**都不能出现在那份名单里，
+ * 否则它读到的是上一次生成的报告——滞后一轮。本轮实测踩过：把「报告行内自相矛盾」那条走查放进
+ * `verify:stats` 之后，单独跑一次 `report:test` 就把「存在未通过验证项」这个假结论写进了对外
+ * 交付文档（而所有门禁实测全绿），再跑一次才恢复。判据本身没错，错在它读的是自己参与生成的文件。
+ *
+ * 文件名与 pnpm 脚本名不是机械对应（`verify-platform-stats.ts` → `verify:stats`），所以映射从
+ * `apps/api/package.json` 反查，不靠字符串变换——那正是「两边各存一份名单」的静默退化形状。
+ */
+const apiPkg = JSON.parse(fs.readFileSync(path.resolve(apiDir, "package.json"), "utf8")) as {
+  scripts: Record<string, string>;
+};
+// 矩阵里的命令是从**仓库根**跑的（`pnpm verify:pi` 这种跨包脚本只在根 package.json 里），
+// 所以「这个名字存在吗」要查两个 package.json 的并集。第一版只查了 apps/api 那份，
+// 于是把 verify:pi / verify:docs / verify:compare 等 8 个跨包脚本全报成了「查不到」。
+const rootPkg = JSON.parse(fs.readFileSync(path.resolve(apiDir, "..", "..", "package.json"), "utf8")) as {
+  scripts: Record<string, string>;
+};
+const knownScripts = new Set(
+  [...Object.keys(apiPkg.scripts), ...Object.keys(rootPkg.scripts)].filter((n) => n.startsWith("verify:")),
+);
+const scriptOf = new Map<string, string>();
+for (const [name, cmd] of Object.entries(apiPkg.scripts)) {
+  const m = /scripts\/([a-z0-9-]+\.ts)/.exec(cmd);
+  if (m?.[1] && name.startsWith("verify:")) scriptOf.set(m[1], name);
+}
+const matrix = [...srcOf("gen-test-report.ts").matchAll(/name: "(verify:[a-z-]+)"/g)]
+  .map((m) => m[1])
+  .filter((n): n is string => n !== undefined);
+const readsReport = files.filter((f) => f !== SELF && /test-report-/.test(srcOf(f)));
+const looped = readsReport.map((f) => scriptOf.get(f) ?? f).filter((n) => matrix.includes(n));
+expect("报告验证矩阵确实枚举到了脚本（不是名单空了在这儿空跑）", matrix.length >= 40, true);
+expect("确实找到了读测试报告的门禁（这条走查不能空跑）", readsReport.length >= 1, true);
+expect("确实查到了 verify 脚本名（两个 package.json 都读到了）", knownScripts.size >= 40, true);
+expect("矩阵里的脚本名都能在 package.json 里查到（写错名字会让报告列出跑不了的命令）", matrix.filter((n) => !knownScripts.has(n)), []);
+expect("读测试报告的门禁不在报告自己的验证矩阵里（否则它读到上一次的报告，滞后一轮）", looped, []);
+
 const fooled: string[] = [];
 const crashed: string[] = [];
 let red = 0;
