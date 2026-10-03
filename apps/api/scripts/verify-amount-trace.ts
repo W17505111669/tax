@@ -255,6 +255,15 @@ expect("空清单安全兜底", [classifyUntraced([], WEB_RESULTS).web.length, c
 expect("两类文案都给了", Object.keys(UNTRACED_ORIGIN_TEXT).sort(), ["unexplained", "web"]);
 expect("两类说明都给了", Object.keys(UNTRACED_ORIGIN_HINT).sort(), ["unexplained", "web"]);
 const MD_MARK = /(\*\*|`|^#{1,6}\s|\[[^\]]*\]\([^)]*\)|^\s*\|\s*---|^>\s)/m;
+// 阳性对照：下面四条断的都是「MD_MARK.test(...) 为 false」。这条正则一旦写废（少个转义、漏掉 /m、
+// 分支写错），它对任何输入都不命中，那四条会齐齐变绿——而绿的样子与「文案确实干净」一模一样。
+// 这类假绿空库复跑查不出来（它查的是真实数据那一侧走没走到），只有拿已知违规样本反着断一次才钉得住。
+expect("MD_MARK 确实命中粗体记号", MD_MARK.test("**粗体**"), true);
+expect("MD_MARK 确实命中行内代码记号", MD_MARK.test("`代码`"), true);
+expect("MD_MARK 确实命中标题井号", MD_MARK.test("## 标题"), true);
+expect("MD_MARK 确实命中链接记号", MD_MARK.test("[文字](https://example.com)"), true);
+expect("MD_MARK 确实命中表格分隔行", MD_MARK.test("| --- |"), true);
+expect("MD_MARK 确实命中引用记号", MD_MARK.test("> 引用"), true);
 for (const k of ["web", "unexplained"] as UntracedOrigin[]) {
   expect(`${k} 的界面文案非空`, UNTRACED_ORIGIN_TEXT[k].trim() !== "", true);
   expect(`${k} 的界面文案不含 Markdown 记号`, MD_MARK.test(UNTRACED_ORIGIN_TEXT[k]), false);

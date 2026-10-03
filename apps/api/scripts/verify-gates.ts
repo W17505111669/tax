@@ -115,6 +115,35 @@ expect("scan 门禁都自带防空跑断言", realScans.filter((f) => !GUARD.tes
 expect("空库复跑名单里只有 verify-*（scan 要浏览器与前端，复跑只会误红）", real.every((f) => f.startsWith("verify-")), true);
 
 /**
+ * 残留判据的「阳性对照」覆盖率。
+ *
+ * 走查型判据最常见的形态是「offenders 必须是空数组」。它有一种假绿是空库复跑查不出来的：
+ * **模式本身写废了**。正则少一个转义、字符串常量改了一次大小写，offenders 永远是空的，
+ * 门禁绿得和「全库都合规」一模一样。空库复跑查的是「真实数据这一侧走没走到」，查不出
+ * 「判据这一侧还能不能命中」。本轮就在 verify:format 上亲手踩过一次：新加的「裸拼 % 残留」
+ * 判据如果不配一条拿已知违规样本去断正则命中的自检，写废了也没人知道。
+ *
+ * 唯一能钉住它的办法是阳性对照：拿一个**已知违规的字面量样本**断那条正则确实命中
+ *（`verify:reltime` 与 `verify:format` 已经这么写了）。本轮实测覆盖面见下面的报告行。
+ *
+ * 这里先把它量成常驻报告行 + 一条只许涨不许跌的下限，而不是一条硬性要求：给二十来个脚本
+ * 补阳性对照，每个都得先读懂它的判据、再挑一个**真的会长成这样**的坏样本，一次提交里赶完
+ * 只会产出一批为了绿而写的样本——那比没有更坏。补齐一个就把下限抬一格。
+ */
+const RESIDUE = /, \[\]\);/;
+const POSITIVE_CTL = /\.test\(\s*["'`]/;
+const allGates = [...files, ...scanFiles].filter((f) => f !== SELF);
+const withResidue = allGates.filter((f) => RESIDUE.test(srcOf(f)));
+const withCtl = withResidue.filter((f) => POSITIVE_CTL.test(srcOf(f)));
+const noCtl = withResidue.filter((f) => !POSITIVE_CTL.test(srcOf(f)));
+expect("确实找到了带残留判据的门禁（不是这条走查自己空跑）", withResidue.length >= 20, true);
+expect("带阳性对照的门禁数不许跌（补齐一个就抬一格，目标是有残留判据的全都带）", withCtl.length >= 3, true);
+console.log(
+  `[verify] 残留判据阳性对照覆盖：${withResidue.length} 个门禁有「必须为空」型判据 · 其中 ${withCtl.length} 个带已知违规样本自检 · 待补 ${noCtl.length} 个`,
+);
+console.log(`[verify] 待补阳性对照的门禁：${noCtl.join("、")}`);
+
+/**
  * 生成物循环依赖：`report:test` 内部会逐个跑 `VERIFY_SCRIPTS`（42 个）再把 PASS/FAIL 写进
  * 测试报告第二节与「总体结论」。所以任何**读 `test-report-*.md` 的门禁**都不能出现在那份名单里，
  * 否则它读到的是上一次生成的报告——滞后一轮。本轮实测踩过：把「报告行内自相矛盾」那条走查放进
