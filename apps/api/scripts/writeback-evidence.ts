@@ -12,19 +12,11 @@
  *      pnpm writeback:evidence --restore aabd138         把该任务的结论回滚到上一轮（续跑改坏时用）
  */
 import { runTask } from "../src/services/agent-runner.ts";
-import { listRefChecks } from "../src/services/ref-checks.ts";
-import { listLinkChecks } from "../src/services/link-checks.ts";
 import { appendEvent, getTask, listConclusions, listTasks, setTaskStatus } from "../src/services/task-store.ts";
 import { computePlatformStats } from "../src/services/stats.ts";
-import {
-  buildRevisionInstruction,
-  deadLinkTargets,
-  pendingRevisionItems,
-  revisionCounts,
-  toRevisionItems,
-} from "../../web/src/ref-check.ts";
-import { db } from "../src/db.ts";
-import { extractCitations, extractTextCitations, mergeCitations, UNCAPPED } from "../../web/src/search-evidence.ts";
+import { buildRevisionInstruction, revisionCounts } from "../../web/src/ref-check.ts";
+// 取数与界面实测共用一份（scan-ui-markdown 要核对结果页那颗按钮上的数字）
+import { revisionPlanFor } from "./revision-lib.ts";
 
 const args = process.argv.slice(2);
 const doRun = args.includes("--run");
@@ -113,32 +105,14 @@ const built = listTasks()
       noConclusion.push(`${t.id.slice(0, 8)} ${t.title}（${t.status}）`);
       return null;
     }
-    // 已经写回的不再进指令。判据统一交给 pendingRevisionItems（与结果页「生成修订指令」同一份实现）：
-    // 交代过的不再要求交代、原地址不在正文里的不再要求标注、替代地址与原地址都处置完的不再要求替换。
+    // 已经写回的不再进指令，失效链接也进指令（链接腐烂此前只能被交付自检发现、没法走修复通道，
+    // 唯一出路是人工改正文）。取数与判据都在共享的一份里（revision-lib → ref-check.ts 的
+    // revisionItemsForTask），与结果页「生成修订指令」算出同一份清单：交代过的不再要求交代、
+    // 原地址不在正文里的不再要求标注、替代地址与原地址都处置完的不再要求替换、文号已不在当前
+    // 结论正文里的旧记录不进素材。
     // 这里曾自己写一条「结论里出现过证据地址就算已写回」，判据比共享的那份松，结果把只做了一半的
     // 替换（新地址进来了、旧百科链接还留着）当成已完成，两条弱证据从此没人再提。
-    const items = pendingRevisionItems(toRevisionItems(listRefChecks(t.id)), result);
-    // 失效链接也进指令：链接腐烂此前只能被交付自检发现、没法走修复通道，唯一出路是人工改正文。
-    // 引用清单按全量取（与平台统计同口径），deadLinkTargets 内部会再按当前清单过滤掉过期核验行。
-    const calls = (db.prepare(`SELECT tool_name, result FROM tool_calls WHERE task_id = ?`).all(t.id) ?? []) as Array<{
-      tool_name: string;
-      result: string | null;
-    }>;
-    const parsed = calls.map((c) => {
-      let parsedResult: unknown = null;
-      try {
-        parsedResult = c.result ? JSON.parse(c.result) : null;
-      } catch {
-        parsedResult = null;
-      }
-      return { toolName: c.tool_name, result: parsedResult };
-    });
-    const cites = mergeCitations(
-      extractCitations(parsed, UNCAPPED),
-      extractTextCitations(result, UNCAPPED),
-      UNCAPPED,
-    );
-    const dead = deadLinkTargets(listLinkChecks(t.id), cites);
+    const { items, dead } = revisionPlanFor(t.id, result);
     return { task: t, items, dead, instruction: buildRevisionInstruction(items, dead) };
   });
 const plans = built.filter((p): p is NonNullable<typeof p> => p !== null && p.instruction !== "");

@@ -28,6 +28,7 @@ import { db } from "../src/db.ts";
 import { dirs } from "../src/config.ts";
 import { launchChromium, WEB_URL } from "./browser-lib.ts";
 import { loadTaskDocRefs } from "./docref-lib.ts";
+import { revisionPlanFor } from "./revision-lib.ts";
 import { TEXT_AMOUNT_TOOLS, traceAmounts } from "../../web/src/amount-trace.ts";
 import { retentionNote, retentionStats } from "../../web/src/search-evidence.ts";
 import { percentValue } from "../../web/src/format.ts";
@@ -557,6 +558,8 @@ async function main(): Promise<void> {
       pending: number;
       /** 该任务提取到的问题总数（含已复核的）：用来区分「一个问题都没有」与「问题都处置完了」 */
       issues: number;
+      /** 修订素材条数（复查素材 + 失效链接）：结果页「生成修订指令（N）」按钮上那个 N */
+      revision: number;
     }
   >();
   for (const t of targets) {
@@ -589,6 +592,8 @@ async function main(): Promise<void> {
     // retentionStats 读的就是这个形状（result.retainedChars / omittedChars / truncated / toolOmittedChars）
     const uiCalls = callRows.map((r, i) => ({ toolName: r.tool_name, result: parsedAll[i] }));
     const outDir = path.join(dirs.outputs, t.id);
+    // 修订素材与写回脚本列计划走同一个取数（revision-lib），界面上那颗按钮的数字才对得上计划清单
+    const plan = revisionPlanFor(t.id, d.result);
     expectOf.set(t.id, {
       calls: callRows.length,
       docTraced: dr.traced,
@@ -601,6 +606,7 @@ async function main(): Promise<void> {
         : 0,
       pending: pendingReviewCount(t.id),
       issues: extractIssues(t.id).length,
+      revision: plan.items.length + plan.dead.length,
     });
     // 比对页的期望值走 /api/tasks/:id/compares 用的那一份 listStoredCompares，顺序也是同一个
     // listToolCalls（ORDER BY started_at ASC）：界面少渲染一条、或把比率换成读留存字段，这里都会红。
@@ -713,6 +719,9 @@ async function main(): Promise<void> {
   let artifactPanelMissing = 0;
   /** 复核页逐任务的待复核项数核对：项数（为 0 说明这一屏压根没核到） */
   let reviewChecks = 0;
+  /** 结果页「生成修订指令（N）」：扫到并与取数对比过的页数 / 取数有素材却没扫到按钮的页数 */
+  let revisionBtnSeen = 0;
+  let revisionBtnMissing = 0;
   const toggleLabels = new Set<string>();
   let nodesTotal = 0;
   let charsTotal = 0;
@@ -1574,6 +1583,10 @@ async function main(): Promise<void> {
         // ledgerTotalCells 只用于 MD / CSV 导出。所以合计行「有就核、没有不算失败」。
       }
     }
+    // 这一页有没有真扫到「生成修订指令（N）」那颗按钮。数字要在点开的那一刻从按钮标签上读，
+    // 不能等折叠入口都点完再去读 innerText：后面的「收起」会把文号溯源面板关掉，按钮就不在
+    // DOM 里了（第一版正是这么写的——入口列表里明明点到了「生成修订指令（1）」，核对却报「扫到 0 页」）
+    let sawRevisionBtn = false;
     if (args.interact && args.interactLimit > 0) {
       // 每轮重新枚举，不复用上一轮的标记：点开一个面板会让 React 重建那一片 DOM，
       // 挂在旧节点上的 data-scan-toggle 跟着没了——第一版一次枚举到底，实测 92 次成功里
@@ -1629,10 +1642,30 @@ async function main(): Promise<void> {
         // 扫完按 Esc 收起——快捷键表里就写着「Esc 收起续跑面板 / 阅读器」，别让它挡住后面的入口。
         if (TOGGLE_ALLOW.test(t.label)) {
           revisionPanels += 1;
+          // 按钮标签上就带着数字，这一刻读最可靠：既能证明它真渲染出来了，又能与取数逐个对比。
+          // 期望值走 revision-lib 那一份取数——与写回脚本列计划用的是同一个函数，所以这一项
+          // 同时是「界面 vs 写回脚本」两个消费点的口径对账（此前脚本 5 个任务 12 条、界面 1 个任务 5 条）
+          const wantRev = p.tab === "result" && p.taskId !== "" ? expectOf.get(p.taskId) : undefined;
+          const shownN = /（(\d+)）/.exec(t.label)?.[1];
+          if (wantRev && shownN !== undefined) {
+            sawRevisionBtn = true;
+            revisionBtnSeen += 1;
+            if (Number(shownN) !== wantRev.revision) {
+              numFails.push(
+                `${p.label} 「生成修订指令（${shownN}）」≠ 取数 ${wantRev.revision} 条修订素材（复查素材 + 失效链接，与写回脚本同一份取数）`,
+              );
+            }
+          }
           await page.keyboard.press("Escape");
           await page.waitForTimeout(250);
         }
       }
+    }
+    // 取数说这一页有修订素材、却始终没扫到那颗按钮：可能是面板没被点开（不算失败），也可能是
+    // 渲染条件又与数字脱钩了（算失败）。这里分不清，所以只计数如实报；「一颗都没扫到」由下面那条兜住。
+    if (!sawRevisionBtn && p.tab === "result" && p.taskId !== "") {
+      const wantRev = expectOf.get(p.taskId);
+      if (wantRev && wantRev.revision > 0) revisionBtnMissing += 1;
     }
     if (args.reader && p.tab === "result") {
       readerTried += 1;
@@ -1784,6 +1817,20 @@ async function main(): Promise<void> {
     console.log(
       `[scan] 复核页待复核项数核对：${reviewChecks} 项（每个任务 2~4 项：数字 + 空态 + 两处文案互相一致）`,
     );
+  }
+  if (args.tabs.includes("result")) {
+    // 走查型断言必须同时断「确实检查到了东西」：有素材的任务一个都没扫到按钮，等于这项空跑绿
+    const revisionGone = revisionBtnSeen === 0 && revisionBtnMissing > 0;
+    console.log(
+      `[scan] 结果页「生成修订指令（N）」核对：扫到 ${revisionBtnSeen} 页并逐个与取数对比 · 取数有素材却没扫到按钮 ${revisionBtnMissing} 页${
+        revisionGone ? "（一颗都没扫到，这项等于空跑）" : ""
+      }`,
+    );
+    if (revisionGone) {
+      numFails.push(
+        "「生成修订指令」按钮一颗都没扫到、却有任务取数有素材：这项核对等于空跑（要么界面的渲染条件又与取数脱钩了，要么这项检查被放在了点开折叠入口之前——面板默认收起）",
+      );
+    }
   }
   if (args.tabs.includes("result")) {
     console.log(

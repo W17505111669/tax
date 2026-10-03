@@ -41,6 +41,7 @@ import {
   REF_VERDICT_TEXT,
   refQueryVariants,
   revisionCounts,
+  revisionItemsForTask,
   stripSiteSuffix,
   summarizeRefChecks,
   toRevisionItems,
@@ -493,6 +494,73 @@ expect(
   buildRevisionInstruction([], [{ title: "失效的解读页", url: "https://a.gov.cn/dead.html" }]).length > 0,
   true,
 );
+
+// 修订素材的取数只能有一份。写回脚本与结果页「生成修订指令」此前各算各的：脚本用全部落库复查
+// 记录（实测 5 个任务 12 条），界面多套一层「key 仍在当前复查目标里」的过滤（1 个任务 5 条），
+// 而脚本头注释自称「等价于把那些任务逐个点一遍」——并不等价。少掉的那一半正是主要用途：
+// 复查目标只含**还没找到出处**的文号（traceDocRefs 把 matched 的文号算作已有出处），于是
+// 复查到出处的文号全被那层过滤挡掉，buildRevisionInstruction 的【补文号出处】段在界面上永远是空的。
+// 那层过滤想挡的是「上一版结论留下的旧记录」，代理条件选错了：旧记录的正确判据是文号还在不在
+// 当前结论正文里。下面三组断言分别钉住：修好的判据、两个消费点都走同一份、真实数据逐条对得回正文。
+const revFixRecords = [
+  {
+    kind: "docref" as const,
+    verdict: "matched" as const,
+    text: "财税〔2015〕119号",
+    evidence: { title: "官方原文", url: "https://a.gov.cn/119.html" },
+    checkedAt: "2026-09-29T02:00:00.000Z",
+  },
+  {
+    kind: "docref" as const,
+    verdict: "empty" as const,
+    text: "国税发〔2006〕187号",
+    evidence: null,
+    checkedAt: "2026-09-29T02:00:00.000Z",
+  },
+  {
+    // 上一版结论留下的旧记录：文号已经不在当前正文里，没处写回
+    kind: "docref" as const,
+    verdict: "matched" as const,
+    text: "税总发〔2013〕9号",
+    evidence: { title: "官方原文", url: "https://a.gov.cn/9.html" },
+    checkedAt: "2026-09-29T02:00:00.000Z",
+  },
+  {
+    kind: "docref" as const,
+    verdict: "error" as const,
+    text: "检索失败的文号",
+    evidence: null,
+    checkedAt: "2026-09-29T02:00:00.000Z",
+  },
+];
+const revFixConclusion = "一、政策依据\n财税〔2015〕119号 与 国税发〔2006〕187号 构成本轮依据。";
+const revFixItems = revisionItemsForTask(revFixRecords, revFixConclusion);
+expect(
+  "复查到出处的文号只要还在正文里就必须进素材（界面那层过滤正是把这一档全挡掉了）",
+  revFixItems.some((i) => i.text === "财税〔2015〕119号" && i.verdict === "matched"),
+  true,
+);
+expect("素材条数（旧文号与检索失败的那条都不进）", revFixItems.length, 2);
+expect(
+  "上一版结论留下的旧文号不进素材（文号已不在当前正文里，没处写回）",
+  revFixItems.some((i) => i.text === "税总发〔2013〕9号"),
+  false,
+);
+expect("检索失败的记录仍不进素材（重试即可，不该让模型据此改结论）", revFixItems.some((i) => i.verdict === "error"), false);
+expect(
+  "【补文号出处】段在共享判据下确实生成得出来（界面上这一段此前永远是空的）",
+  buildRevisionInstruction(revFixItems).includes("【补文号出处】"),
+  true,
+);
+// 同源静态走查：两个消费点都必须走共享入口，谁都不许再自己拼一份判据
+const wbSrc = fs.readFileSync(path.resolve(here, "writeback-evidence.ts"), "utf8");
+const libSrc = fs.readFileSync(path.resolve(here, "revision-lib.ts"), "utf8");
+expect("三份源码都真读到了（静态走查不能空跑）", [benchSrc.length > 10000, wbSrc.length > 1000, libSrc.length > 500], [true, true, true]);
+expect("界面走共享入口 revisionItemsForTask", benchSrc.includes("revisionItemsForTask(Object.values(refChecks), finalResult)"), true);
+expect("界面不再按「key 仍在当前复查目标里」过滤复查记录", benchSrc.includes("docKeys"), false);
+expect("写回脚本走共享取数 revisionPlanFor", wbSrc.includes("revisionPlanFor(t.id, result)"), true);
+expect("写回脚本不再自己拼修订素材判据", [wbSrc.includes("pendingRevisionItems("), wbSrc.includes("toRevisionItems(")], [false, false]);
+expect("取数收到 revision-lib 一份（判据仍在 ref-check.ts）", libSrc.includes("revisionItemsForTask(listRefChecks(taskId), result)"), true);
 
 // 已经交代过的素材不再进指令。此前【标注未取得原文】那一段没有任何「已写回」判据
 //（写回脚本的注释写着「没有地址可比，仍会列出，由人工决定」），于是每轮续跑都把同样几条
@@ -1229,6 +1297,40 @@ for (const t of listTasks()) {
 }
 console.log(
   `[verify] 真实任务走查：${tasksPending} 个任务共 ${pendingTotal} 处文号待复查 · 弱证据引用待替换 ${citeTotal} 条 · 已落库复查记录 ${storedTotal} 条`,
+);
+
+// 6b) 修订素材的真实数据走查：共享判据算出来的每一条都必须能对回当前结论正文。
+// 这里量到的条数就是结果页那颗「生成修订指令（N）」上的 N（scan:uimd 逐页核对同一个数），
+// 也是写回脚本计划清单里的「素材 N 条」——三处同源，所以这一节同时是界面与脚本的对账。
+let revTasks = 0;
+let revItemsTotal = 0;
+let revDocMatched = 0;
+let revRecordsTotal = 0;
+for (const t of listTasks()) {
+  const text = getTask(t.id)?.result ?? "";
+  if (!text.trim()) continue;
+  const records = listRefChecks(t.id);
+  revRecordsTotal += records.length;
+  const items = revisionItemsForTask(records, text);
+  if (items.length > 0) revTasks += 1;
+  revItemsTotal += items.length;
+  for (const i of items) {
+    if (i.kind === "docref" && i.verdict === "matched") revDocMatched += 1;
+    // 「素材里的文号一定还在正文里」这条不能写：判据自己就是这么筛的，写出来是自证其说
+    //（本项目已经踩过一次这种盲点）。这里改盯两件真会坏的事：判据只会筛不会造，
+    // 以及要写回正文的那条证据地址得是个能点开的 http(s) 地址。
+    if (i.kind === "docref" && i.verdict === "matched" && (!i.evidence || !/^https?:\/\//.test(i.evidence.url))) {
+      failures.push(`${t.id.slice(0, 8)} 待写回的文号素材没有可用证据地址：${i.text}`);
+    }
+  }
+}
+// 走查型断言必须同时断「确实检查到了东西」：真实库里现在就有素材，量为 0 说明判据被改空了
+expect("落库复查记录确实走到了（不是空跑）", revRecordsTotal > 0, true);
+expect("修订素材走查确实走到了任务（不是空跑）", revTasks > 0, true);
+expect("修订素材里确实有「已找到出处待写回」的文号（界面此前结构性地拿不到这一档）", revDocMatched > 0, true);
+expect("素材条数不超过落库复查记录条数（判据只会筛、不会凭空造）", revItemsTotal <= revRecordsTotal, true);
+console.log(
+  `[verify] 修订素材真实走查：落库复查记录 ${revRecordsTotal} 条 → 素材 ${revItemsTotal} 条，分布在 ${revTasks} 个任务（其中已找到出处、待写回正文的文号 ${revDocMatched} 条）`,
 );
 
 // 8) 复查失败不能把已经找到的公开出处覆盖掉（实测踩过：点一次批量复查，看板上的证据反而变少）

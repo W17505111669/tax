@@ -85,7 +85,6 @@ import {
   disclaimedWeakUrls,
   disclaimedWeakItems,
   labeledDocRefTexts,
-  pendingRevisionItems,
   settledWeakUrls,
   uncitedWeakItems,
   WEAK_SETTLED_LIST_LIMIT,
@@ -94,8 +93,8 @@ import {
   REF_VERDICT_HINT,
   REF_VERDICT_TEXT,
   revisionCounts,
+  revisionItemsForTask,
   summarizeRefChecks,
-  toRevisionItems,
   type RefCheckSummary,
 } from "../ref-check.ts";
 import {
@@ -1254,18 +1253,14 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     };
   }, [refTargets, docRefChecks, refChecks, weakCitations, replacedKeys, weakSettledUrls, liveChecks]);
 
-  // 修订素材：只取与当前结论对得上、且还没写回过的复查记录，避免上一版结论留下的记录
-  // 与已经交代过的项目反复进指令（实测同一节「仅作背景参考」表格被逐轮重写）
-  const revisionItems = useMemo(() => {
-    const docKeys = new Set(refTargets.map((t) => t.key));
-    const citeKeys = new Set(weakTargets.map((t) => t.key));
-    return pendingRevisionItems(
-      toRevisionItems(
-        Object.values(refChecks).filter((c) => (c.kind === "docref" ? docKeys.has(c.key) : citeKeys.has(c.key))),
-      ),
-      finalResult,
-    );
-  }, [refChecks, refTargets, weakTargets, finalResult]);
+  // 修订素材：与写回脚本共用同一个入口，两处必须算出同一份清单（此前各算各的：脚本 5 个任务
+  // 12 条、界面 1 个任务 5 条，而脚本头注释自称「等价于把那些任务逐个点一遍」）。这里曾多一层
+  // 「key 仍在当前复查目标里」的过滤，而复查目标只含还没找到出处的文号，于是复查到出处的全被挡掉，
+  // 指令里的【补文号出处】段在界面上永远是空的（缘由与取舍见 ref-check.ts 的 revisionItemsForTask）
+  const revisionItems = useMemo(
+    () => revisionItemsForTask(Object.values(refChecks), finalResult),
+    [refChecks, finalResult],
+  );
   // 失效链接也是修订素材：链接腐烂此前只能被交付自检发现，没有修复通道，只能人工去改结论正文
   const revisionDeadLinks = useMemo(
     () => deadLinkTargets(Object.values(linkChecks), allCitations),

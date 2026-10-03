@@ -999,6 +999,33 @@ export function pendingRevisionItems(items: RevisionItem[], conclusion: string):
   });
 }
 
+/**
+ * 一个任务的全部修订素材。写回脚本与结果页「生成修订指令」共用这一个入口，两处必须算出同一份清单。
+ *
+ * 此前两处各算各的：写回脚本用全部落库复查记录（实测 5 个任务 12 条），界面多套一层「key 仍在
+ * **当前复查目标**里」的过滤（1 个任务 5 条）。而脚本头注释写着自己「等价于把那些任务逐个点一遍」
+ * ——并不等价，点出来的比脚本算出来的少一半。
+ *
+ * 少掉的那一半不是边角料。复查目标是 `refCheckTargets(refTrace)`，只含还没找到出处的文号；
+ * `traceDocRefs` 把 verdict='matched' 的文号当作已有出处（走 `recheckedDocRefTexts`），于是
+ * **凡是复查到出处的文号都不在目标里**，全被那层过滤挡掉。`buildRevisionInstruction` 的
+ * 【补文号出处】段恰好只由「docref + matched」填充，所以那一段在界面上永远是空的——而「把已找到
+ * 公开出处的复查结果写回结论」正是这个按钮存在的主要理由（脚本头注释第一句）。
+ *
+ * 那层过滤想挡的是「上一版结论留下的旧记录」，只是代理条件选错了。旧记录的正确判据是**记录里的
+ * 文号还在不在当前结论正文里**：不在就没处写回。引用类的同一件事 `pendingRevisionItems` 已经在做
+ *（原地址不在正文里就丢掉），这里只补文号类那一半，两侧从此走同一份判据。
+ */
+export function revisionItemsForTask(
+  records: Parameters<typeof toRevisionItems>[0],
+  conclusion: string,
+): RevisionItem[] {
+  const live = toRevisionItems(records).filter(
+    (i) => i.kind !== "docref" || (conclusion ?? "").includes(i.text),
+  );
+  return pendingRevisionItems(live, conclusion);
+}
+
 /** 复查后仍没取得出处的素材该怎么处置 */
 export type UnresolvedAdvice = "drop" | "narrow" | "mark";
 
