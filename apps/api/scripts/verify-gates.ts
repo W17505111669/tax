@@ -63,6 +63,24 @@ expect("确实有不读库的纯函数脚本（两类分得开）", pure.length 
 const GUARD = /空跑|确实|>=\s*1\b|>=\s*2\b/;
 const unguarded = real.filter((f) => !GUARD.test(srcOf(f)));
 expect("走真实数据的脚本都自带防空跑断言", unguarded, []);
+
+/**
+ * 两个 scan 门禁（`scan:uimd` / `scan:deliverables`）同样读真实库、同样在 `--strict` 下用退出码表态，
+ * 但上面的名单只收 `verify-*.ts`，于是这道元门禁从来没审过它们——「所有门禁都在验真实数据而不是
+ * 空跑绿」这句话此前对这两个是不成立的，而它们恰恰是覆盖面最大的两个（151 页 / 1072 次交互）。
+ * 这里把它们接进**静态**那一半判据：必须从服务端取数、必须自带防空跑断言。
+ *
+ * 空库复跑那一半刻意不接：scan 要开 Chromium、要前端在 5174 上跑，空库下它会因为「一个页面都没
+ * 扫到」而失败——那不是判据被空输入骗过，是环境不在，硬塞进复跑只会让这道元门禁在没浏览器的机器
+ * 上必红。所以复跑名单仍然只含 `verify-*`，并把这个排除本身钉住：名单里冒出 scan 就是有人改坏了。
+ */
+const scanFiles = fs.readdirSync(here).filter((f) => /^scan-.*\.ts$/.test(f)).sort();
+const realScans = scanFiles.filter((f) => READS_DB.test(srcOf(f)));
+expect("确实找到了 scan 门禁脚本（不是目录空了在这儿空跑）", scanFiles.length >= 2, true);
+expect("scan 门禁都从服务端取数（不读库的 scan 等于没在验真实数据）", realScans.length, scanFiles.length);
+expect("scan 门禁都自带防空跑断言", realScans.filter((f) => !GUARD.test(srcOf(f))), []);
+expect("空库复跑名单里只有 verify-*（scan 要浏览器与前端，复跑只会误红）", real.every((f) => f.startsWith("verify-")), true);
+
 const fooled: string[] = [];
 const crashed: string[] = [];
 let red = 0;
@@ -100,7 +118,9 @@ if (crashed.length > 0) {
 }
 fs.rmSync(empty, { recursive: true, force: true });
 
-console.log(`[verify] 门禁空跑抽检 检查项=${checks} 失败=${failures.length}`);
+console.log(
+  `[verify] 门禁空跑抽检 检查项=${checks} 失败=${failures.length}（verify 脚本 ${files.length} 个：走真实数据 ${real.length} / 纯函数 ${pure.length}；scan 门禁 ${scanFiles.length} 个走静态判据、不进空库复跑）`,
+);
 if (failures.length > 0) {
   for (const f of failures) console.log(`  - ${f}`);
   console.log("[FAIL] 有门禁能被空输入骗过");
