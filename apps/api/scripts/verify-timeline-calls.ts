@@ -155,6 +155,12 @@ expect("时间线行的 detail 与 stream 同源", st.timeline[0]!.detail, "一�
 expect("agent_text 之后不再是流式态", [st.timeline[0]!.streaming, st.streamId], [false, null]);
 applyEvent(st, ev(4, "agent_text_delta", { message: "补" }));
 expect("agent_text 之后再来 delta 会另起一条", st.timeline.length, 2);
+// 上面那条只数了行数，没管新那一行装的是什么、也没管 stream 有没有被收口清空。补两条：
+// 另起的那条只能装新一轮的 delta（否则两次运行的结论会粘成一段，而 listConclusions 正是靠
+// 「delta 累积、遇到 agent_text 收口」来分运行的）；stream 则**刻意不随收口清空**，它累计
+// 两轮全文——这是既有行为，钉住它，将来谁想「顺手清一下」就得先想清楚前端还在用它做流式回显。
+expect("另起的那条只装新一轮的 delta，不混进上一轮", st.timeline[1]!.detail, "补");
+expect("stream 不随 agent_text 收口清空，累计两轮全文", st.stream, "一、结论补");
 applyEvent(st, ev(5, "run_completed"));
 expect("run_completed 推进状态", st.status, "completed");
 applyEvent(st, ev(6, "run_failed"));
