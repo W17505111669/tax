@@ -3410,3 +3410,434 @@ after：按实测把这两条的 `tabs` 改成 `["result"]`。附带一个收益
 变异测试：从矩阵里删掉 `verify:jsxkeys` 一行 → 断言红、点名 `["verify:jsxkeys"]`，报告行显示「矩阵列 55 项 · 既不在矩阵也没被排除 1 项」；还原后矩阵 56 项 / 覆盖缺口 0 / `verify:gates` 50 项 0 失败。还原时踩了一个 PowerShell 坑，记下来免得重犯：在**单引号**串里写 `` `n `` 不会变成换行，会把字面量 `` `n `` 直接写进源码（`rg` 一查就露了），复原改用 `apply_patch`。
 
 实测：`verify:gates` 检查项 **47 → 50**、失败 0，新报告行 `报告矩阵覆盖：qa:all 跑 58 项 verify · 矩阵列 56 项 · 推导排除 verify:materials、verify:gates · 既不在矩阵也没被排除 0 项`；`report:test` 83.9 秒、生成的报告 56 行矩阵 / 无 FAIL / 总体结论照旧；`typecheck:all` 通过（8 包）；`qa:all` 全绿、退出码 **0**（verify 脚本仍 50 个）。本轮只动生成脚本、元门禁与生成出来的测试报告，没动界面与交付文案，故未跑 `scan:uimd`。
+
+### 表格与图的产出率从来没量过：92% / 81%，而 mermaid 那条不能设下限
+
+靶来自「量一个还没量过的东西」，同时是 P1 第 9 项（提示词回归）的一个便宜替身：不新建任务、不跑模型，先把已有 37 份结论里「呈现形式」的产出率量出来。
+
+量之前先读了提示词原文，这一步救了这轮的判据。两个作品的措辞**不一样**：
+
+- `agents/rd-audit/system-prompt.md:48` 与 `agents/land-vat/system-prompt.md:39`：「结论使用 Markdown 组织：用二、三级标题分节，**用表格呈现**比对与测算数据，用有序列表呈现问题清单」——这是对每份结论说的。
+- `rd-audit:50` 与 `land-vat:41`：「**涉及关系或流程时**使用 mermaid 代码块绘图」——这是有条件的。
+
+所以只给表格设下限，mermaid 只报数不设线。拿一条有条件的要求去判「缺图」就是误报，这与 `verify:promptreg` 既有那一半「按指令关键词触发、避免拿一条没要求画图的指令去判缺 mermaid」是同一个道理。
+
+实测（全库 37 个带结论任务）：**含表格 34 个（92%）· 含 mermaid 30 个（81%）**。逐作品：`rd-audit` 27 个 / 表格 24 / 图 21，`land-vat` 10 个 / 表格 10 / 图 9。没有表格的 3 个逐个点名打印，全是短结论的验证类任务（`渲染实测K 失效链接处置`、`渲染实测C 关系图`、`续跑会话历史验证`），不是真实业务任务漏了表格——所以 85% 的下限留了 7 个百分点余量，够再跑几个短结论测试任务，但真塌方（提示词不再被遵守）会红。
+
+顺带一个如实的观察：`data/outputs/<taskId>/` 里**只有 23 个 .xlsx，没有任何 .png / .svg**。这不是缺陷——mermaid 是前端渲染的，PNG/SVG 走「按需下载」，`scan:deliverables` 每次真下载并逐字节校验它们（18 份交付物 / 132 项）。所以「图产出率」只能用结论里的 ```mermaid 代码块来量，不能用磁盘上的图片文件来量；我第一版临时脚本正是按磁盘文件量的，量出 0%，差点把它当成缺陷写进文档。
+
+判据放在 `verify:promptreg`（它本来就是「提示词写了 ≠ 模型遵守了」这道门）。它此前只覆盖标题以「渲染实测」开头的 11 个任务、且只在指令确实要求了的时候验；这轮加的是**全库**那一半，两半互补：逐条硬判据管「要求了就必须有」，产出率管「真实使用有没有塌方」。
+
+三条模式（表格行、表格分隔行、mermaid 围栏）驱动的是一个**比率**，所以失效方向是双向的：写窄了比率变低会红（自保护），**写宽了比率虚高却是绿的**。因此配的是阳性 + 阴性双向对照——既要断它命中真表格与真代码块，也要断它不误伤「这是一段普通结论文字」和行内反引号。
+
+变异测试两条：把表格行判据从 `/^\s*\|.*\|\s*$/m` 改成 `/./m`（写宽到任何非空行都算）→ 阴性对照红（`实际 [true,true]，期望 [true,false]`）；有意思的是产出率**仍然是 34（92%）**，因为分隔行那条判据还在兜着——这正说明单看比率发现不了判据写宽，只有阴性对照能抓到。把下限从 85 抬到 99 → 产出率断言红（92 < 99），证明它真在拿库里的数算。两条都还原后 47 项 / 失败 0。
+
+实测：`verify:promptreg` 检查项 **43 → 47**、失败 0，新增三行报告（全库产出率、逐作品产出率、没有表格的任务逐个点名）；`typecheck` 通过；`qa:all` 全绿、退出码 **0**。临时量测脚本 `tmp-chart-stats.ts` 用完已删。本轮只动门禁脚本，没动界面与交付文案，故未跑 `scan:uimd`。
+
+一处环境记录：本轮跑 `qa:all` 时日期已从 10-03 变成 10-06，生成脚本按当天日期重出了材料——5 份 `docs/competition/*.md` 各改了 1 行（「本文档由 `pnpm gen:materials` 于 2026-10-03 生成」→ 10-06），并新增 `docs/testing/test-report-2026-10-06.md` 与 `data/evidence-2026-10-06/`。这些与本轮判据改动无关，是跑门禁的必然副产物。
+
+### 待分诊 14 个逐条看过只剩 1 个真需要补，而我第一遍分诊自己判错了 1 个
+
+上一轮 `verify:gates` 点名 14 个门禁「有『必须为空』型判据、但没有已知违规样本自检」。照 `verify-gates.ts:133` 起那三条分诊规则逐条读过之后，真需要补的只有 **1 个**——不是 14 个，也不是我第一遍以为的 2 个。第一遍我把 `verify-rd-tools.ts:195`（`chkTrace.untraced` 必须为空）也列了进去，理由是它旁边那条「确实扫到了金额 `total >= 3`」只钉住"扫到了金额"、钉不住"溯源判定写废之后全都算已溯源"。这个推理没错，结论错了：`verify-amount-trace.ts:109` 早就拿一个已知两边都查不到的金额断言 `trace.untraced.map(u => u.raw)` **精确等于** `["84,444.44元"]`，:99 与 :312 也是同向自检。`traceAmounts` 的模式写废会先在那边红，我再补一条就是同一件事写两遍。撤回。
+
+其余 13 个的判法：10 个属规则 1（纯函数「空输入 → 空输出」单测，判据坏了会变红不会变绿）——`verify-amount-note`（7 处）、`verify-artifact-sources`（:102 本身就是「工作表名不误判」的阴性对照）、`verify-bundle-freshness`、`verify-lv-tools`、`verify-run-artifacts`（3 处）、`verify-upload-policy`、`verify-tool-failures`、`verify-review-status`、`verify-ref-check`（3 处），它们各自另有「确实走到了」伴随断言（`tool-failures:135`、`review-status:152`、`artifact-sources:135`、`ref-check:1328-1330`）。`verify-timeline-calls:286` 属规则 2，:283「确实走到了任务」+ :285「累计运行次数 > 0，否则『相等』是空真」双保险已经写在那儿。`verify-delivery-docref:168`「确实造出了超过上限的待确认文号」与 `verify-manifest:239`「阻断计数被改会发现」其实**已经是**阳性对照（拿已知坏样本断违规项非空），只是措辞不含 `POSITIVE_CTL`（`verify-gates.ts:153`）认的「确实能命中」，所以统计不到；改既有断言名去凑统计口径属于修改断言，没拿到明确解禁，本轮不动。
+
+真正补的是 `scan-render-perf.ts` 的薄页判据，它是标准的「扫一个总体收违规项、断言列表为空」：`rows.filter(r => r.chars < MIN_CHARS)` 必须为空。同文件原有两条防护都拦不住它的假绿——「确实测到了页面」只保证 `rows.length === TASKS × TABS`，「薄页线同源」只保证本文件的 400 与 `scan-ui-markdown.ts:763` 的 400 数字相等。谓词方向写反，或 `page.evaluate(COUNT)` 采集成 `undefined`（`undefined < 400` 为 false），违规列表都会变**空**而不是变红，门禁绿得和「每页都真渲染出来了」一模一样。所以把谓词抽成 `isThinPage`，再用两个合成样本钉住：`chars: 0` 必须命中，`chars: MIN_CHARS`（正好等于阈值）必须不命中，顺带把边界也钉了。抽谓词这一步是必需的——阳性对照里若另写一份 `chars < 400`，测的就是副本，原谓词改坏了它照样绿。
+
+变异测试：把 `isThinPage` 改成恒假，正是上面说的假绿形态。实跑 `perf:render`，「每页都真渲染出了内容」那条**仍然是绿的**，只有新加的阳性对照红（`实际 []，期望 ["合成白屏页"]`），退出码 1。还原后重跑：`perf:render` 检查项 **7 → 8**、失败 **0**、最慢页 `aabd138a timeline` 4147 ms（中位 2204 ms，全库 events 88145 行）。`verify:gates`：带阳性对照的门禁 **10 → 11**（下限同步从 `>= 10` 抬到 `>= 11`，按 :131「补齐一个就把下限抬一格」）、待分诊 **14 → 13**（`scan-render-perf.ts` 已从点名清单移除）、检查项 **50**、失败 **0**。`typecheck` 通过，`qa:all` 全绿、退出码 **0**（`verify:promptreg` 47、`verify:gates` 50 均未跌）。本轮只动门禁脚本，没动界面与交付文案，故未跑 `scan:uimd`。
+
+一处环境记录，正好印证 `scan-render-perf.ts:13-14` 为什么刻意不进 `qa:all`：第一次实跑时 API 没起来（vite 持续报 `connect ECONNREFUSED 127.0.0.1:8787`），10 个页面全部 `chars < 400` 被判薄页、失败 3、最慢页 6430 ms。那不是判据被空输入骗过，是环境不在——页面确实白屏，判据如实报红。手动 `pnpm --filter @tax/api exec tsx src/server.ts` 起 8787 之后同一条立刻转绿。另外 `pnpm dev` 的 `--parallel` 那次只把 vite 拉起来了、api 子进程两分钟都没监听，所以起服务后得单独确认 8787 在听，别只看 5174。
+
+还有一处只记录不动手：`RESIDUE` 探针 `, []);` 有 6 处命中的是函数调用行而不是断言（`amount-note:182/185/197`、`rd-tools:130/194`、`delivery-docref:167`），会虚增分母。`verify-gates.ts:147-150` 已声明「宁可分母高估，不可漏报」，属刻意取舍，本轮不收窄。
+
+### 撞名字段在库里 0 行，真实覆盖补不了；能补的是让判据先在那儿等它
+
+先把「`toolOmittedChars` 只有合成样本覆盖、无真实数据覆盖」这句话查成了一个确切的数。临时脚本走了一遍全库（`tmp-` 前缀，用完已删）：`tool_calls` 共 **363 行**、其中 **36 行**有 `retainedText`，带 `toolOmittedChars` 的 **0 行**；再把 `tasks / files / events / reviews / amount_checks / link_checks / ref_checks` 七张表逐列 `LIKE '%toolOmittedChars%'` 扫了一遍，同样 0 命中。也就是说 `agent-factory.ts:98` 那个撞名分支自上线以来在真实数据里**一次都没走过**。要补真实覆盖，只能靠一次新的联网实跑把撞名行写进库，那属于回填历史数据、是禁区。所以这一档的真实覆盖**补不了**，如实记在这儿，不造一个假样本冒充。
+
+能补的是让判据先在那儿等着。`retentionDefects`（:428 起）是合成侧与库里真实行**共用**的那一份自洽判据（:423 的注释就是这么讲的），而它此前只看 `retainedText / retainedChars / omittedChars` 三个字段，`toolOmittedChars` 一个字都没提。于是有一条能静默少报数的路径：`agent-factory.ts:98` 决定要不要把工具那份挪过来，用的是 `typeof rec.omittedChars === "number"`，而 `typeof NaN === "number"`——工具层给个 NaN 或负数，我们会原样存进 `toolOmittedChars`，界面侧 `numOf`（`search-evidence.ts:54-56`，非有限数与负数一律返回 0）再把它静默归零，`retentionStats` 报出来的工具层字数就少了，而全库没有任何一行会红。本轮把「必须是有限的非负数」加进 `retentionDefects`，真实行第一次撞名落库时它自动生效。
+
+判据加了就得配对照，否则在 0 行真实数据上它等于永远绿。坏样本不是手写的假想输入，而是**用 `withRetainedText` 自己造**：`collideOf(NaN)` 与 `collideOf(-5)` 走的就是真实写入路径，另有一条断言专门盯「撞名样本确实造出了 `toolOmittedChars`」，否则写入侧那个 `typeof` 判断一改，下面两条就一起变成空跑。阴性对照是 `collideOf(6745)`——一个自洽的撞名行，`retentionDefects` 必须返回空数组，防的是这条判据被写成「只要带这个字段就算违规」的常真式。
+
+变异测试：把新判据里的 `|| !Number.isFinite(toolOm)` 去掉（模拟有人觉得「typeof 已经够了」而简化它），实跑 `verify:searchev` → 失败 **1**，红的正是那条阳性对照，`实际 [false,true]，期望 [true,true]`——NaN 那一档漏了、负数那一档还在。这说明 `Number.isFinite` 是承重的，也说明对照的敏感度是逐档可分辨的，不是一坏就全坏、看不出坏在哪。还原后重跑：`verify:searchev` 检查项 **709 → 712**、失败 **0**，新增一行如实报数「库里 36 行留存正文中带 `toolOmittedChars` 的 0 行」。这个数刻意**只报不断**：断 `=== 0` 等于把「撞名从没发生过」冻成判据，第一次真撞名就会红，而那恰恰是好事；断 `>= 1` 现在就是红的。`typecheck` 通过，`qa:all` 全绿、退出码 **0**（`verify:gates` 50、`verify:promptreg` 47 均未跌）。本轮只动验证脚本，没动界面与交付文案，故未跑 `scan:uimd`。
+
+两处交代。一是 `retentionDefects` 从三个字段变成「三个字段 + 撞名时的那一个」，:558 那条断言名里的「三个字段」就不准了，改成「各自洽，含撞名挪出来的 `toolOmittedChars`」——这是为保持断言名与判据一致而改的，不涉及判据宽紧，也是本轮唯一一处既有断言的改动。二是 `retentionStats`（`search-evidence.ts:465-468`）只在 `r.truncated === true` 时累加 `toolOmittedChars`，而 `truncated` 是联网扩展自己写的字段、不是我们的契约，把「带 `toolOmittedChars` 就必须 `truncated`」写成判据等于替扩展做保证，本轮没写，只记在这儿。
+
+### `toolOmittedChars` 的计数不能被扩展的 `truncated` 字段挡住
+
+上一节只把问题记录下来，这轮把统计层修掉。原实现是 `retentionStats` 在 `r.truncated === true` 分支里累加 `toolOmittedChars`：`toolTruncatedCalls` 这么数是对的（它就是扩展自报截断次数），但字数不该跟着这个分支走。`toolOmittedChars` 是我们把撞名的工具层字数挪进留存结果时自己写下的字段；一旦某次撞名发生在 `truncated` 缺失或为 false 的返回上，界面就会把 6745 字报成 0 字，而且真实库现在 0 行带这个字段，绿得毫无提示。
+
+修法只挪一行：字数累计移出 `truncated` 分支，仍走既有的 `numOf`（有限非负数才计入，坏值由上一节的 `retentionDefects` 报红）。`toolTruncatedCalls` 与 `toolTruncatedNoBody` 的口径不动，不替扩展保证「带字数就必须带截断标记」。新对照用一条无 `truncated` 字段的合成调用：留存层全 0、`toolTruncatedCalls` 0、`toolOmittedChars` 6745，正好钉住这两个口径必须分开。
+
+变异测试：把那行累计放回 `truncated` 分支，`verify:searchev` 检查项 713、失败 1，红的是新断言——实际 `toolOmittedChars: 0`、期望 `6745`。还原后 `verify:searchev` **712 → 713**、失败 0；真实库仍是 36 行留存正文、0 行带 `toolOmittedChars`，所以本轮修的是等第一次撞名时的统计正确性，不改动当前真实汇总数。`typecheck:all` 通过（8 包）；`qa:all` 全绿、退出码 **0**，其中 `verify:searchev` 713、`verify:promptreg` 47、`verify:gates` 50，`withCtl` 11、待分诊 13、报告矩阵 56/58、缺口 0 均未跌。本轮 `qa:all` 覆盖的是既有 `test-report-2026-10-06.md` 与 `data/evidence-2026-10-06/`，没有新增 10-07 报告。因为改的是前端统计函数，另跑了 `scan:uimd --all --strict`：151 页 / 1076 次交互 / 849813 个文本节点 / 23247192 字，残留 0、界面数字与库取数不一致 0，跑完后 8787 与 5174 均已停止。
+
+### `events` 写入侧瘦身：SSE 每片照发，持久层同一段只留一行
+
+靶是库体量里最刺眼的那一项：`events` 88145 行，其中 `agent_text_delta` 86655 行，占 98.3%；单任务最多 24717 行。写法在 `agent-runner.ts:104-105`：模型每吐一个流式分片，就同步执行一次 `appendEvent`（先查 `MAX(seq)`，再插入一行），然后广播给 SSE。前端本来已经按 80ms 批量刷新，实时界面并不需要每个分片各占一行；真正不能删的是“delta 累积、`agent_text` 收口”这条结论重组口径。
+
+修法是把持久化与广播拆开：新增 `DeltaEventWriter`，首片仍先落库拿到真实 `seq`，后续每片用同一个 `seq` 广播给 SSE，前端照常逐片拼接；持久层只更新这一行的累计正文，新增 `DELTA_FLUSH_CHARS = 1024` 作为未写回字符上限，达到阈值或遇到 `agent_text` / 捕获异常 / `finally` 时写回。`updateEventMessage` 的 SQL 同时限定 `task_id + seq + kind = 'agent_text_delta'`，避免把别的事件当可变正文。历史数据一行未动，也不做 VACUUM 或回填，88145 / 86655 只等下一次真实运行开始下降。
+
+合成覆盖放在 `verify:tlcalls`（它本来就钉住事件聚合与结论两份存放一致）：同一段 1061 个单字分片只落 1 行、只做阈值与收口两次更新；收口后再来 delta 会另起一行；把广播事件灌进 `applyEvent`、把持久行灌进另一个 `applyEvent`，两边重组出的全文长度与内容必须一致。还加了一条静态反向断言：`agent-runner.ts` 不允许再出现 `emit(taskId, "agent_text_delta"`。真实 SQLite 集成测试也放在事务里：用 `DeltaEventWriter` 直接写 1061 片，断言 delta 只落 1 行、`listConclusions` 重组出全文、且不会误改 `agent_text` 行，随后回滚不污染库。
+
+变异测试两条。把每个后续分片都 `close()`（模拟“每片一行”回归）→ 3 条断言红，其中落库行数实际 532、期望 2，实时回放与历史回放也不再一致；把 `updateEventMessage` 的 kind 条件改成 `agent_text` → 更新 0 行，库里仍是 `"一、"` 而期望 `"一、二"`。两条都还原后复跑通过。
+
+取舍如实写：非捕获的硬崩溃最多丢 1023 个未写回字符；捕获异常和 `finally` 都会 flush。阈值没有取更小，是为了避免长正文退化成“每片一次 UPDATE”；没有取更大，是为了把丢失上限控制在 1KB 内。当前真实库尚未有新运行，所以本轮的行数收益只有合成侧可量化：1061 片从 1061 次插入变为 1 次插入 + 2 次更新。
+
+实测：`verify:tlcalls` 检查项 **87 → 99**、失败 0；`typecheck:all` 通过（8 包）；`verify:gates` 50 项 / 失败 0，`withCtl` 11、待分诊 13、矩阵 56/58、缺口 0；`qa:all` 全绿、退出码 **0**，其中 `verify:stats` 仍报历史库 events 88145 行 / delta 86655 行，符合“不回填历史”的约束。本轮只改后端写入路径，未改界面与交付文案，故未跑 `scan:uimd`；`qa:all` 覆盖既有 `test-report-2026-10-06.md` 与 `data/evidence-2026-10-06/`，没有新增 10-07 报告。
+
+### SSE 重放先订阅再读库，避免读库与订阅之间的缝隙
+
+靶来自上一轮事件写入优化后的顺走查：`TaskEventBus` 注释写着“保留环形缓冲”，实现里却没有缓冲；路由是“先 `listEvents`、后 `subscribe`”。单线程同步执行下这两个动作之间不会让出事件循环，暂时不构成可复现丢事件，但语义上仍是**读库与订阅两个独立阶段**，一旦将来某个环节变成异步，缝隙就会变成真丢事件。顺手把注释和实现统一成显式重放器，不再依赖偶然的同步顺序。
+
+修法是新增 `event-replay.ts`：先订阅，实时事件先进缓冲；再读库并按 `seq` 发历史；随后把缓冲里未被历史覆盖的事件补发，最后切到实时直发。历史与缓冲重复的 `seq` 会被去掉，保证“不丢、不重、不乱序”。路由改为调用 `replayEvents`，不再自己维护两段顺序。
+
+对照样本用一个假 `listEvents`：它在返回历史前先触发订阅回调，模拟“订阅已生效、历史还没读”的缝隙。正确实现应输出 `seq=[1,2,3]`；去掉去重条件后变异为 `[1,2,2,3]`，同一条事件被重放两次，断言红。还原后复跑通过。
+
+实测：`verify:tlcalls` 检查项 **99 → 102**、失败 0；`typecheck:all` 通过（8 包）；`verify:gates` 50 项 / 失败 0，`withCtl` 11、待分诊 13、矩阵 56/58、缺口 0；`qa:all` 全绿、退出码 **0**。本轮只改后端 SSE 路由，未改界面与交付文案，故未跑 `scan:uimd`；`qa:all` 覆盖既有 `test-report-2026-10-06.md` 与 `data/evidence-2026-10-06/`，没有新增 10-07 报告。
+
+### 历史回放把连续 delta 合并，全库 88145 事件降到 1682
+
+写侧已经把后续运行的 delta 合并了，但历史库里仍有 **86655 行 `agent_text_delta`**，SSE 每次连接还是要全量发给前端。`applyEvent` 的口径本来就是“delta 累积、`agent_text` 收口”，所以历史回放可以在发送前把**连续 delta** 合并成一条；实时流仍逐片发送，不改前端聚合语义。
+
+新增 `compactEvents`：遇到连续 `agent_text_delta` 就缓存，直到非 delta 事件或末尾，然后发出一条携带累计正文的 delta；单条 delta 不复制，非 delta 事件原样保留。路由在 `replayEvents` 里改为 `compactEvents(listEvents(taskId))`。历史库一行未动，只是 SSE 初始回放的事件数和网络负载下降。
+
+真实收益用 SQL 的 `LAG` 统计连续分组：非 delta 事件 **1490** 行，连续 delta 分组 **192** 组，所以全库历史回放从 **88145** 条事件降到 **1490 + 192 = 1682** 条，约 **98.1%** 的降幅。事件最多的任务 `aabd138a` 从 **24717** 条降到 **184** 条，约 **99.3%**。这直接改善时间线页初始回放，不需要改历史数据。
+
+对照测试放在 `verify:tlcalls`：连续两条 delta 合并为一条；合并前后的 `applyEvent` 时间线正文逐字一致；路由静态断言确实调用了 `compactEvents`。变异测试把 `compactEvents` 改成原样返回，`verify:tlcalls` 105 项、失败 1，红的正是“连续 delta 在历史回放中合并成一条”；还原后复跑通过。
+
+实测：`verify:tlcalls` 检查项 **102 → 105**、失败 0；`typecheck:all` 通过（8 包）；`verify:gates` 50 项 / 失败 0，`withCtl` 11、待分诊 13、矩阵 56/58、缺口 0；`qa:all` 全绿、退出码 **0**。本轮只改后端 SSE 历史回放，未改界面与交付文案，故未跑 `scan:uimd`；`qa:all` 覆盖既有 `test-report-2026-10-06.md` 与 `data/evidence-2026-10-06/`，没有新增 10-07 报告。
+
+### `perf:render` 不再把 DB 行数当成 SSE 回放事件数
+
+上一轮把历史回放压缩到 **1682** 条后，`perf:render` 的报告仍写着「events 24717 行」。这个数字是 DB 行数，不是浏览器实际收到的 SSE 事件数；继续这样报，会把“传输量已降 98%”和“页面仍慢”混在一起，读者会误以为压缩没生效。本轮把 `scan-render-perf.ts` 改成同时报告两层数字：每页显示 `events 原始行数（SSE 压缩后条数）`，总计单独打印 `SSE 回放 1682 条（原始 events 88145 行）`。
+
+两条新断言把这件事钉住：`totalSseEvents < totalEvents`，以及 `totalSseEvents > 0`（防空跑）。检查项 **8 → 10**。复跑 `perf:render`：10 页全绿，SSE 回放 **1682** 条，原始 DB **88145** 行；最慢 `aabd138a timeline` **3843 ms**，中位 **2671 ms**，最快 **2186 ms**。这个结果说明事件传输已不是主要瓶颈，剩余耗时主要来自内容渲染与 DOM 规模，下一轮若继续优化，应把重点放在时间线/结果页渲染本身，而不是继续压缩事件流。
+
+实测：`perf:render` 检查项 **10**、失败 **0**；`typecheck:all` 通过（8 包）。API 与前端实测后均已停止，8787 / 5174 无监听。
+
+### Markdown 解析结果加 16 条 LRU 缓存，切 tab 不再重复跑 marked + DOMPurify
+
+`MarkdownView` 每次挂载都会执行 `extractMermaid` → `prepareMarkdown` → `marked.parse` → `DOMPurify.sanitize`。切 tab 或重进同一个任务时，正文文本没变，却会再跑一遍；长结论在 200KB 级别时，这一步就是纯浪费。
+
+本轮把非流式 Markdown 的解析结果放进 16 条 LRU 缓存，键是原文，值是 `html + mermaid fences`。命中时直接复用；流式输出刻意不进缓存，因为每片都会变化。缓存是进程内的，刷新页面会清空，这正好符合“只在同一会话内复用”的目标。
+
+实测：`verify:mdrender` 检查项 **28**、失败 **0**，渲染前修正和真实结论走查全部不变；`typecheck:all` 通过（8 包）。本轮只改前端 Markdown 解析路径，不改 DOM 输出，故未跑 `scan:uimd`。
+
+### `content-visibility` 试验：未带来可靠收益，已撤回
+
+尝试给时间线条目加 `content-visibility: auto` 和 `contain-intrinsic-size`，希望浏览器跳过离屏卡片的布局与绘制。实测同一环境下最慢页从约 3.8 秒升到 **9.5 秒**，中位从约 2.6 秒升到 **3.7 秒**，方向明显变差；撤掉后性能仍未回到早前数字，说明这台机器的性能本身也有波动，但这条 CSS 没有可复现的收益。已从 `index.css` 移除，不留这条规则。
+
+### 时间线折叠态改为 1200 字纯文本预览，展开后才渲染 Markdown
+
+上一轮说明剩余瓶颈在内容渲染与 DOM 规模，这轮直接把最重的分支拆开：时间线里超过 1200 字且未展开的 `agent_text`，此前也会走完整 `MarkdownView`（marked + DOMPurify + DOM），只是外层用 `max-height` 裁掉；现在折叠态改用现有 `plainSnippet(text, 1200)` 直接渲染纯文本，点击“展开全文”后才切换回完整 Markdown。折叠态本来就只露出开头一段，这次是把“先完整渲染再裁掉”改成“只渲染要露出的内容”。
+
+实测最大任务的 timeline 页：文本节点 **13315 → 1229**，字符数 **315018 → 59906**。`perf:render` 的中位耗时 **3519 → 3151 ms**、最快 **3139 → 2712 ms**；最慢页受机器波动影响仍有 7162 ms，但 DOM 规模的下降是确定性的。结果页不受影响，仍走完整 Markdown 渲染。
+
+全站 `scan:uimd --all --strict` 复扫：151 页 / 1076 次交互 / **641195** 个文本节点 / **14475662** 字，残留 **0**、界面数字与库取数不一致 **0**。展开全文的交互仍能点开并扫到完整正文，日志里字数最多的几次扫描正是展开后的长结论。`verify:mdtext` 78 项 / 失败 0；`typecheck:all` 通过（8 包）。
+
+### SQL 端合并连续 delta：语义一致但更慢，已撤回
+
+尝试把 `compactEvents` 挪进 SQLite，用窗口函数识别连续 `agent_text_delta` 分组，再用带 `ORDER BY seq` 的 `group_concat` 合并正文。语义上它与 JS 版逐字一致：40 个任务、合并后 **1682** 条、0 个不一致。但性能反而更差：全库 JS 合并约 **309 ms**，SQL 合并约 **877 ms**；最大单任务 JS **68 ms**，SQL **289 ms**。窗口函数与自连接的成本超过了一次性读出 88145 行再在 Node 里扫一遍的成本。
+
+结论：保留 JS 版 `compactEvents`，撤回 SQL 版实现和临时基准脚本。这个负结果记下来，避免下次因为“数据库端更省内存”的直觉再走一遍。
+
+### MarkdownView memo 化，父组件刷新时不再重复协调长正文
+
+时间线里的 `MarkdownView` 之前每次父组件刷新都会重新走一遍 React 协调；文本没变、解析 effect 也不会重跑，但组件树仍然要比较一遍。现在把 `MarkdownView` 包成 `memo`，并把 `openReader`、`toggleAmountCheck` 和两个视图里的 URL 回调稳定成 `useCallback`，让“展开一条时间线”这类局部状态变化不再让所有长正文组件重新协调。
+
+这个改动的目标不是首屏提速——首屏仍然要解析所有可见 Markdown——而是减少交互后的无效协调。全站 `scan:uimd --all --strict` 复扫：151 页 / 1076 次交互 / **641183** 个文本节点 / **14474952** 字，残留 **0**、界面数字与库取数不一致 **0**；与上一轮的 641195 / 14475662 只差 12 个节点、710 字，属于扫描过程中的正常文本差异，交互与内容没有回退。`verify:mdrender` 28 项 / 失败 0；`typecheck:all` 通过（8 包）。
+
+### 时间线倒序查找改为原地扫描
+
+`TaskWorkbench` 里有 7 处 `[...timeline].reverse().find(...)`，每次都会复制整个时间线数组再倒序找一条。压缩后时间线仍有 184 条左右，这类写法在大任务上会产生无谓的数组复制。现在统一改为一个 `findLast` 帮助函数，原地倒序扫描，语义不变、分配更少。
+
+实测：`typecheck:all` 通过（8 包）；`verify:jsxkeys` 7 项 / 失败 0。这个改动不改变 DOM 输出，故未跑 `scan:uimd`。
+
+### 时间线折叠摘要与 lastTextId 改为 useMemo
+
+折叠态长文本此前每次父组件刷新都会重新调用 `plainSnippet(item.detail, 1200)`；`lastTextId` 也每次重新倒序扫描。现在两者都改成 `useMemo`，只在 `items` 变化时重算。展开某一条时间线、切换时间戳或过滤条件时，不再重复解析同一批纯文本摘要。
+
+实测：`typecheck:all` 通过（8 包）；`verify:jsxkeys` 7 项 / 失败 0。这个改动不改变 DOM 输出，故未跑 `scan:uimd`。
+
+### 时间线工具行与运行产物改为索引查找
+
+`tool_start` 渲染时此前每个工具行都执行一次 `toolCalls.filter(...)` 再取第 N 条，复杂度是 O(工具行 × 全部工具调用)；运行产物也在每个时间线项上重新 `windows.find(...)`。现在把工具行直接改成已有的 `callOfItem` 精确配对结果，把运行产物收敛成 `artsByRun` 一次索引。渲染语义不变，查找从重复线性扫描变成 O(1)。
+
+实测：`typecheck:all` 通过（8 包）；`verify:jsxkeys` 7 项 / 失败 0。这个改动不改变 DOM 输出，故未跑 `scan:uimd`。
+
+### 时间线工具行包成 memo，父组件刷新不再重复协调已完成调用
+
+`ToolRow` 的入参和返回内容此前虽已由 `callOfItem` 精确配对，但组件本身没有 memo。时间线每次批量刷新时，所有工具行都会重新协调；`ToolCallItem` 在工具结束前保持同一对象引用，结束后只换一次引用，这正好适合默认浅比较。现在 `ToolRow` 包成 `memo`，文本流、展开长结论、切换时间戳或过滤条件时，未变化的工具行不再重跑入参 / 返回的 JSON 序列化与摘要计算。
+
+验证：`typecheck:all` 通过（8 包）；`verify:jsxkeys` 7 项 / 失败 0；`perf:render` 10 项 / 失败 0，SSE 回放仍为 1682 条（原始 events 88145 行），最慢 `aabd138a timeline` 5869 ms、中位 2724 ms。全站 `scan:uimd --all --strict`：151 页 / 1076 次交互 / 641231 个文本节点 / 14475770 字，残留 0、界面数字与库取数不一致 0，925 个折叠入口点击失败 0。扫描与性能服务跑完后已停止。
+
+### 工具行折叠时不预渲染隐藏 JSON，展开后再生成
+
+`ToolRow` 的 `<details>` 此后仍有一个隐藏成本：折叠状态下，入参与返回的两段 JSON 也会先 `JSON.stringify` 并写进 DOM，只是被浏览器藏起来。全站 925 个折叠入口里相当一部分是工具行，这些隐藏文本既参与初始 DOM 构建，也把大量字符送进扫描与可访问性树。
+
+本轮把 `<details>` 改成受 `open` 状态控制：折叠时不渲染正文区，展开后才序列化入参 / 返回并挂载两段 `<pre>`；运行中的工具行仍用 `open` 初始值自动展开，用户手动展开 / 收起通过 `onToggle` 保持同一份状态。折叠摘要本身保留，复制按钮只在展开后的正文区里，行为与此前一致。
+
+实测最大任务 `aabd138a timeline`：文本节点 **1229 → 959**、字符数 **59906 → 21811**；`perf:render` 最慢耗时 **5869 → 4877 ms**、中位 **2724 → 2525 ms**。全站 `scan:uimd --all --strict`：文本节点 **641231 → 629051**、合计字符 **14475770 → 11095034**（少约 338 万字隐藏 JSON），925 个折叠入口点击失败仍为 0，残留 0、界面数字与库取数不一致 0。
+
+验证：`typecheck:all` 通过（8 包）；`verify:jsxkeys` 7 项 / 失败 0；`perf:render` 10 项 / 失败 0。API 与前端服务跑完后已停止，8787 / 5174 无监听。
+
+### ResultView 复用父层引用分级汇总
+
+`ResultView` 此前每次渲染都会对全量 `allCitations` 再执行一遍 `summarizeGrades`，逐条做证据力分级；父层其实已经在 `citationGrades` 里按 `allCitations` 缓存了同一口径的结果。本轮把这份缓存作为 `grades` prop 传入，删除子组件内的重复计算，不改 `sheet.generatedAt` 的当下时间语义，也不改界面文案。
+
+取舍：这只是减少结果页每次重协调时的确定性 CPU 工作，不会减少 Markdown 渲染和 DOM 规模；端到端耗时仍受机器波动影响。确定性收益记为：`ResultView` 每次渲染的 `summarizeGrades` 调用 **1 → 0**，引用清单变化时父层仍只计算 1 次。
+
+翻车过程：第一次类型检查漏加了函数参数解构里的 `grades`，`tsc` 报 `Cannot find name 'grades'` 4 处；补上后通过。验证：`@tax/web typecheck` 通过；`verify:jsxkeys` 7 项 / 失败 0；`perf:render` 10 项 / 失败 0，SSE 回放仍 1682 条（原始 events 88145 行），中位 2110 ms、最慢 `aabd138a timeline` 6897 ms（相对基线 2525 / 4877 ms，中位变好但最慢项变差，不能归因给本改动）；`qa:all` 全绿退出码 0；`git diff --check` 通过。API 与前端服务跑完后已停止。
+
+### 证据核对表引用来源计数改为一次遍历
+
+`sheet.citations.fromTools` 与 `fromConclusion` 此前在每次父组件渲染时各执行一次 `allCitations.filter(...)`，同一份引用清单被完整扫两遍。本轮增加 `citationViaCounts` 缓存，一次遍历同时得出工具留存与结论正文两个计数，再写入证据核对表。`sheet.generatedAt` 仍保持每次渲染取当下，导出时间语义不变。
+
+取舍：这只减少父组件重渲染时的重复遍历与临时数组分配，不改变核对表任何数字。确定性收益：`allCitations.filter` 调用 **2 → 1**，引用遍历次数 **2 → 1**；引用清单变化时重算 1 次。
+
+验证：`@tax/web typecheck` 通过；`verify:jsxkeys` 7 项 / 失败 0；`perf:render` 10 项 / 失败 0，SSE 回放仍 1682 条（原始 events 88145 行），最慢 `aabd138a timeline` 3140 ms、中位 2121 ms（相对上一轮 6897 / 2110 ms，最慢项大幅回落但包含机器波动）；`qa:all` 全绿退出码 0；`git diff --check` 通过。API 与前端服务跑完后已停止。
+
+### ResultView 待办分组只计算一次
+
+证据核对表末尾的待办区此前先调用一次 `evidenceSheetTodoGroups(sheet).length === 0` 判断空态，再调用一次 `evidenceSheetTodoGroups(sheet).map(...)` 渲染列表。两次调用都会构造三个分组对象并执行过滤。本轮在 `ResultView` 开头计算 `todoGroups`，空态判断与列表渲染复用同一份结果。
+
+取舍：`sheet.generatedAt` 仍每次渲染取当下，不把整张表缓存；只消除同一次渲染内的重复分组计算。确定性收益：`evidenceSheetTodoGroups` 调用 **2 → 1**，临时分组数组 **2 组 → 1 组**。
+
+验证：`@tax/web typecheck` 通过；`verify:jsxkeys` 7 项 / 失败 0；`perf:render` 10 项 / 失败 0，SSE 回放仍 1682 条（原始 events 88145 行），最慢 `aabd138a timeline` 3121 ms、中位 2118 ms；`qa:all` 全绿退出码 0；`git diff --check` 通过。API 与前端服务跑完后已停止。
+
+### 任务列表运行数与工具数改为聚合查询
+
+`listTasks()` 此前对每个任务分别执行 `runCountOf` 与 `toolCountOf`：40 个任务就是 80 次按任务点查。本轮改为两条 `GROUP BY task_id` 聚合查询，各构建一个 `Map<taskId, count>`，列表映射时直接取值；返回字段与口径不变，处理中任务的进度推导仍走原逻辑。
+
+量化：20 次 `listTasks()` 直接基准 **494.28 ms → 355.94 ms**（约 **28.0%** 提速）；SQL 点查次数从每次列表 **80 → 2**（当前库 40 个任务）。取舍：聚合会扫描有运行标记的事件与工具调用表一次，当前库 40 个任务下优于 80 次点查；若未来任务数极大，仍可再演进为按 agent 过滤或 SQL JOIN。
+
+验证：`@tax/api typecheck` 通过；`verify:progress` 任务数 40、进度 0-5 全部符合，失败 0；`qa:all` 全绿退出码 0；`git diff --check` 通过。本轮只改 API 列表读取路径，未改界面与事件回放，故未跑 `perf:render`。
+
+### 复核签名聚合试验：更慢，已撤回
+
+尝试把 `pendingReviewCount` 的逐任务签名查询改成两条 `GROUP BY task_id` 聚合，再批量使用缓存，目标是把每次任务列表的 80 次签名点查降到 2 次。实现时保留原缓存键格式与 `pendingReviewIssues` 口径，单个任务的 `pendingReviewCount` 不动。
+
+实测负结果：20 次 `listTasks()` 从试验前 **394.13 ms** 变为 **595.54 ms**，劣化约 **51.0%**。原因与此前 SQL 合并 delta 的负结果一致：逐任务查询能吃 `task_id` 索引，聚合却要扫描并分组 `tool_calls` / `reviews`，当前 40 个任务的规模下索引点查更便宜。回撤后同基准为 **523.82 ms**，未回到试验前数字，说明进程间波动明显，但试验版仍更慢，结论足以撤回。
+
+按约束只用 `apply_patch` 反向移除本轮新增的 `pendingReviewCounts` 与调用点，未使用 git 恢复命令。回撤后 `@tax/api typecheck` 通过；`verify:review` 任务数 40、待复核合计 43、完成但仍需重开复核 0、失败 0。该负结果记下来，避免下次再把签名点查直觉性地搬进 SQL 聚合。
+
+### 结果页引用胶囊包成 memo
+
+`ResultView` 的联网引用胶囊此前直接写在 `citations.map` 里。`citations` 已由 `useMemo` 稳定，但父组件因计时、字号或无关状态刷新时，最多 24 个胶囊仍会重新协调，并重复拼接 title 与样式字符串。本轮提取 `CitationPill` 并包成 `memo`，只传入单条引用、对应的 `LinkCheck` 和 `onOpenUrl`；单条引用变化只重渲染该胶囊，链接核验结果变化只影响对应 URL。
+
+取舍：按钮结构、title、grade 徽标、核验徽标与样式逐字保留；这减少的是无关刷新时的协调成本，不改首屏 DOM。确定性收益：无关父级刷新时引用胶囊重渲染数 **最多 24 → 0**（`MERGED_CITATION_LIMIT = 24`），单条引用或链接核验变化时为 **24 → 1**。
+
+验证：`@tax/web typecheck` 通过；`verify:jsxkeys` 7 项 / 失败 0；全站 `scan:uimd --all --strict` 151 页 / 1076 次交互 / 629051 个文本节点 / 11095071 字，残留 0、界面数字与库取数不一致 0、交互失败 0；`perf:render` 10 项 / 失败 0，SSE 回放仍 1682 条，最慢 `aabd138a result` 2300 ms、中位 2115 ms（上一轮 3121 / 2118 ms，端到端差异只作参考）；`qa:all` 全绿退出码 0；`git diff --check` 通过。API 与前端服务跑完后已停止。
+
+### 证据核对表展示数据与导出时间拆分
+
+此前 `sheet: SheetInput` 每次父组件渲染都会重新构建，且 `generatedAt: new Date().toISOString()` 让这份对象天然不稳定；但界面上的九行核对表与待办分组并不消费生成时间，真正需要它的是单页核对表与整页交付 MD 的导出。本轮新增 `SheetData = Omit<SheetInput, "generatedAt">`，行数据 / 待办 / 待办 MD 只依赖 `SheetData`；父层用 `useMemo` 构建 `sheetData`，导出或复制时才通过 `currentSheet()` 补当下时间。
+
+取舍：这不是直接把 `ResultView` 包 memo，那一步仍需先稳定所有回调和复合 props。语义变化是导出的 `generatedAt` 从“上一次渲染时间”变为“导出动作发生时间”，对纸质归档更准确；界面九行与待办内容不变。确定性收益：父组件无关刷新时的整份 `SheetInput` 对象构建 **1 → 0**，`sheet` prop 引用稳定；导出前才构建一次带时间对象。
+
+验证：`@tax/web typecheck` 通过；`verify:sheet` 441 项 / 失败 0；全站 `scan:uimd --all --strict` 151 页 / 1076 次交互 / 629063 个文本节点 / 11095107 字，残留 0、不一致 0、交互失败 0；`perf:render` 10 项 / 失败 0，SSE 回放仍 1682 条，最慢 `aabd138a result` 2296 ms、中位 2121 ms；`qa:all` 全绿退出码 0；`git diff --check` 通过。API 与前端服务跑完后已停止。
+
+### ResultView 核对表行与待办改为 useMemo
+
+上一轮把 `sheet` prop 稳定成 `SheetData` 后，`ResultView` 仍在每次渲染时直接执行 `evidenceSheetRows(sheet)` 与 `evidenceSheetTodoGroups(sheet)`。本轮把两者包成 `useMemo`，只在 `sheet` 数据变化时重算；表格输出与待办输出不变。
+
+确定性收益：无关父级刷新时 `evidenceSheetRows` 与 `evidenceSheetTodoGroups` 调用各 **1 → 0**，九行对象与待办分组数组不再重复构建；`sheet` 变化时各重算 1 次。
+
+验证：`@tax/web typecheck` 通过；`verify:sheet` 441 项 / 失败 0；全站 `scan:uimd --all --strict` 退出码 0（本轮日志过滤未带出汇总行，未重复全量扫描；上一轮相同 DOM 输出为 151 页 / 1076 次交互 / 629063 文本节点 / 11095107 字 / 残留 0）；`perf:render` 10 项 / 失败 0，SSE 回放仍 1682 条，最慢 `aabd138a result` 2571 ms、中位 2121 ms（相对上一轮 2296 / 2121 ms，端到端波动，不作为收益归因）；`qa:all` 全绿退出码 0；`git diff --check` 通过。API 与前端服务跑完后已停止。
+
+### 平台统计工具调用批量读取试验：无可靠收益，已撤回
+
+尝试把 `computePlatformStats()` 里每个任务一次的 `tool_calls` 点查改成一次 `ORDER BY task_id, rowid` 全表读取，再按任务构建 Map。目标是把 40 次查询降为 1 次，同时保持任务遍历顺序与任务内调用顺序。
+
+实测结果不稳定：10 次完整统计从试验前 **1469.82 ms** 变为 **1997.36 ms**，回撤后同基准又为 **2012.42 ms**，说明进程间机器波动大于改动本身。另做同进程 SQL 微基准：50 轮 40 次点查 **136.72 ms**，50 轮全表读取 **129.47 ms**，底层只快约 5.3%，不足以证明完整统计路径有可靠收益。按“无可靠量化收益”处理，使用 `apply_patch` 撤回全部新增代码。
+
+回撤后 `@tax/api typecheck` 通过；`verify:stats` 121 项 / 失败 0，统计口径与真实库数字不变。结论：当前规模下这项改动不值得冒行为风险；若未来任务数显著增长，可重新用同进程完整函数基准评估，而不是只看 SQL 查询次数。
+
+### tool_calls 换成任务与开始时间复合索引
+
+`tool_calls` 原来只有 `(task_id)` 索引，而 `listToolCalls` 及多条门禁查询都是 `WHERE task_id = ? ORDER BY started_at ASC`。`EXPLAIN QUERY PLAN` 此前显示：先按 `idx_toolcalls_task` 查找，再用 `USE TEMP B-TREE FOR ORDER BY` 排序。本轮把索引替换为 `(task_id, started_at)`，等值查询和顺序读取都由同一索引完成；不修改任何表数据，也不回填历史。
+
+量化：同进程切换新旧索引各跑 200 轮 40 个任务的 `listToolCalls()`（合计 8000 次调用）为 **756.04 ms → 743.70 ms**，约 **1.6%** 提速；查询计划中的临时排序消失。首次跨进程基准为 810.82 → 1070.64 ms，受机器波动主导，不作为结论。
+
+验证：`@tax/api typecheck` 通过；`verify:tlcalls` 105 项 / 失败 0，事件聚合、结论两份存放、运行次数与时间线配对不变；`qa:all` 全绿退出码 0；`git diff --check` 通过。
+
+### events 新增 run_started 部分索引
+
+`runCountsByTask()` 的 `SELECT task_id, COUNT(*) ... WHERE kind = 'run_started' GROUP BY task_id` 此前只能扫描整个 `idx_events_task`。全库 events 有 88145 行，但 `run_started` 只有 80 行；任务列表每次都要为这 80 行扫完 88145 行索引项。本轮新增 partial index：`idx_events_run_started(task_id) WHERE kind = 'run_started'`，不修改事件数据，不回填历史。
+
+查询计划从 `SCAN events USING INDEX idx_events_task` 变为 `SCAN events USING COVERING INDEX idx_events_run_started`。同进程切换索引对照：20 次 `listTasks()` **385.70 ms → 62.35 ms**，约 **83.8%** 提速；跨进程复核为 **399.64 ms → 98.70 ms**，约 **75.3%**。写入侧只有 `run_started` 事件会维护这个索引，当前每次运行一行，成本可忽略。
+
+验证：`@tax/api typecheck` 通过；`verify:progress` 任务数 40、进度 0-5 全部符合，失败 0；`qa:all` 全绿退出码 0；`git diff --check` 通过。本轮只改数据库索引，不改界面与事件回放语义，故未跑 `perf:render`。
+
+### 任务列表聚合语句改为模块级 prepared statement
+
+`runCountsByTask()` 与 `toolCountsByTask()` 此前每次 `listTasks()` 都各自调用一次 `db.prepare()`，再执行同一份 SQL。本轮把这两条聚合查询提升为模块级 `runCountsStmt` / `toolCountsStmt`，函数内只执行 `.all()`；SQL 文本、返回行和 Map 构建口径不变。
+
+量化：同进程微基准 1000 轮两条聚合 SQL 从 **99.64 ms → 78.88 ms**，约 **20.8%** 提速。跨进程 20 次 `listTasks()` 为 **88.95 ms → 123.59 ms**，明显受机器波动主导，不能作为否定依据；本轮只把微基准中的确定性 prepare 开销记为收益。
+
+验证：`@tax/api typecheck` 通过；`verify:progress` 任务数 40、进度 0-5 全部符合，失败 0；`qa:all` 全绿退出码 0；`git diff --check` 通过。本轮只改 API 读取路径，未改界面与事件回放，故未跑 `perf:render`。
+
+### 平台统计任务工具查询复用 prepared statement
+
+`computePlatformStats()` 会在 40 个任务的循环里重复 `db.prepare()` 同一条 `SELECT ... FROM tool_calls WHERE task_id = ?`。本轮把它提升为模块级 `taskToolCallsStmt`，每次循环只绑定任务 id 执行；查询形状、返回行和统计口径不变，与此前已撤回的“批量读取并重排”不同。
+
+量化：同进程微基准 4000 次任务工具查询（100 轮 × 40 个任务）从 **317.20 ms → 264.35 ms**，约 **16.7%** 提速。跨进程 10 次完整统计为 **1429.88 ms → 1764.32 ms**，受机器波动主导，不作为结论。
+
+验证：`@tax/api typecheck` 通过；`verify:stats` 121 项 / 失败 0，平台统计口径与真实库数字不变；`qa:all` 全绿退出码 0；`git diff --check` 通过。本轮只改 API 读取路径，故未跑 `perf:render`。
+
+### listEvents prepared statement 试验：无收益，已撤回
+
+尝试把 `listEvents()` 的 `SELECT * FROM events WHERE task_id = ? ORDER BY seq ASC` 提升为模块级 prepared statement。SSE 历史回放与结果接口都会走这条查询，目标是减少每次连接的 SQL 编译开销。
+
+实测负结果：400 次任务事件读取（10 轮 × 40 个任务）从 **1537.64 ms → 1666.53 ms**；同进程 SQL 微基准 200 次查询为 **462.11 ms → 477.05 ms**，约劣化 **3.2%**。events 每次要读出并映射大量行，prepare 开销占比太小，复用语句没有可测收益。按约束用 `apply_patch` 撤回全部新增代码。
+
+回撤后 `@tax/api typecheck` 通过；`verify:tlcalls` 105 项 / 失败 0，事件聚合、结论两份存放、运行次数与时间线配对不变。结论：不要继续给 events 大结果集查询做这类语句复用，优先减少读取行数或映射成本。
+
+### 证据核对表子树包成 memo
+
+`ResultView` 中九行核对表和交付前待办此前直接内联在结果页 JSX 里。虽然 `sheetRows` / `todoGroups` 已经由 `useMemo` 稳定，但父级因字号、计时或链接核验状态刷新时，这整块表格与待办列表仍会重新协调。本轮提取 `EvidenceSheetTable` 并包成 `memo`，只接收 `rows` 与 `todoGroups` 两个稳定数组；表头、行文案、key 规则与待办截断规则逐字保留。
+
+确定性收益：无关父级刷新时核对表子树重渲染 **1 → 0**；`sheetRows` 或 `todoGroups` 变化时仍重渲染 1 次。全站扫描显示 DOM 输出不变：151 页 / 1076 次交互 / 629051 文本节点 / 11095071 字，残留 0、不一致 0、交互失败 0。
+
+验证：`@tax/web typecheck` 通过；`verify:jsxkeys` 7 项 / 失败 0；`perf:render` 10 项 / 失败 0，SSE 回放仍 1682 条，最慢 `aabd138a result` 2264 ms、中位 2113 ms（本轮改动前同日基线 3705 / 2123 ms，最慢项受波动影响，只作参考）；`qa:all` 全绿退出码 0；`git diff --check` 通过。API 与前端服务跑完后已停止。
+
+### tool_calls 新增成功调用部分索引
+
+复核签名、问题提取和最新工具结果都会执行 `WHERE task_id = ? AND ok = 1`。此前查询计划使用 `(task_id, started_at)` 复合索引，只能定位任务，再过滤该任务的失败与未完成调用。本轮新增 `idx_toolcalls_ok_task(task_id) WHERE ok = 1`，只覆盖成功调用；不修改表数据。
+
+查询计划从 `idx_toolcalls_task_started` 变为 `idx_toolcalls_ok_task`。4000 次成功调用签名查询从 **31.01 ms → 26.65 ms**，约 **14.1%** 提速。写入侧只有在工具调用成功结束时才维护该索引，当前 363 次调用下成本可忽略。
+
+验证：`@tax/api typecheck` 通过；`verify:review` 任务数 40、待复核态 12、完成但仍需重开复核 0、失败 0；`qa:all` 全绿退出码 0；`git diff --check` 通过。本轮只改数据库索引，不改界面与事件回放语义，故未跑 `perf:render`。
+
+### 联网引用与检索留痕子树包成 memo
+
+`ResultView` 里的“无引用时的检索留痕 / 留存正文截断 / 联网引用摘要 / 链接核验状态 / 引用胶囊”此前都直接内联在结果页 JSX 里。父级因计时、字号或无关状态刷新时，这一整块会重新协调。本轮提取 `CitationsPanel` 并包成 `memo`，同时把 `checkCitationLinks` 与 `handleCheckLinks` 稳定为 `useCallback`，只传入引用清单、分级汇总、检索留痕、链接核验状态与稳定回调。
+
+取舍：弱证据复查面板仍留在 `ResultView`，因为它还包含复查目标、结果与多个业务回调，直接 memo 会扩大改动面。界面结构、title、按钮与胶囊内容逐字保留；`CitationPill` 内部回调改为接收 URL 字符串，仍由 `CitationsPanel` 统一包装成 `ReaderTarget`。
+
+确定性收益：无关父级刷新时该子树重渲染 **1 → 0**；引用清单、分级、链接核验状态或回调变化时仍重渲染 1 次。全站扫描显示 DOM 输出不变：151 页 / 1076 次交互 / 629063 文本节点 / 11095107 字，残留 0、不一致 0、交互失败 0。
+
+验证：`@tax/web typecheck` 通过；`verify:jsxkeys` 7 项 / 失败 0；`perf:render` 10 项 / 失败 0，SSE 回放仍 1682 条，最慢 `aabd138a result` 2275 ms、中位 2106 ms；`qa:all` 全绿退出码 0；`git diff --check` 通过。API 与前端服务跑完后已停止。
+
+### 弱证据复查面板 memo 化试验：撤回
+
+尝试把 `ResultView` 中三块弱证据复查提示提取为 `CitationRecheckPanel`，并稳定 `runCitationRecheck` / `fillRevisionInstruction` 与 `citationRecheck` 复合对象。目标是让该子树在父级无关刷新时跳过重渲染。
+
+翻车过程：大块 JSX 迁移时，`apply_patch` 命中了文件中多处相同文案，误删了文号溯源区的 `<span>` 开标签，`tsc` 连续报 JSX 结构错误。虽然已恢复该标签并让类型检查通过，但该轮已经暴露出“同文案多处命中”的补丁风险；按约束撤回全部新增组件、回调与复合对象，只保留上一轮已验证的 `CitationsPanel`。
+
+验证：撤回后 `@tax/web typecheck` 通过；`verify:jsxkeys` 7 项 / 失败 0；`qa:all` 全绿退出码 0；`git diff --check` 通过。结论：这类大块 JSX 迁移不适合继续在长会话里做，后续若要处理，应在小 diff 中先引入唯一标记或拆成更小的组件。
+
+### events 新增 run_completed 部分索引
+
+`verify:progress` 会逐任务执行 `SELECT COUNT(*) ... WHERE task_id = ? AND kind = 'run_completed'`，此前只能先按任务索引扫完该任务全部事件，再过滤出完成事件。全库 88145 行 events 里完成事件很少，这个门禁路径的浪费和 `run_started` 相同。本轮新增 `idx_events_run_completed(task_id) WHERE kind = 'run_completed'`，不修改事件数据。
+
+查询计划从 `SEARCH events USING INDEX idx_events_task` 变为 `SEARCH events USING COVERING INDEX idx_events_run_completed`。4000 次完成计数（100 轮 × 40 个任务）从 **1825.08 ms → 18.68 ms**，约 **99.0%** 提速。
+
+验证：`@tax/api typecheck` 通过；`verify:progress` 任务数 40、进度 0-5 全部符合，失败 0；`qa:all` 全绿退出码 0；`git diff --check` 通过。本轮只改数据库索引，不改界面与事件回放语义，故未跑 `perf:render`。
+
+### listToolCalls 复用 prepared statement
+
+任务详情、结果取数与多条门禁都会调用 `listToolCalls()`，此前每次都重新 `db.prepare()` 同一条 `SELECT * FROM tool_calls WHERE task_id = ? ORDER BY started_at ASC`。本轮提升为模块级 `listToolCallsStmt`，只保留绑定任务 id 与执行；配合上一轮的 `(task_id, started_at)` 复合索引，查询计划不变。
+
+量化：同进程微基准 4000 次查询（100 轮 × 40 个任务）从 **329.28 ms → 282.89 ms**，约 **14.1%** 提速。跨进程 4000 次函数调用为 **358.66 ms → 409.04 ms**，受机器波动主导，不作为结论。
+
+验证：`@tax/api typecheck` 通过；`verify:tlcalls` 105 项 / 失败 0，事件聚合、结论两份存放、运行次数与时间线配对不变；`qa:all` 全绿退出码 0；`git diff --check` 通过。本轮只改 API 读取路径，故未跑 `perf:render`。
+
+### getTask 复用 prepared statement
+
+`getTask()` 是任务路由、Agent 续跑、文号复查和多个真实数据门禁反复调用的主键读取，此前每次都重新 `db.prepare()` 同一条 `SELECT * FROM tasks WHERE id = ?`。本轮提升为模块级 `getTaskStmt`，只绑定 id 执行；返回字段与空值口径不变。
+
+量化：同进程微基准 4000 次主键查询（100 轮 × 40 个任务）从 **222.07 ms → 183.22 ms**，约 **17.5%** 提速。跨进程 4000 次函数调用为 **248.87 ms → 298.45 ms**，受机器波动主导，不作为结论。
+
+验证：`@tax/api typecheck` 通过；`verify:review` 任务数 40、待复核态 12、完成但仍需重开复核 0、失败 0；`qa:all` 全绿退出码 0；`git diff --check` 通过。本轮只改 API 读取路径，故未跑 `perf:render`。
+
+### listReviews 复用 prepared statement
+
+`listReviews()` 是复核页、任务列表与 `pendingReviewIssues()` 的共同读取路径，此前每次都重新 `db.prepare()` 同一条 `SELECT ... FROM reviews WHERE task_id = ? ORDER BY created_at ASC`。本轮提升为模块级 `listReviewsStmt`；返回行、排序与字段映射不变。
+
+量化：4000 次函数调用（100 轮 × 40 个任务）从 **63.44 ms → 53.42 ms**，约 **15.8%** 提速。
+
+验证：`@tax/api typecheck` 通过；`verify:review` 任务数 40、待复核态 12、完成但仍需重开复核 0、失败 0；`qa:all` 全绿退出码 0；`git diff --check` 通过。本轮只改 API 读取路径，故未跑 `perf:render`。
+
+### ref_checks 有序读取改为复合索引并复用语句
+
+`listRefChecks()` 的查询是 `WHERE task_id = ? ORDER BY text ASC`，原来只有 `(task_id)` 索引，查询计划先按任务查找再用临时 B-tree 排序；函数每次调用还会重新 prepare 同一条 SQL。本轮把索引替换为 `(task_id, text)`，并把查询提升为模块级 `listRefChecksStmt`。SQL、返回行、排序与映射口径不变。
+
+量化：查询计划中的临时排序消失。同进程函数级 4000 次调用（100 轮 × 40 个任务）从 **188.88 ms → 135.55 ms**，约 **28.3%** 提速；SQL 微基准中 4000 次查询从每次 prepare 的 **130.33 ms** 降到复用语句的 **56.08 ms**。跨进程首轮基准受机器波动影响，不作为结论。
+
+验证：`@tax/api typecheck` 通过；`verify:refcheck` 729 项 / 失败 0，真实任务走查、修订素材与已核实原文索引不变；`qa:all` 全绿退出码 0；`git diff --check` 通过。本轮只改 API 读取路径，故未跑 `perf:render`。
+
+### 平台统计产物计数改用 Dirent
+
+`computePlatformStats()` 统计每个任务产物数时，原来是 `readdirSync(dir)` 后对每个文件再执行一次 `statSync`。本轮改为 `readdirSync(dir, { withFileTypes: true })`，直接用 Dirent 的 `isFile()` 判断，减少一次文件系统调用；目录、文件和计数口径不变。
+
+量化：同进程文件系统微基准 16000 次目录计数（1000 轮 × 16 个有产物的任务目录）从 **1424.91 ms → 627.48 ms**，约 **56.0%** 提速。跨进程 10 次完整统计为 **1443.35 ms → 1838.03 ms**，受机器波动主导，不作为结论。
+
+验证：`@tax/api typecheck` 通过；`verify:stats` 121 项 / 失败 0，平台统计口径与真实库数字不变；`qa:all` 全绿退出码 0；`git diff --check` 通过。本轮只改 API 文件系统读取路径，故未跑 `perf:render`。
+
+### latestToolResult 新增任务与工具复合部分索引
+
+`latestToolResult()` 的查询是 `WHERE task_id = ? AND tool_name = ? AND ok = 1 AND result IS NOT NULL ORDER BY started_at DESC LIMIT 1`。此前查询计划只用 `(task_id, started_at)` 索引，仍需按任务扫到匹配工具名的那一行。本轮新增 `idx_toolcalls_task_tool_started(task_id, tool_name, started_at DESC) WHERE ok = 1 AND result IS NOT NULL`，不修改表数据。
+
+查询计划从 `idx_toolcalls_task_started (task_id=?)` 变为 `idx_toolcalls_task_tool_started (task_id=? AND tool_name=?)`。同进程 4000 次查询（100 轮 × 40 个任务）从 **25.95 ms → 17.16 ms**，约 **33.9%** 提速。跨进程复核为 32.53 → 32.69 ms，受机器波动主导，不作为结论。
+
+验证：`@tax/api typecheck` 通过；`verify:agents` 39 项 / 失败 0，两个 Agent 工具集与系统提示词不变；`qa:all` 全绿退出码 0；`git diff --check` 通过。本轮只改数据库索引，不改界面与事件回放语义，故未跑 `perf:render`。
+
+### extractIssues 复用 prepared statements
+
+`extractIssues()` 每次都会重新 prepare 两条 SQL：先查任务是否有结论，再读取该任务的成功工具调用。复核状态、任务列表和多个真实数据门禁都会走这条路径。本轮把两条查询提升为模块级 `taskResultStmt` / `successfulToolCallsStmt`；过滤、去重、最新调用判定和返回口径不变。
+
+量化：同进程 SQL 微基准 8000 次查询（100 轮 × 40 个任务 × 2 条 SQL）从 **662.96 ms → 549.20 ms**，约 **17.2%** 提速。跨进程 400 次函数调用为 **89.66 ms → 94.98 ms**，受机器波动主导，不作为结论。
+
+验证：`@tax/api typecheck` 通过；`verify:review` 任务数 40、待复核态 12、完成但仍需重开复核 0、失败 0；`qa:all` 全绿退出码 0；`git diff --check` 通过。本轮只改 API 读取路径，故未跑 `perf:render`。
+
+### 任务列表基础查询复用 prepared statements
+
+`listTasks()` 此前每次都会重新 `db.prepare()` 全量任务列表或按智能体过滤的任务列表 SQL。本轮把两条基础查询提升为模块级 `listTasksStmt` / `listTasksByAgentStmt`，后续调用只绑定参数并执行；返回行、排序和映射口径不变。
+
+量化：同进程 SQL 微基准 1000 次全量任务查询从 **2086.48 ms → 1920.52 ms**，约 **7.9%** 提速。跨进程 20 次 `listTasks()` 为 **89.58 ms → 98.18 ms**，受机器波动主导，不作为结论。
+
+验证：`@tax/api typecheck` 通过；`verify:progress` 任务数 40、进度 0-5 全部符合，失败 0；`qa:all` 全绿退出码 0；`git diff --check` 通过。本轮只改 API 读取路径，故未跑 `perf:render`。
+
+### TimelineView 包成 memo
+
+`TimelineView` 此前在父组件因字号、计时或无关状态刷新时整棵重渲染。现在把它包成 `memo`，并把自动跟随回调 `toggleAutoFollow` 提升为 `useCallback`。时间线 props 中 `items`、`toolCalls`、`citations`、`searchNote`、`artifacts`、`autoFollow` 和回调均已稳定，父级无关刷新时整条时间线可以跳过重渲染。
+
+确定性收益：无关父级刷新时 `TimelineView` 重渲染 **1 → 0**；时间线数据或 `autoFollow` 变化时仍重渲染 1 次。全站扫描通过：151 页 / 1076 次交互 / 628617 文本节点 / 11090132 字，残留 0、不一致 0、交互失败 0。`perf:render` 10 项 / 失败 0，SSE 回放仍 1682 条，最慢 `aabd138a timeline` 2285 ms、中位 2133 ms。
+
+验证：`@tax/web typecheck` 通过；`verify:jsxkeys` 7 项 / 失败 0；`qa:all` 全绿退出码 0；`git diff --check` 通过。API 与前端服务跑完后已停止。
+
+### 平台统计 ref_checks 查询复用 prepared statement
+
+`computePlatformStats()` 每个任务都会读取该任务的文号 / 引用复查记录，此前每次都重新 `db.prepare()` 同一条 `SELECT ... FROM ref_checks WHERE task_id = ?`。本轮提升为模块级 `taskRefChecksStmt`，只绑定任务 id 执行；复查判定、文号溯源和弱证据替代来源统计口径不变。
+
+量化：同进程微基准 4000 次查询（100 轮 × 40 个任务）从 **56.80 ms → 28.26 ms**，约 **50.2%** 提速。跨进程 10 次完整统计为 **1467.81 ms → 2000.27 ms**，受机器波动主导，不作为结论。
+
+验证：`@tax/api typecheck` 通过；`verify:stats` 121 项 / 失败 0，平台统计口径与真实库数字不变；`qa:all` 全绿退出码 0；`git diff --check` 通过。本轮只改 API 读取路径，故未跑 `perf:render`。
+
+### listFiles 复用 prepared statement
+
+任务详情、交付打包、阅读器与 `verify:fileparse` 都会调用 `listFiles()`，此前每次都重新 `db.prepare()` 同一条 `SELECT * FROM files WHERE task_id = ? ORDER BY rowid ASC`。本轮提升为模块级 `listFilesStmt`，只绑定任务 id 执行；字段映射与排序不变。
+
+量化：4000 次函数调用（100 轮 × 40 个任务）从 **60.60 ms → 29.96 ms**，约 **50.6%** 提速。
+
+验证：`@tax/api typecheck` 通过；`verify:fileparse` 上传资料 13、解析摘要 13，检查项 52、失败 0；`qa:all` 全绿退出码 0；`git diff --check` 通过。本轮只改 API 读取路径，故未跑 `perf:render`。
+
+### 复核签名查询复用 prepared statements
+
+`pendingReviewCount()` 的缓存签名此前每个任务都要重新 prepare 两条 SQL：成功工具调用的计数 / 最新时间，以及复核记录的计数 / 最新时间。任务列表 40 个任务就是 80 次 prepare。本轮把这两条语句提升为模块级 `pendingToolSigStmt` / `pendingReviewSigStmt`，仍逐任务走索引点查；签名格式和缓存失效口径不变，与此前已撤回的聚合试验不同。
+
+量化：同进程微基准 8000 次签名查询（100 轮 × 40 个任务 × 2 条 SQL）从 **114.82 ms → 51.67 ms**，约 **55.0%** 提速。跨进程 20 次 `listTasks()` 为 **79.58 ms → 91.84 ms**，受机器波动主导，不作为结论。
+
+验证：`@tax/api typecheck` 通过；`verify:review` 任务数 40、待复核态 12、完成但仍需重开复核 0、失败 0；`qa:all` 全绿退出码 0；`git diff --check` 通过。本轮只改 API 读取路径，故未跑 `perf:render`。
+
+### listLinkChecks 复用 prepared statement
+
+链接核验清单此前每次都重新 `db.prepare()` 同一条 `SELECT url, ok, status, final_url, ms, error, checked_at FROM link_checks WHERE task_id = ? ORDER BY url ASC`。本轮把该语句提升为模块级 `listLinkChecksStmt`，`listLinkChecks()` 只绑定任务 id 并执行；返回字段映射、类型断言与「按 URL 升序」的稳定口径逐字保留（单个链接重新核验不会让整份清单跳序）。
+
+取舍：不加缓存、不改排序、不动写入侧 `db.prepare()`（写路径调用频次低，提升为模块级收益不明显且会扩大 diff）。与此前已撤回的「复核签名聚合」不同，本轮没有改变任何判定口径，只是消掉重复 prepare。
+
+量化：4000 次函数调用（100 轮 × 40 个任务）从 **81.26 ms → 46.02 ms**，约 **43.3%** 提速。
+
+翻车过程：本轮第一次 `pnpm qa:all` 被本机沙箱锁错误（`helper_sandbox_lock_failed`）中断，没跑完。恢复现场后重跑，`qa:all` 卡在第 6 步 `verify:pi` 退出码 1：该门禁要真调本机模型网关 `http://127.0.0.1:15721/v1`，实测端口未监听（`Test-NetConnection` 返回 False），输出 `Agent 回复:` 为空、`工具事件: (未捕获)`、`[FAIL] 未捕获到成功的工具执行事件`。这与本轮改动无关：`packages/agent-core` 不引用 `link-checks`，同日测试报告 58 项里只有 `verify:pi` 一项 FAIL，其余 57 项 PASS。按「不放宽门禁、不删断言」的约束，没有跳过或改写该门禁，改为把 `verify:pi` 之后的全链路单独跑一遍取证。
+
+验证：`@tax/api typecheck` 通过；`verify:links` 链接核验分级检查项 39、失败 0；`verify:gates` 门禁空跑抽检 检查项 50、失败 0，退出码 0；`qa:all` 自 `verify:docs` 至 `pack:evidence` 全链路退出码 0（含 `verify:runcmd` 310 项、`verify:promptreg` 47 项、`verify:docrefmd` 142 项，失败均 0），唯一未通过的 `verify:pi` 依赖在线模型网关，待网关恢复后需重跑；`git diff --check` 退出码 0。本轮只改 API 读取路径，故未跑 `perf:render`，未启动 8787/5174。
