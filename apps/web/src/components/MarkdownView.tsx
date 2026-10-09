@@ -1,4 +1,4 @@
-import { useEffect, useRef, type MouseEvent } from "react";
+import { memo, useEffect, useRef, type MouseEvent } from "react";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { downloadText } from "../download.ts";
@@ -22,16 +22,16 @@ function loadMermaid(): Promise<MermaidApi> {
     flowchart: { curve: "basis", htmlLabels: true },
         themeVariables: {
       darkMode: true,
-      background: "#04070d",
-      primaryColor: "#0d1526",
-      primaryTextColor: "#e6edf7",
-      primaryBorderColor: "#16283f",
-      lineColor: "#22d3ee",
-      textColor: "#b7c6da",
-      mainBkg: "#0d1526",
-      nodeBorder: "#1b2c47",
-      clusterBkg: "rgba(18, 32, 54, 0.6)",
-      edgeLabelBackground: "#060b16",
+      background: "#0a0b0d",
+      primaryColor: "#1a1d22",
+      primaryTextColor: "#eceae5",
+      primaryBorderColor: "#24282e",
+      lineColor: "#cfa95f",
+      textColor: "#c6c3bc",
+      mainBkg: "#1a1d22",
+      nodeBorder: "#2f343b",
+      clusterBkg: "rgba(35, 39, 45,  0.6)",
+      edgeLabelBackground: "#0f1114",
         },
       });
       return mod.default;
@@ -50,12 +50,34 @@ function extractMermaid(text: string): { prepared: string; fences: string[] } {
   return { prepared, fences };
 }
 
-function renderMarkdown(el: HTMLElement, text: string, live: boolean): void {
+const markdownCache = new Map<string, { html: string; fences: string[] }>();
+const MARKDOWN_CACHE_LIMIT = 16;
+
+function parseMarkdown(text: string, cacheable: boolean): { html: string; fences: string[] } {
+  if (cacheable) {
+    const hit = markdownCache.get(text);
+    if (hit) {
+      markdownCache.delete(text);
+      markdownCache.set(text, hit);
+      return hit;
+    }
+  }
   const { prepared, fences } = extractMermaid(text);
-  // mermaid 抽出后再做中文修正（裸地址包尖括号、** 紧贴全角标点时把标点外移）：
-  // 这两类写法 marked 按 CommonMark 处理不了，会把记号原样吐到界面上，详见 md-render-fix.ts
   const raw = marked.parse(prepareMarkdown(prepared), { gfm: true, breaks: true }) as string;
-  el.innerHTML = DOMPurify.sanitize(raw, { ADD_ATTR: ["data-mermaid"] });
+  const html = DOMPurify.sanitize(raw, { ADD_ATTR: ["data-mermaid"] });
+  if (cacheable) {
+    markdownCache.set(text, { html, fences });
+    if (markdownCache.size > MARKDOWN_CACHE_LIMIT) {
+      const oldest = markdownCache.keys().next().value;
+      if (typeof oldest === "string") markdownCache.delete(oldest);
+    }
+  }
+  return { html, fences };
+}
+
+function renderMarkdown(el: HTMLElement, text: string, live: boolean): void {
+  const { html, fences } = parseMarkdown(text, !live);
+  el.innerHTML = html;
 
   if (live) return;
   const nodes = Array.from(el.querySelectorAll<HTMLElement>("[data-mermaid]"));
@@ -209,7 +231,7 @@ function annotate(el: HTMLElement, items: Annotation[]): void {
   }
 }
 
-export function MarkdownView({
+export const MarkdownView = memo(function MarkdownView({
   text,
   live = false,
   className = "",
@@ -261,4 +283,4 @@ export function MarkdownView({
   };
 
   return <div ref={ref} onClick={handleClick} className={`md-body ${className}`} />;
-}
+});

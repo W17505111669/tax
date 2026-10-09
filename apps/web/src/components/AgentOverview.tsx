@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import type { AgentInfo, PlatformStats } from "../types.ts";
+import type { AgentInfo, PlatformStats, TaskInfo } from "../types.ts";
+import { taskStatusLabel } from "../task-status.ts";
 import { IconBuilding, IconCheck, IconExternal, IconFile, IconFlask, IconTool } from "./Icons.tsx";
 import {
   baselineKey,
@@ -42,9 +43,9 @@ const RING_C = 2 * Math.PI * 12;
 
 /** 环图三段配色：未返回用琥珀，不用失败的玫红——它不是错误，颜色不该替它认错 */
 const RING_COLOR: Record<RingSegmentKey, string> = {
-  ok: "#34d399",
-  failed: "#fb7185",
-  unfinished: "#fbbf24",
+  ok: "#1f8a5b",
+  failed: "#c2334d",
+  unfinished: "#9a6b1f",
 };
 
 /**
@@ -123,6 +124,9 @@ interface Props {
   lastAt: Record<string, string>;
   perAgentCreatedAts: Record<string, string[]>;
   onSelect: (id: string) => void;
+  onNewTask: () => void;
+  onRefresh: () => void;
+  allTasks: TaskInfo[];
   onOpenTask: (id: string) => void;
   onShowAll: () => void;
   /** 批量把「已完成但仍有未复核问题」的任务改回待复核，返回成功数量 */
@@ -153,12 +157,14 @@ export function AgentOverview({
   onBatchReopen,
   onBatchReview,
   onBatchRefCheck,
+  onNewTask,
+  onRefresh,
+  allTasks,
   lastAt,
   perAgentCreatedAts,
 }: Props) {
   const agent = agents.find((a) => a.id === activeAgentId);
   if (!agent) return null;
-  const Icon = agent.id === "rd-audit" ? IconFlask : IconBuilding;
   const p = stats.platform;
   // 复核缺口按作品分组：跨作品时一眼看出各自欠账
   const backlogByAgent = useMemo(() => {
@@ -202,9 +208,18 @@ export function AgentOverview({
   // 而作品说明里写的「累计任务 29 个」跟这三个都不一样。全平台那个数在下面「平台应用效果」
   // 那排卡片里，标签已改成「平台累计任务」，两处不再共用一个说法。
   const heroValue = stats.tasks;
+  /** 状态条语义色：浅色底上不再全用紫青渐变，完成/待复核/失败/中断各自可辨 */
+  const STATUS_BAR_COLOR: Record<string, string> = {
+    completed: "var(--color-jade-400)",
+    processing: "var(--color-glow-500)",
+    waiting_review: "var(--color-amber-400)",
+    failed: "var(--color-rose-400)",
+    interrupted: "var(--color-rose-300)",
+    created: "var(--color-mist-600)",
+  };
   // 条目与顺序取自 STATUS_BARS：分成两行是有意的（服务重启打断的续跑就行，与 Agent 执行报错
   // 混在一行会让人去查错方向），文案与顺序都只在那一份名单里存着
-  const bars = STATUS_BARS.map((b) => ({ label: b.label, value: breakdown[b.key], hint: b.hint }));
+  const bars = STATUS_BARS.map((b) => ({ label: b.label, value: breakdown[b.key], hint: b.hint, color: STATUS_BAR_COLOR[b.key] }));
   const barMax = Math.max(1, ...bars.map((b) => b.value));
   // 近 14 天任务创建分布（按本地日桶）：口径收在 task-trend.ts，门禁算期望值用的是同一份，
   // 窗口长度也只在那一处写着（此前 14 / 13 / 7 三个魔数散在下面五六处）
@@ -228,6 +243,10 @@ export function AgentOverview({
   const [batchArmed, setBatchArmed] = useState<string | null>(null);
   const [batchBusy, setBatchBusy] = useState("");
   const [batchMsg, setBatchMsg] = useState("");
+  // 任务效果明细表的行勾选：批量处置复用与待复核区同一批回调（两步确认在内）
+  const [selIds, setSelIds] = useState<string[]>([]);
+  const toggleSel = (id: string) =>
+    setSelIds((v) => (v.includes(id) ? v.filter((x) => x !== id) : [...v, id]));
   // 批量联网复查：同样是两步确认，避免误点触发一批外网请求；两类复查分开记录状态
   const [refBatchArmed, setRefBatchArmed] = useState<"docref" | "citation" | null>(null);
   const [refBatchBusy, setRefBatchBusy] = useState<"" | "docref" | "citation">("");
@@ -553,36 +572,63 @@ export function AgentOverview({
   ];
 
   return (
-    <section key={agent.id} className="starfield rise-in relative border-b border-line">
+    <section key={agent.id} className="rise-in relative border-b border-line">
       <div className="px-8 pb-6 pt-7">
-        <div className="kicker flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full" style={{ background: agent.accent }} />
-          Tax AI Native · {agent.id}
-        </div>
-        <div className="mt-3 flex items-start gap-4">
-          <span
-            className="glow-card flex h-12 w-12 shrink-0 items-center justify-center text-glow-300"
-            style={{ boxShadow: `0 0 0 2px ${agent.accent}66, 0 10px 34px rgba(2, 8, 20, 0.55)` }}
-          >
-            <Icon className="h-6 w-6" />
-          </span>
-          <div className="min-w-0">
-            <h1 className="text-[24px] font-semibold leading-snug tracking-tight text-mist-100">
-              {agent.shortName}
-              <span className="ml-2 text-glow-300">让每一笔涉税判断都有据可查</span>
-            </h1>
-            <p className="mt-2 max-w-3xl text-[13px] leading-6 text-mist-500">{renderDesc(agent.description)}</p>
+        <div className="h6-page-h">
+          <div>
+            <div className="kicker">PLATFORM EFFECT BOARD</div>
+            <h1 className="h6-bh1">平台应用效果看板</h1>
+            <i className="h6-underline" aria-hidden />
+          </div>
+          <div className="h6-page-acts">
+            <div className="h6-seg">
+              {agents.map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  className="h6-seg-tab"
+                  data-on={a.id === agent.id}
+                  onClick={() => onSelect(a.id)}
+                >
+                  {a.shortName}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="h6-btn-g h6-btn-s"
+              title="键盘 ←/→ 亦可切换作品"
+              onClick={() => {
+                const i = agents.findIndex((a) => a.id === agent.id);
+                const next = agents[(i + 1) % agents.length];
+                if (next) onSelect(next.id);
+              }}
+            >
+              ←/→ 切换作品
+            </button>
+            <button
+              type="button"
+              className="h6-btn-g h6-btn-s"
+              title="平台统计每 15 秒自动刷新；点击立即手动刷新"
+              onClick={onRefresh}
+            >
+              ⟳ 周期刷新 15s
+            </button>
+            <button type="button" className="h6-btn-p h6-btn-s" onClick={onNewTask}>
+              ＋ 新建任务
+            </button>
           </div>
         </div>
+        <p className="mt-3 max-w-3xl text-[13px] leading-6 text-mist-500">{renderDesc(agent.description)}</p>
 
         <div className="mt-7 grid gap-8 lg:grid-cols-[300px_1fr]">
           <div>
             <Odometer value={heroValue} />
             <div className="mt-1.5 text-[13px] font-medium text-mist-100">
               本作品累计任务
-              <span className="ml-2 text-[11px] font-normal text-mist-600">逐条 OCR · 行级定位</span>
+              <span className="ml-2 whitespace-nowrap text-[11px] font-normal text-mist-600">逐条 OCR · 行级定位</span>
               {runDays > 0 && (
-                <span className="ml-2 rounded-full border border-line bg-night-850 px-2 py-0.5 text-[10px] font-normal text-mist-500">
+                <span className="ml-2 whitespace-nowrap rounded-full border border-line bg-night-850 px-2 py-0.5 text-[10px] font-normal text-mist-500">
                   本作品运行 · 第 {runDays} 天
                 </span>
               )}
@@ -612,7 +658,7 @@ export function AgentOverview({
                 <li key={b.label} title={b.hint ?? undefined} className="grid grid-cols-[56px_1fr_36px] items-center gap-3">
                   <span className="text-[11.5px] text-mist-500">{b.label}</span>
                   <span className="bar-track">
-                    <span className="bar-fill block" style={{ width: `${(b.value / barMax) * 100}%` }} />
+                    <span className="bar-fill block" style={{ width: `${(b.value / barMax) * 100}%`, background: b.color }} />
                   </span>
                   <span className="text-right font-mono text-[11.5px] text-mist-300">{b.value}</span>
                 </li>
@@ -638,13 +684,13 @@ export function AgentOverview({
                 }}
                 onMouseLeave={() => setSparkHover(null)}
               >
-                <polygon points={`0,30 ${sparkPts} 100,30`} fill="rgba(34, 211, 238, 0.12)" />
+                <polygon points={`0,30 ${sparkPts} 100,30`} fill="rgba(99, 91, 255, 0.10)" />
                 <line
                   x1="50"
                   y1="0"
                   x2="50"
                   y2="30"
-                  stroke="rgba(230, 237, 247, 0.18)"
+                  stroke="rgba(10, 37, 64, 0.08)"
                   strokeWidth="1"
                   strokeDasharray="2 3"
                   vectorEffect="non-scaling-stroke"
@@ -653,7 +699,7 @@ export function AgentOverview({
                   points={sparkPts}
                   data-spark="1"
                   fill="none"
-                  stroke="#22d3ee"
+                  stroke="#635bff"
                   strokeWidth="1.5"
                   vectorEffect="non-scaling-stroke"
                 />
@@ -663,7 +709,7 @@ export function AgentOverview({
                   x2="100"
                   y2={sparkY(dayAvg, dayMax)}
                   data-spark-avg="1"
-                  stroke="rgba(230, 237, 247, 0.25)"
+                  stroke="rgba(10, 37, 64, 0.12)"
                   strokeWidth="1"
                   strokeDasharray="3 3"
                   vectorEffect="non-scaling-stroke"
@@ -674,7 +720,7 @@ export function AgentOverview({
                     y1="0"
                     x2={(sparkHover / 13) * 100}
                     y2="30"
-                    stroke="rgba(230, 237, 247, 0.4)"
+                    stroke="rgba(10, 37, 64, 0.2)"
                     strokeWidth="1"
                     vectorEffect="non-scaling-stroke"
                   />
@@ -840,11 +886,11 @@ export function AgentOverview({
                     stats.platform.ocrAvgConfidence !== null ? String(stats.platform.ocrAvgConfidence) : "—",
                   unit: stats.platform.ocrRuns > 0 ? `% · ${stats.platform.ocrRuns} 次` : "%",
                 },
-              ].map((kpi) => (
-                <div key={kpi.label} className="glow-card px-4 py-3" title={kpi.desc}>
+              ].map((kpi, ki) => (
+                <div key={kpi.label} className={`h6-kpi px-4 py-3${ki === 0 ? " acc" : ""}`} title={kpi.desc}>
                   <div className="text-[11px] text-mist-600">{kpi.label}</div>
                   <div className="mt-1 flex items-baseline gap-1">
-                    <span className="text-[22px] font-semibold tracking-tight text-jade-400">{kpi.value}</span>
+                    <span className="text-[22px] font-semibold tracking-tight text-mist-100">{kpi.value}</span>
                     {kpi.key ? deltaBadge(kpi.key) : null}
                     {/* % 一类符号单位紧贴数字：负边距抵掉 flex 的 gap-1，中文单位仍留一格 */}
                     <span className={`text-[11px] text-mist-600${needsUnitSpace(kpi.unit) ? "" : " -ml-1"}`}>
@@ -853,6 +899,103 @@ export function AgentOverview({
                   </div>
                 </div>
               ))}
+            </div>
+            <div className="mt-4">
+              {selIds.length > 0 && (
+                <div className="h6-bulk">
+                  <b className="h6-bulk-n">已选 {selIds.length} 个任务</b>
+                  <span className="h6-anno">跨任务批量处置同一类待复核问题，处置完自动刷新看板与侧栏计数</span>
+                  <span className="h6-bulk-acts">
+                    <button type="button" className="h6-btn-g h6-btn-s" onClick={() => armBatch("批量转为待复核", selIds)}>
+                      批量转为待复核
+                    </button>
+                    <button type="button" className="h6-btn-g h6-btn-s" onClick={() => armRefBatch("docref", selIds)}>
+                      批量联网复查（政策文号）
+                    </button>
+                    <button type="button" className="h6-btn-g h6-btn-s" onClick={() => setSelIds([])}>
+                      清除选择
+                    </button>
+                  </span>
+                </div>
+              )}
+              <div className="h6-card mt-3">
+                <div className="h6-card-h">
+                  <h2>任务效果明细</h2>
+                  <span className="h6-meta">口径与主页共用同一份实现 · 点击任务名进入工作台</span>
+                </div>
+                <table className="h6-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 22 }}></th>
+                      <th>任务</th>
+                      <th>案例编号</th>
+                      <th>状态</th>
+                      <th className="r">覆盖率</th>
+                      <th className="r">一致率</th>
+                      <th className="r">待复核</th>
+                      <th className="r">工具</th>
+                      <th className="r">运行</th>
+                      <th>更新</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...allTasks]
+                      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+                      .slice(0, 10)
+                      .map((t) => (
+                        <tr key={t.id} className={selIds.includes(t.id) ? "h6-sel" : ""}>
+                          <td>
+                            <input
+                              type="checkbox"
+                              className="h6-cbox"
+                              checked={selIds.includes(t.id)}
+                              onChange={() => toggleSel(t.id)}
+                              aria-label={`选择 ${t.title}`}
+                            />
+                          </td>
+                          <td className="k h6-rowlink" onClick={() => onOpenTask(t.id)}>
+                            {t.title}
+                          </td>
+                          <td className="h6-mono">{t.caseId}</td>
+                          <td>
+                            <span
+                              className={`h6-tag ${
+                                t.status === "completed" ? "ok" : t.status === "failed" ? "bad" : "warn"
+                              }`}
+                            >
+                              {taskStatusLabel(t.status, t.error)}
+                          </span>
+                        </td>
+                        <td className="r">{percentFrom(t.compareCoverage ?? null)}</td>
+                        <td className="r">{percentFrom(t.compareMatchRate ?? null)}</td>
+                        <td className="r">{t.reviewPending ?? 0}</td>
+                          <td className="r">{t.toolCount ?? 0}</td>
+                          <td className="r">{t.runCount ?? 0}</td>
+                          <td className="h6-muted">{relTime(t.updatedAt)}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="h6-card mt-3">
+                <div className="h6-card-h">
+                  <h2>工具调用聚合</h2>
+                  <span className="h6-meta">
+                    共 {stats.platform ? stats.platform.toolCalls : "—"} 次 / {perTool.length} 个业务工具
+                  </span>
+                </div>
+                <div className="h6-card-b h6-stack">
+                  {perTool.slice(0, 6).map((t) => (
+                    <div key={t.name} className="h6-toolrow">
+                      <span className="h6-mono h6-toolname">{t.name}</span>
+                      <i className="h6-toolbar">
+                        <b style={{ width: `${(t.calls / Math.max(1, perTool[0]?.calls ?? 1)) * 100}%` }} />
+                      </i>
+                      <span className="h6-toolnum">{t.calls}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
             {stats.platform.reviewPendingIssues > 0 && (
               <div className="mt-3 rounded-md border border-line bg-night-850 px-3 py-2">
@@ -949,9 +1092,9 @@ export function AgentOverview({
             )}
             {stats.platform.reviewBacklog.length > 0 ? (
               <div className="mt-3 rounded-md border border-amber-400/40 bg-amber-400/10 px-3 py-2">
-                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[12px] text-amber-200">
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[12px] text-amber-700">
                   <span className="font-medium">全平台复核闭环缺口</span>
-                  <span className="text-[11.5px] text-amber-200/85">
+                  <span className="text-[11.5px] text-amber-700/90">
                     {stats.platform.reviewBacklog.length} 个已完成任务仍有 {backlogPending} 项问题未复核（全平台待复核合计 {stats.platform.reviewPendingIssues} 项）
                     {backlogByAgent.length > 1 && `（${backlogByAgent.map(([id, l]) => `${agentName(id)} ${l.length}`).join(" / ")}）`}
                   </span>
@@ -1375,7 +1518,7 @@ export function AgentOverview({
                             <polyline
                               points={pts}
                               fill="none"
-                              stroke="#22d3ee"
+                              stroke="#635bff"
                               strokeWidth="2"
                               vectorEffect="non-scaling-stroke"
                             />
@@ -1413,7 +1556,7 @@ export function AgentOverview({
                     />
                   ) : null,
                 )}
-                <text x="16" y="18" textAnchor="middle" fill="#e6edf7" style={{ fontSize: 8.5, fontWeight: 600 }}>
+                <text x="16" y="18" textAnchor="middle" fill="#0a2540" style={{ fontSize: 8.5, fontWeight: 600 }}>
                   {percentFrom(rate === null ? null : Math.round(rate))}
                 </text>
               </svg>

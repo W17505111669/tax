@@ -5,9 +5,12 @@ import { taskStatusLabel } from "./task-status.ts";
 import { IconRail, Sidebar } from "./components/Sidebar.tsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
 import { AgentOverview } from "./components/AgentOverview.tsx";
+import { ReviewQueueView } from "./components/ReviewQueueView.tsx";
+import { IntroView } from "./components/IntroView.tsx";
 import { NewTaskPanel } from "./components/NewTaskPanel.tsx";
 import { TaskWorkbench } from "./components/TaskWorkbench.tsx";
 import { IconAlert } from "./components/Icons.tsx";
+import { HomeView } from "./components/HomeView.tsx";
 import { partitionFiles, policyMessage, type UploadPolicy } from "./upload-policy.ts";
 import { statusBreakdown } from "./status-breakdown.ts";
 
@@ -31,6 +34,12 @@ function parseHash(): Route {
   return { agentId: m[1], taskId: m[2], tab, sec: m[4] ? Number(m[4]) : undefined };
 }
 
+/** 主界面路由：空 hash、「#」「#/」都算主页，其余交给 agent 正则判断 */
+function isHomeHash(): boolean {
+  const h = window.location.hash;
+  return h === "" || h === "#" || h === "#/";
+}
+
 export default function App() {
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [activeAgentId, setActiveAgentId] = useState<string | null>(() => sessionStorage.getItem("taxai-agent"));
@@ -47,6 +56,12 @@ export default function App() {
   const [reviewNonce, setReviewNonce] = useState(0);
   const [secTarget, setSecTarget] = useState<number | null>(null);
   const [announce, setAnnounce] = useState("");
+  // 主界面（门户页）与看板 / 工作台的切换：直接访问根路径不再自动落到第一个智能体的看板
+  const [atHome, setAtHome] = useState<boolean>(() => window.location.hash === "#/home");
+  // 对话式简介主界面占根路由；原主界面（仪表板）后移到 #/home
+  const [atIntro, setAtIntro] = useState<boolean>(isHomeHash);
+  // 复核队列独立页（#/review）：与看板共用图标轨外壳，内容为平台级聚合
+  const [atReview, setAtReview] = useState<boolean>(() => window.location.hash === "#/review");
   // 上传策略取自服务端，新建任务的资料上传也在前端先预检一遍
   const [uploadPolicy, setUploadPolicy] = useState<UploadPolicy | null>(null);
   useEffect(() => {
@@ -87,6 +102,24 @@ export default function App() {
     const apply = () => {
       const route = parseHash();
       applyingHash.current = true;
+      // 深链决定落地页：带 agent 的哈希进看板，根路径回主界面
+      if (window.location.hash === "#/review") {
+        setAtReview(true);
+        setAtHome(false);
+        setAtIntro(false);
+      } else if (window.location.hash === "#/home") {
+        setAtReview(false);
+        setAtHome(true);
+        setAtIntro(false);
+      } else if (isHomeHash()) {
+        setAtReview(false);
+        setAtHome(false);
+        setAtIntro(true);
+      } else {
+        setAtReview(false);
+        setAtIntro(false);
+        if (route.agentId) setAtHome(false);
+      }
       if (route.agentId) setActiveAgentId(route.agentId);
       if (route.taskId !== undefined) setActiveTaskId(route.taskId || null);
       if (route.tab) setWbTab(route.tab);
@@ -103,13 +136,19 @@ export default function App() {
   // 状态 → 哈希（replaceState 不触发 hashchange）
   useEffect(() => {
     if (applyingHash.current) return;
-    const target = activeTaskId
-      ? `#/agent/${activeAgentId ?? "rd-audit"}/task/${activeTaskId}/tab/${wbTab}`
-      : activeAgentId
-        ? `#/agent/${activeAgentId}`
-        : "#/";
+    const target = atReview
+      ? "#/review"
+      : atIntro
+        ? "#/"
+        : atHome
+          ? "#/home"
+          : activeTaskId
+            ? `#/agent/${activeAgentId ?? "rd-audit"}/task/${activeTaskId}/tab/${wbTab}`
+            : activeAgentId
+              ? `#/agent/${activeAgentId}`
+              : "#/";
     if (window.location.hash !== target) window.history.replaceState(null, "", target);
-  }, [activeAgentId, activeTaskId, wbTab]);
+  }, [atReview, atIntro, atHome, activeAgentId, activeTaskId, wbTab]);
 
   // 记住上次选择的智能体，刷新后恢复
   useEffect(() => {
@@ -222,12 +261,16 @@ export default function App() {
   // 浏览器标题随路由更新，多标签切换不迷路
   useEffect(() => {
     const base = "税务智能审查平台";
+    if (atHome) {
+      document.title = base;
+      return;
+    }
     document.title = taskDetail?.task
       ? `${taskDetail.task.title} · ${base}`
       : activeAgent
         ? `${activeAgent.shortName} · ${base}`
         : base;
-  }, [taskDetail?.task.title, activeAgent]);
+  }, [atHome, taskDetail?.task.title, activeAgent]);
 
   // 任务终态后刷新历史列表，保证侧栏状态与持久化状态一致
   useEffect(() => {
@@ -261,6 +304,7 @@ export default function App() {
       }
       await api.runTask(task.id, input.instruction);
       await refreshTasks();
+      setAtHome(false);
       setActiveTaskId(task.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "任务创建失败");
@@ -279,12 +323,102 @@ export default function App() {
     }
   };
 
+  /** 主界面 → 智能体看板 */
+  const enterAgent = useCallback((id: string) => {
+    if (!id) return;
+    setAtHome(false);
+    setActiveAgentId(id);
+    setActiveTaskId(null);
+  }, []);
+
+  /** 主界面 → 任务工作台：任务可能属于另一个作品，跳转时一并切换智能体 */
+  const openTaskFromHome = useCallback(
+    (id: string) => {
+      const t = tasks.find((x) => x.id === id);
+      setAtHome(false);
+      if (t) setActiveAgentId(t.agentId);
+      setActiveTaskId(id);
+    },
+    [tasks],
+  );
+
+  /** 回到主界面 */
+  const goHome = useCallback(() => {
+    setAtHome(true);
+    setActiveTaskId(null);
+  }, []);
+
+  /** 简介页发送：指令写入草稿存储（NewTaskPanel 挂载时恢复），进对应作品并打开新建任务面板 */
+  const handleIntroSend = (agentId: string, instruction: string) => {
+    sessionStorage.setItem("taxai-draft-instruction", instruction);
+    setActiveAgentId(agentId);
+    setAtIntro(false);
+    setAtHome(false);
+    setActiveTaskId(null);
+    setCreating(true);
+    // 新建面板是看板底部内联 section：发送后滚到它，预填指令立即可见
+    window.setTimeout(() => {
+      document.getElementById("new-task-panel")?.scrollIntoView({ block: "start", behavior: "smooth" });
+    }, 0);
+  };
+
   return (
     <ErrorBoundary>
       <div className="flex h-full">
       <div aria-live="polite" className="sr-only">
         {announce}
       </div>
+      {atIntro ? (
+        <>
+          <IconRail
+            sidebarOpen={sidebarOpen}
+            onToggleSidebar={() => setSidebarOpen((v) => !v)}
+            onNewTask={() => setAtIntro(true)}
+            onRefresh={() => void refreshTasks()}
+          />
+          <IntroView
+            agents={agents}
+            backendDown={backendDown}
+            onSend={handleIntroSend}
+            onOpenHome={() => {
+              window.location.hash = "#/home";
+            }}
+          />
+        </>
+      ) : atReview ? (
+        <>
+          <IconRail
+            sidebarOpen={sidebarOpen}
+            onToggleSidebar={() => setSidebarOpen((v) => !v)}
+            onNewTask={() => setActiveTaskId(null)}
+            onRefresh={() => void refreshTasks()}
+          />
+          <ReviewQueueView
+            platform={platform}
+            tasks={tasks.map((t) => ({ id: t.id, title: t.title, updatedAt: t.updatedAt }))}
+            backendDown={backendDown}
+            onOpenTask={openTaskFromHome}
+            onReview={handleBatchReview}
+            onRefCheck={handleBatchRefCheck}
+          />
+        </>
+      ) : atHome ? (
+        <HomeView
+          agents={agents}
+          tasks={tasks}
+          platform={platform}
+          backendDown={backendDown}
+          onEnterAgent={enterAgent}
+          onOpenTask={openTaskFromHome}
+          onOpenReview={() => {
+            window.location.hash = "#/review";
+          }}
+          onOpenIntro={() => {
+            window.location.hash = "#/";
+          }}
+        />
+      ) : (
+        <>
       <IconRail
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen((v) => !v)}
@@ -296,6 +430,7 @@ export default function App() {
         activeAgentId={activeAgentId}
         activeTaskId={activeTaskId}
         tasks={visibleTasks}
+        allTasks={tasks}
         open={sidebarOpen}
         revealNonce={revealNonce}
         reviewNonce={reviewNonce}
@@ -339,6 +474,12 @@ export default function App() {
             <AgentOverview
               agents={agents}
               activeAgentId={activeAgent.id}
+              onNewTask={() => setCreating(true)}
+              onRefresh={() => {
+                void refreshTasks();
+                void refreshPlatform();
+              }}
+              allTasks={tasks}
               stats={{
                 tasks: visibleTasks.length,
                 completed: visibleTasks.filter((t) => t.status === "completed").length,
@@ -402,10 +543,19 @@ export default function App() {
         )}
 
         <footer className="no-print flex shrink-0 items-center justify-between border-t border-line bg-night-950 px-6 py-1.5 text-[10.5px]">
-          <span className="font-medium tracking-[0.16em] text-glow-400/80">税务智能审查平台 · TAX AI NATIVE</span>
+          <button
+            type="button"
+            onClick={goHome}
+            title="返回主界面"
+            className="font-medium tracking-[0.16em] text-glow-400/80 transition-colors hover:text-glow-300"
+          >
+            税务智能审查平台 · TAX AI NATIVE
+          </button>
           <span className="text-mist-600">Pi Agent SDK · Fastify · React · SSE 实时事件流</span>
         </footer>
       </main>
+        </>
+      )}
       </div>
     </ErrorBoundary>
   );

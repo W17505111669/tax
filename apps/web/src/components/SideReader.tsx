@@ -1088,12 +1088,12 @@ export function SideReader({
       </header>
 
       {(state.kind === "markdown" || state.kind === "text") && !state.loading && (
-        <div className="flex items-center gap-2 border-b border-line px-4 py-1.5">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-line px-4 py-1.5">
           <span className="kicker">版式</span>
           <ThemeSwitch />
           <button
             type="button"
-            className="action-btn ml-auto"
+            className="action-btn ml-auto shrink-0 whitespace-nowrap"
             title="复制正文全文"
             onClick={() =>
               void navigator.clipboard?.writeText(state.kind === "markdown" ? state.markdown : state.text).catch(() => undefined)
@@ -1101,7 +1101,7 @@ export function SideReader({
           >
             复制全文
           </button>
-          <span className="shrink-0 text-[10.5px] text-mist-600">
+          <span className="shrink-0 whitespace-nowrap text-[10.5px] text-mist-600">
             {(state.kind === "text" ? state.text : state.markdown).split("\n").length} 行 ·{" "}
             {(state.kind === "text" ? state.text : state.markdown).length} 字
           </span>
@@ -1198,7 +1198,7 @@ export function SideReader({
       )}
 
       {active?.kind === "url" && (
-        <div className="flex items-center gap-2 border-b border-line px-4 py-1.5">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-line px-4 py-1.5">
           <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-mist-600">{active.url}</span>
           {state.loadedAt && (
             <span className="shrink-0 text-[10.5px] text-mist-600" title="网页读取时间">
@@ -1248,7 +1248,7 @@ export function SideReader({
           )}
           {state.kind === "pdf" && (
             <>
-            <a className="action-btn ml-auto" href={state.src} target="_blank" rel="noreferrer" title="在新标签页打开 PDF">
+            <a className="action-btn ml-auto shrink-0 whitespace-nowrap" href={state.src} target="_blank" rel="noreferrer" title="在新标签页打开 PDF">
               <IconExternal className="h-3.5 w-3.5" />
               新窗口
             </a>

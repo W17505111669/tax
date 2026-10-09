@@ -62,7 +62,7 @@ export function NewTaskPanel({ agent, busy, error, onSubmit, uploadPolicy }: Pro
   };
 
   return (
-    <section className="px-8 pb-5 pt-6">
+    <section id="new-task-panel" className="px-8 pb-5 pt-6">
       <div className="kicker">New Task</div>
       <h2 className="mt-1 text-[17px] font-semibold text-mist-100">开始新任务</h2>
       <p className="mt-1 text-[12.5px] text-mist-600">
@@ -147,7 +147,7 @@ export function NewTaskPanel({ agent, busy, error, onSubmit, uploadPolicy }: Pro
       >
         {uploadPolicy && <div className="mb-1.5 text-[10.5px] text-mist-600">{policyHint(uploadPolicy)}</div>}
         {rejected.length > 0 && (
-          <div className="mb-1.5 rounded border border-amber-400/40 bg-amber-400/10 px-2 py-1 text-[11px] text-amber-200">
+          <div className="mb-1.5 rounded border border-amber-400/40 bg-amber-400/10 px-2 py-1 text-[11px] text-amber-700">
             已跳过 {rejected.length} 份不符合要求的文件：
             {rejected
               .slice(0, 3)

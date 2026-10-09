@@ -462,11 +462,12 @@ export function retentionStats(calls: SearchCall[]): RetentionStats {
     const text = typeof r.retainedText === "string" ? r.retainedText : "";
     // 工具层截断要在「有没有留存正文」之前判：实测 22 条里有 20 条根本没有正文字段，
     // 先按正文过滤的话，这一层一条都数不出来（而那恰恰是丢失最严重的一层）。
+    // `toolOmittedChars` 是我们自己的留痕字段，不能拿扩展自带的 `truncated` 当前置条件。
     if (r.truncated === true) {
       out.toolTruncatedCalls += 1;
       if (text === "") out.toolTruncatedNoBody += 1;
-      out.toolOmittedChars += numOf(r.toolOmittedChars);
     }
+    out.toolOmittedChars += numOf(r.toolOmittedChars);
     if (text === "") continue;
     out.retainedCalls += 1;
     out.retainedChars += numOf(r?.retainedChars);

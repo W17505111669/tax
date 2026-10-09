@@ -39,6 +39,8 @@ interface Props {
   activeAgentId: string | null;
   activeTaskId: string | null;
   tasks: TaskInfo[];
+  /** 全平台视图数据源：跨智能体任务清单（侧栏「全平台」芯片切换），点击行按任务归属跳智能体 */
+  allTasks: TaskInfo[];
   open: boolean;
   revealNonce: number;
   /** 概览批量「转为待复核」后自增：侧栏据此打开复核过滤，让处理结果立刻可见 */
@@ -104,6 +106,21 @@ export function IconRail({
     window.addEventListener("taxai-toggle-help", h);
     return () => window.removeEventListener("taxai-toggle-help", h);
   }, []);
+
+  // 缺陷修复：快捷键浮层此前不随路由切换 / Esc 关闭，会一直遮住侧栏
+  useEffect(() => {
+    if (!helpOpen) return;
+    const close = () => setHelpOpen(false);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    window.addEventListener("hashchange", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("hashchange", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [helpOpen]);
   return (
     <div className="icon-rail no-print flex w-[46px] shrink-0 flex-col items-center gap-1.5 py-3">
       <div
@@ -177,6 +194,7 @@ export function Sidebar({
   activeAgentId,
   activeTaskId,
   tasks,
+  allTasks,
   open,
   revealNonce,
   reviewNonce,
@@ -191,6 +209,7 @@ export function Sidebar({
   const [weekOnly, setWeekOnly] = useState(false);
   const [reviewOnly, setReviewOnly] = useState(false);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [scopeAll, setScopeAll] = useState(false);
   const [dragTag, setDragTag] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [armedRerun, setArmedRerun] = useState<string | null>(null);
@@ -399,7 +418,15 @@ export function Sidebar({
           </span>
           <span className="mt-1 flex items-center gap-1.5 text-[11px] text-mist-600">
             <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[task.status] ?? "bg-mist-600"}`} />
-            <span>{taskStatusShort(task.status, task.interrupted)}</span>
+            <span className="shrink-0 whitespace-nowrap">{taskStatusShort(task.status, task.interrupted)}</span>
+            {scopeAll && (
+              <span
+                className="shrink-0 rounded bg-night-700 px-1 text-[9.5px] text-mist-500"
+                title={`作品：${agents.find((a) => a.id === task.agentId)?.displayName ?? task.agentId}`}
+              >
+                {agents.find((a) => a.id === task.agentId)?.shortName ?? task.agentId}
+              </span>
+            )}
             {task.status === "completed" && (task.reviewPending ?? 0) > 0 && (
               <span
                 className="shrink-0 rounded bg-amber-400/15 px-1 text-[9.5px] text-amber-300"
@@ -430,13 +457,13 @@ export function Sidebar({
             <span className="mt-1.5 flex items-center gap-1.5" title={`进度 ${(task.progress ?? 0)}/5`}>
               <span className="relative inline-flex h-3.5 w-3.5 items-center justify-center">
                 <svg viewBox="0 0 32 32" className="h-3.5 w-3.5">
-                  <circle cx="16" cy="16" r="12" fill="none" stroke="#122036" strokeWidth="7" />
+                  <circle cx="16" cy="16" r="12" fill="none" stroke="var(--color-night-700)" strokeWidth="7" />
                   <circle
                     cx="16"
                     cy="16"
                     r="12"
                     fill="none"
-                    stroke="#22d3ee"
+                    stroke="var(--color-glow-400)"
                     strokeWidth="7"
                     strokeDasharray={`${((task.progress ?? 0) / 5) * SIDEBAR_RING} ${SIDEBAR_RING}`}
                     transform="rotate(-90 16 16)"
@@ -539,7 +566,8 @@ export function Sidebar({
 
   const q = query.trim().toLowerCase();
   const kwStatus = STATUS_KEYWORDS[query.trim()];
-  const filtered = tasks.filter(
+  const src = scopeAll ? allTasks : tasks;
+  const filtered = src.filter(
     (t) =>
       (statusFilter === "all" || t.status === statusFilter) &&
       (!starOnly || starred.has(t.id)) &&
@@ -555,7 +583,7 @@ export function Sidebar({
   );
 
   // 复核过滤的口径与计数：任何仍有待复核问题的任务（含完成态缺口与失败任务）
-  const reviewTasks = tasks.filter((t) => (t.reviewPending ?? 0) > 0);
+  const reviewTasks = src.filter((t) => (t.reviewPending ?? 0) > 0);
   const reviewByStatus = reviewTasks.reduce<Record<string, number>>((acc, t) => {
     acc[t.status] = (acc[t.status] ?? 0) + 1;
     return acc;
@@ -596,12 +624,12 @@ export function Sidebar({
         </div>
         <span
           className="mt-2 block h-1 w-full overflow-hidden rounded-full bg-night-700"
-          title={`已完成 ${tasks.filter((t) => t.status === "completed").length}/${tasks.length}`}
+          title={`已完成 ${src.filter((t) => t.status === "completed").length}/${src.length}`}
         >
           <span
             className="bar-fill block h-full"
             style={{
-              width: `${tasks.length ? (tasks.filter((t) => t.status === "completed").length / tasks.length) * 100 : 0}%`,
+              width: `${src.length ? (src.filter((t) => t.status === "completed").length / src.length) * 100 : 0}%`,
             }}
           />
         </span>
@@ -712,7 +740,7 @@ export function Sidebar({
           )}
           <div className="mt-1.5 flex flex-wrap gap-1">
             {STATUS_FILTERS.map((f) => {
-              const count = f.id === "all" ? tasks.length : tasks.filter((t) => t.status === f.id).length;
+              const count = f.id === "all" ? src.length : src.filter((t) => t.status === f.id).length;
               return (
                 <button
                   key={f.id}
@@ -729,6 +757,18 @@ export function Sidebar({
                 </button>
               );
             })}
+            <button
+              type="button"
+              onClick={() => setScopeAll((v) => !v)}
+              title="跨智能体列出全部任务（行内带作品标签），便于跨作品核对问题"
+              className={`rounded border px-1.5 py-0.5 text-[10.5px] transition-colors ${
+                scopeAll
+                  ? "border-glow-500 bg-night-700 text-glow-300"
+                  : "border-line bg-night-850 text-mist-600 hover:text-mist-100"
+              }`}
+            >
+              全平台 {allTasks.length}
+            </button>
             <button
               type="button"
               onClick={() => setStarOnly((v) => !v)}

@@ -362,17 +362,17 @@ export function CompareView({ compares, unusable = [], onOpenTarget, onOpenPair 
                 }}
                 onMouseLeave={() => setTrendHover(null)}
               >
-                <polygon points={`0,30 ${coords.join(" ")} 100,30`} fill="rgba(52, 211, 153, 0.10)" />
+                <polygon points={`0,30 ${coords.join(" ")} 100,30`} fill="rgba(138, 176, 107,  0.10)" />
                 <polyline
                   points={coords.join(" ")}
                   fill="none"
-                  stroke="#34d399"
+                  stroke="#1f8a5b"
                   strokeWidth="1.5"
                   vectorEffect="non-scaling-stroke"
                 />
                 {coords.map((c, i) => {
                   const [x, y] = c.split(",");
-                  return <circle key={i} cx={x} cy={y} r="1.4" fill="#34d399" />;
+                  return <circle key={i} cx={x} cy={y} r="1.4" fill="#1f8a5b" />;
                 })}
                 {trendHover !== null && (
                   <line
@@ -380,7 +380,7 @@ export function CompareView({ compares, unusable = [], onOpenTarget, onOpenPair 
                     y1="0"
                     x2={(trendHover / (pts.length - 1)) * 100}
                     y2="30"
-                    stroke="rgba(230, 237, 247, 0.4)"
+                    stroke="rgba(10, 37, 64, 0.15)"
                     strokeWidth="1"
                     vectorEffect="non-scaling-stroke"
                   />
@@ -406,10 +406,10 @@ export function CompareView({ compares, unusable = [], onOpenTarget, onOpenPair 
         const sum = tot.matched + tot.mismatch + tot.onlyA + tot.onlyB;
         if (sum === 0) return null;
         const segs = [
-          { v: tot.matched, c: "#34d399", label: "一致" },
-          { v: tot.mismatch, c: "#fb7185", label: "差异" },
-          { v: tot.onlyA, c: "#fbbf24", label: "仅系统" },
-          { v: tot.onlyB, c: "#38bdf8", label: "仅人工" },
+          { v: tot.matched, c: "#1f8a5b", label: "一致" },
+          { v: tot.mismatch, c: "#c2334d", label: "差异" },
+          { v: tot.onlyA, c: "#9a6b1f", label: "仅系统" },
+          { v: tot.onlyB, c: "#4a7ba6", label: "仅人工" },
         ];
         const C = 2 * Math.PI * 12;
         let offset = 0;
@@ -558,7 +558,7 @@ export function CompareView({ compares, unusable = [], onOpenTarget, onOpenPair 
                 </div>
               )}
               <div
-                className="glow-card glow-ring px-4 py-3"
+                className="h6-kpi acc px-4 py-3"
                 title="一致 /（一致 + 差异 + 仅系统 + 仅人工）。分母把「填错」与「只有一侧有」混在一起，单看它分不清问题在填列逻辑还是在两份底稿的口径范围，必须与一致率、覆盖率一起读"
               >
                 <div className="text-[11px] text-mist-600">总准确率</div>
@@ -590,7 +590,7 @@ export function CompareView({ compares, unusable = [], onOpenTarget, onOpenPair 
                   hint: "一致 /（一致 + 仅系统），人工底稿有的项里自动填到多少，回答「填得全不全」",
                 },
               ].map((kpi) => (
-                <div key={kpi.label} className="glow-card px-4 py-3" title={kpi.hint}>
+                <div key={kpi.label} className="h6-kpi px-4 py-3" title={kpi.hint}>
                   <div className="text-[11px] text-mist-600">{kpi.label}</div>
                   <div className="mt-1 text-[20px] font-semibold tracking-tight text-mist-100">{kpi.text}</div>
                 </div>
@@ -602,7 +602,7 @@ export function CompareView({ compares, unusable = [], onOpenTarget, onOpenPair 
                 { label: "仅系统", value: t.onlyA, tone: "text-amber-300" },
                 { label: "仅人工", value: t.onlyB, tone: "text-sky-300" },
               ].map((kpi) => (
-                <div key={kpi.label} className="glow-card px-4 py-3">
+                <div key={kpi.label} className="h6-kpi px-4 py-3">
                   <div className="text-[11px] text-mist-600">{kpi.label}</div>
                   <div className={`mt-1 text-[20px] font-semibold tracking-tight ${kpi.tone}`}>{kpi.value}</div>
                 </div>
@@ -653,7 +653,7 @@ export function CompareView({ compares, unusable = [], onOpenTarget, onOpenPair 
                             }}
                             title="点击以双栏对照打开两份底稿，并按该侧差异值定位到行与单元格"
                             className={`group cursor-pointer transition-colors hover:bg-night-700 ${
-                              idx === sel ? "bg-night-700 shadow-[inset_0_0_0_1px_rgba(34,211,238,0.45)]" : ""
+                              idx === sel ? "bg-night-700 shadow-[inset_0_0_0_1px_rgba(99, 91, 255, 0.45)]" : ""
                             }`}
                           >
                             <td className="border border-line px-2.5 py-1.5">

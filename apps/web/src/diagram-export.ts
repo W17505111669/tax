@@ -6,7 +6,7 @@
  */
 
 /** 导出背景色：与 mermaid 主题的 background 一致，暗色图放白底会看不见文字 */
-export const DIAGRAM_BACKGROUND = "#04070d";
+export const DIAGRAM_BACKGROUND = "#0a0b0d";
 
 /** PNG 放大倍数：2 倍够插进 PPT 与 Word，再大文件就没必要了 */
 export const PNG_SCALE = 2;

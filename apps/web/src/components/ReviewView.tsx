@@ -126,7 +126,7 @@ export function ReviewView({
   // 结论金额核对：与正文里的就地标注同一份数据，这里给出可批量处理的清单
   const amountBlock =
     amounts && amounts.total > 0 ? (
-      <div className="rounded-md border border-line bg-night-900/60 px-3 py-2.5">
+      <div className="h6-card px-3 py-2.5">
         <div className="flex flex-wrap items-center gap-2">
           <span className="kicker">结论金额核对</span>
           <span className="text-[11.5px] text-mist-600">
@@ -380,13 +380,13 @@ export function ReviewView({
         {issues.length > 0 && (
           <span className="ml-auto flex items-center gap-2" title={`已复核 ${reviewMap.size}/${issues.length}`}>
             <svg viewBox="0 0 32 32" className="h-6 w-6" aria-hidden>
-              <circle cx="16" cy="16" r="12" fill="none" stroke="#1b2c47" strokeWidth="5" />
+              <circle cx="16" cy="16" r="12" fill="none" stroke="#2f343b" strokeWidth="5" />
               <circle
                 cx="16"
                 cy="16"
                 r="12"
                 fill="none"
-                stroke="#34d399"
+                stroke="#8ab06b"
                 strokeWidth="5"
                 strokeDasharray={`${(reviewMap.size / issues.length) * REVIEW_RING} ${REVIEW_RING}`}
                 transform="rotate(-90 16 16)"
@@ -400,7 +400,7 @@ export function ReviewView({
       </div>
 
       {status === "completed" && pending > 0 && (
-        <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-[12px] text-amber-200">
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-[12px] text-amber-700">
           <IconAlert className="h-4 w-4 shrink-0" />
           <span>
             任务已标记完成，但仍有 {pending} 项问题未复核；问题清单由工具结果实时提取，可能在完成后才汇总到这里。
@@ -409,7 +409,7 @@ export function ReviewView({
             type="button"
             onClick={onReopen}
             title="把任务状态改回待复核，避免带着未复核问题交付"
-            className="ml-auto rounded-md border border-amber-300/50 px-2.5 py-1 text-[11.5px] text-amber-100 transition-colors hover:bg-amber-300/20"
+            className="ml-auto rounded-md border border-amber-300/50 px-2.5 py-1 text-[11.5px] text-amber-700 transition-colors hover:bg-amber-300/20"
           >
             转为待复核
           </button>
@@ -498,7 +498,7 @@ export function ReviewView({
         const rev = reviewMap.get(issue.id);
         const commentValue = comments[issue.id] ?? rev?.comment ?? "";
         return (
-          <div key={issue.id} id={`issue-${issue.id}`} className="glow-card px-4 py-3">
+          <div key={issue.id} id={`issue-${issue.id}`} className="h6-card px-4 py-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className={`rounded border px-1.5 py-0.5 text-[10.5px] ${typeTone(issue.issueType)}`}>
                 {issue.issueType}

@@ -43,6 +43,12 @@ export interface TaskInfo {
   toolCount?: number;
   /** 待复核问题数（列表接口附带）；completed 且 >0 时需要重新打开复核 */
   reviewPending?: number;
+  /** 最近一次记录级比对一致率（百分数，列表接口附带；无比对记录为 undefined） */
+  compareMatchRate?: number | null;
+  /** 最近一次记录级比对覆盖率（百分数，口径同上） */
+  compareCoverage?: number | null;
+  /** 结论正文引用条数（仅列表接口附带；平台总引用另含工具留存部分） */
+  citationCount?: number;
 }
 
 export interface FileInfo {
@@ -269,6 +275,18 @@ export interface PlatformStats {
   ocrAvgConfidence: number | null;
   /** 全平台待复核问题总数 */
   reviewPendingIssues: number;
+  /** 累计复核处置（reviews 表全量聚合）：确认 / 驳回 */
+  reviewDecided: { confirm: number; dismiss: number };
+  /** 复核处置历史（reviews join 当前问题原文）：队列页已确认/已驳回过滤用 */
+  reviewDecidedItems: Array<{
+    taskId: string;
+    taskTitle: string;
+    issueType: string;
+    description: string;
+    decision: "confirm" | "dismiss";
+    comment: string;
+    decidedAt: string;
+  }>;
   /** 待复核问题按「类型 + 描述」跨任务分组，出现次数多的在前；同一件事多任务重复时可一次处置 */
   reviewGroups: import("./review-queue.ts").IssueGroup[];
   /** 已完成但仍有待复核问题的任务（复核闭环缺口） */

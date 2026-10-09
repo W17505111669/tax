@@ -82,6 +82,8 @@ export type SheetInput = {
   todos: { docRefs: string[]; weakCitations: string[]; deadLinks: string[] };
 };
 
+export type SheetData = Omit<SheetInput, "generatedAt">;
+
 export type SheetRow = { item: string; value: string; note: string };
 
 // 台账里的时间走共享的 dateTimeStamp，兜底显式传空串：这张表要进 Excel，空单元格是「无值」，
@@ -89,7 +91,7 @@ export type SheetRow = { item: string; value: string; note: string };
 const stamp = (iso: string | null): string => dateTimeStamp(iso, "");
 
 /** 九项核对结论：每项一句可核对的值 + 一句说明（口径与结果页、交付自检完全一致） */
-export function evidenceSheetRows(i: SheetInput): SheetRow[] {
+export function evidenceSheetRows(i: SheetData): SheetRow[] {
   const rows: SheetRow[] = [];
   const d = i.docRefs;
   rows.push({
@@ -193,7 +195,7 @@ export function evidenceSheetRows(i: SheetInput): SheetRow[] {
 export type SheetTodoGroup = { label: string; list: string[] };
 
 /** 待办分组：界面与整页 MD 共用，避免两处各写一套分组与文案 */
-export function evidenceSheetTodoGroups(i: SheetInput): SheetTodoGroup[] {
+export function evidenceSheetTodoGroups(i: SheetData): SheetTodoGroup[] {
   return [
     { label: "仍无出处、需复查或人工确认的政策文号", list: i.todos.docRefs },
     { label: "待替换为官方原文的弱证据引用", list: i.todos.weakCitations },
@@ -206,7 +208,7 @@ export const NO_TODO_TEXT =
   "无待办：文号有出处或已复查到公开出处，引用中没有门户首页与百科词条，链接无失效";
 
 /** 待办清单的 Markdown 行（每组最多列 limit 条，超出写「等 N 项」） */
-export function evidenceSheetTodos(i: SheetInput, limit = 8): string[] {
+export function evidenceSheetTodos(i: SheetData, limit = 8): string[] {
   const groups = evidenceSheetTodoGroups(i);
   if (groups.length === 0) return [`- ${NO_TODO_TEXT}`];
   const out: string[] = [];

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { marked } from "marked";
 import { api } from "../api.ts";
 import { downloadBlob, downloadText } from "../download.ts";
@@ -74,7 +74,7 @@ import { DOC_REF_TABLE_LIMIT, SOURCE_VIA_HINT, SOURCE_VIA_TEXT, traceDocRefs } f
 import { docRefSection } from "../delivery-docref.ts";
 import { amountSection } from "../delivery-amount.ts";
 import { citeSection } from "../delivery-cite.ts";
-import { gradeCitation, GRADE_HINT, GRADE_TEXT, summarizeGrades } from "../citation-grade.ts";
+import { gradeCitation, GRADE_HINT, GRADE_TEXT, summarizeGrades, type GradeSummary } from "../citation-grade.ts";
 import { offTopicCitationTitles } from "../ref-check.ts";
 import { isInterruptedOnRestart, statusWithReopen, taskStatusLabel, taskStatusShort } from "../task-status.ts";
 import { topDomainWords, topicHint } from "../domain-keywords.ts";
@@ -85,7 +85,10 @@ import {
   evidenceSheetRows,
   evidenceSheetTodoGroups,
   NO_TODO_TEXT,
+  type SheetData,
   type SheetInput,
+  type SheetRow,
+  type SheetTodoGroup,
 } from "../evidence-sheet.ts";
 import {
   buildRevisionInstruction,
@@ -269,6 +272,15 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     readEnum(KEYS.resultFontSize, ["sm", "md", "lg"] as const, "md"),
   );
   const [autoFollow, setAutoFollow] = useState(true);
+  const toggleAutoFollow = useCallback(() => {
+    const nv = !autoFollow;
+    setAutoFollow(nv);
+    if (nv) {
+      pinnedRef.current = true;
+      const el = scrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    }
+  }, [autoFollow]);
 
   useEffect(() => {
     writeRaw(KEYS.resultFontSize, fs);
@@ -362,7 +374,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     return () => clearInterval(t);
   }, [running]);
 
-  const openReader = (target: ReaderTarget) => {
+  const openReader = useCallback((target: ReaderTarget) => {
     lastFocusRef.current = document.activeElement as HTMLElement | null;
     const key = readerKey(target);
     const idx = readerTabs.findIndex((t) => readerKey(t) === key);
@@ -375,7 +387,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       setReaderActive(readerTabs.length);
     }
     setReaderOpen(true);
-  };
+  }, [readerTabs]);
 
   const closeTab = (index: number) => {
     const next = readerTabs.filter((_, i) => i !== index);
@@ -485,7 +497,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   }, [task.id]);
 
   /** 标记 / 撤销一处金额的人工核对：先乐观更新，失败回滚 */
-  const toggleAmountCheck = (key: string) => {
+  const toggleAmountCheck = useCallback((key: string) => {
     const checked = !(key in amountChecks);
     setAmountChecks((prev) => {
       const next = { ...prev };
@@ -504,7 +516,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
           return next;
         }),
     );
-  };
+  }, [amountChecks, task.id]);
 
   /** 保存已核对金额的备注：保持已核对状态，只更新备注（后端 upsert） */
   const saveAmountNote = (key: string, note: string) => {
@@ -550,7 +562,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   }, [task.id]);
 
   /** 核验引用链接可达性：GET + 8 秒超时，只取状态不下载正文（URL 由调用方传入，避免依赖顺序） */
-  const checkCitationLinks = (urls: string[]) => {
+  const checkCitationLinks = useCallback((urls: string[]) => {
     const unique = [...new Set(urls)];
     if (unique.length === 0 || linkBusy) return;
     setLinkBusy(true);
@@ -574,7 +586,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
         setLinkBusy(false);
       }
     })();
-  };
+  }, [linkBusy, task.id]);
 
   /**
    * 政策文号联网复查：把「无法从留存数据核验」的文号交给服务端用自建检索通道再查一遍，
@@ -704,7 +716,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   };
 
   const finalResult = useMemo(() => {
-    const last = [...timeline].reverse().find((t) => t.kind === "agent_text" && t.detail);
+    const last = findLast(timeline, (t) => t.kind === "agent_text" && Boolean(t.detail));
     return task.result ?? last?.detail ?? "";
   }, [timeline, task.result]);
 
@@ -727,6 +739,10 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     [toolCalls, finalResult],
   );
   const citations = useMemo<Citation[]>(() => allCitations.slice(0, MERGED_CITATION_LIMIT), [allCitations]);
+  const handleCheckLinks = useCallback(
+    () => checkCitationLinks(allCitations.map((c) => c.url)),
+    [checkCitationLinks, allCitations],
+  );
 
   // 检索留痕：区分「留下了来源」与「只留下查询元数据」，避免把后者误报成没有联网核验
   const searches = useMemo(() => searchEvidence(toolCalls), [toolCalls]);
@@ -740,6 +756,15 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
 
   // 引用证据力汇总：交付自检、整页 MD 与交付包清单共用同一口径（按全量算，不按界面截断算）
   const citationGrades = useMemo(() => summarizeGrades(allCitations), [allCitations]);
+  const citationViaCounts = useMemo(() => {
+    let fromTools = 0;
+    let fromConclusion = 0;
+    for (const c of allCitations) {
+      if (c.via === "conclusion") fromConclusion += 1;
+      else fromTools += 1;
+    }
+    return { fromTools, fromConclusion };
+  }, [allCitations]);
   // 两类弱证据引用不必再催办，判据都得回读正文（分级只看地址与标题）：结论里已写明「仅作背景参考，
   // 不作为政策依据」的，以及只在检索留存里、从未进入结论正文的（不是这份交付材料的依据，也没处补标注）
   // 「已声明为背景参考」这一类同样要有逐条明细：它的判据里有一步是「地址认不出就按标题认」，
@@ -768,7 +793,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   // 步骤时间线：提问 → 工具核验 → 联网检索 → 结论生成 → 交付
   const totalDuration = useMemo(() => {
     const start = timeline.find((t) => t.kind === "run_started")?.at;
-    const end = [...timeline].reverse().find((t) => t.kind === "run_completed" || t.kind === "run_failed")?.at;
+    const end = findLast(timeline, (t) => t.kind === "run_completed" || t.kind === "run_failed")?.at;
     if (!start || !end) return "";
     const s = (Date.parse(end) - Date.parse(start)) / 1000;
     return fmtDurationZh(s);
@@ -804,7 +829,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   const timeSplit = useMemo(() => {
     const ended = toolCalls.filter((c) => c.endedAt);
     const start = timeline.find((t) => t.kind === "run_started")?.at;
-    const end = [...timeline].reverse().find((t) => t.kind === "run_completed" || t.kind === "run_failed")?.at;
+    const end = findLast(timeline, (t) => t.kind === "run_completed" || t.kind === "run_failed")?.at;
     if (!start || !end) return null;
     const totalMs = Math.max(1, Date.parse(end) - Date.parse(start));
     const toolMs = ended.reduce((acc, c) => acc + Math.max(0, Date.parse(c.endedAt ?? c.at) - Date.parse(c.at)), 0);
@@ -828,13 +853,13 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     if (i === 1) target = timeline.find((t) => t.kind === "tool_start" && !SEARCH_TOOLS.has(nameOf(t)))?.id;
     if (i === 2) target = timeline.find((t) => t.kind === "tool_start" && SEARCH_TOOLS.has(nameOf(t)))?.id;
     if (i === 3) target = timeline.find((t) => t.kind === "agent_text")?.id;
-    if (i === 4) target = [...timeline].reverse().find((t) => t.kind === "run_completed" || t.kind === "run_failed")?.id;
+    if (i === 4) target = findLast(timeline, (t) => t.kind === "run_completed" || t.kind === "run_failed")?.id;
     if (!target) return;
     el.querySelector(`[data-tlid="${target}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" });
   };
 
   const lastRunAt = useMemo(() => {
-    const last = [...timeline].reverse().find((t) => t.kind === "run_started");
+    const last = findLast(timeline, (t) => t.kind === "run_started");
     return last ? dateTimeStamp(last.at) : "";
   }, [timeline]);
 
@@ -954,7 +979,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       const s = (end - start) / 1000;
       return fmtDurationShort(s);
     };
-    const concludedAt = [...timeline].reverse().find((t) => t.kind === "run_completed")?.at;
+    const concludedAt = findLast(timeline, (t) => t.kind === "run_completed")?.at;
     const lastEnds = toolCalls.filter((c) => c.endedAt).map((c) => Date.parse(c.endedAt ?? c.at));
     const genSpan =
       concludedAt && lastEnds.length > 0
@@ -1391,13 +1416,13 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     ],
   );
 
-  // 证据核对表输入：与界面、交付自检、整页 MD 同一口径；生成时间取当下，故每次渲染重算
-  const sheet: SheetInput = {
+  // 证据核对表展示数据：与界面、交付自检、整页 MD 同一口径；导出时再补当下时间
+  const sheetData = useMemo<SheetData>(
+    () => ({
     taskTitle: task.title,
     caseId: task.caseId,
     agentName: agent.shortName,
     statusText: statusFull,
-    generatedAt: new Date().toISOString(),
     delivery: { verdict: delivery.verdict, blocks: delivery.blocks, warns: delivery.warns, infos: delivery.infos },
     docRefs: {
       total: refTrace.total,
@@ -1413,8 +1438,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
       official: citationGrades.official,
       professional: citationGrades.professional,
       weak: citationGrades.weak,
-      fromTools: allCitations.filter((c) => c.via !== "conclusion").length,
-      fromConclusion: allCitations.filter((c) => c.via === "conclusion").length,
+      fromTools: citationViaCounts.fromTools,
+      fromConclusion: citationViaCounts.fromConclusion,
       replaced: weakReplaced,
       disclaimed: weakDisclaimedUrls.size,
       uncited: weakUncited,
@@ -1447,7 +1472,39 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     },
     revision: revImpact ? { verdict: deltaVerdict(revImpact), detail: deltaDetail(revImpact) } : null,
     todos: sheetTodos,
-  };
+    }),
+    [
+      task.title,
+      task.caseId,
+      agent.shortName,
+      statusFull,
+      delivery,
+      refTrace,
+      refPending,
+      docRefLabeledTotal,
+      refSummary,
+      citationGrades,
+      citationViaCounts,
+      weakReplaced,
+      weakDisclaimedUrls,
+      weakUncited,
+      citationSummary,
+      linkSummary,
+      linkCheckedAt,
+      searches,
+      filtering,
+      amountTrace,
+      amountPending,
+      amountAcked,
+      amountSplit,
+      revImpact,
+      sheetTodos,
+    ],
+  );
+  const currentSheet = useCallback(
+    (): SheetInput => ({ ...sheetData, generatedAt: new Date().toISOString() }),
+    [sheetData],
+  );
 
   // 交付包里的工具调用清单整节搬到 run-tools.ts（那个文件的头注释本来就写着「供整页交付 MD 的
   // 工具调用清单一节使用」，只是拼行那段一直留在这里）：留在闭包里就没法单测，合计行五个数字、
@@ -1488,7 +1545,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
     "",
     "## 证据核对表",
     "",
-    ...evidenceSheetMarkdown(sheet),
+    ...evidenceSheetMarkdown(currentSheet()),
     "",
     "## 目录",
     "",
@@ -1560,6 +1617,13 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
   // 打包下载：整页 MD 交服务端与本任务的产物、上传资料合成 zip；失败时退回单文件 MD，保证材料总能拿到
   const [zipBusy, setZipBusy] = useState(false);
   const [zipNote, setZipNote] = useState("");
+  // 右栏「工具次数」Top6 聚合：与时间线工具表同源，只取前六做渐变条
+  const railToolTop = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const c of toolCalls) m.set(c.toolName, (m.get(c.toolName) ?? 0) + 1);
+    return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
+  }, [toolCalls]);
+  const tlStats = callStats(toolCalls);
   /** 交付包的机器可读清单：与整页 MD 同源，便于归档系统检索与后续自动核对 */
   const buildDeliveryManifest = () => {
     const st = callStats(toolCalls);
@@ -1798,13 +1862,13 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
               onClick={() => jumpToStep(doneCount >= 5 ? 4 : doneCount)}
             >
               <svg viewBox="0 0 32 32" className="h-5 w-5">
-                <circle cx="16" cy="16" r="12" fill="none" stroke="#1b2c47" strokeWidth="6" />
+                <circle cx="16" cy="16" r="12" fill="none" stroke="#2f343b" strokeWidth="6" />
                 <circle
                   cx="16"
                   cy="16"
                   r="12"
                   fill="none"
-                  stroke="#22d3ee"
+                  stroke="#cfa95f"
                   strokeWidth="6"
                   strokeDasharray={`${(doneCount / 5) * STEP_RING} ${STEP_RING}`}
                   transform="rotate(-90 16 16)"
@@ -2188,15 +2252,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                 onOpenUrl={openReader}
                 onRerun={onRerun}
                 autoFollow={autoFollow}
-                onToggleAutoFollow={() => {
-                  const nv = !autoFollow;
-                  setAutoFollow(nv);
-                  if (nv) {
-                    pinnedRef.current = true;
-                    const el = scrollRef.current;
-                    if (el) el.scrollTop = el.scrollHeight;
-                  }
-                }}
+                onToggleAutoFollow={toggleAutoFollow}
               />
             )}
             {tab === "result" && (
@@ -2236,58 +2292,6 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                     )}
                   </div>
                 )}
-                {revImpact && (
-                  <div className="mb-3 rounded-md border border-line bg-night-850 px-3 py-2">
-                    <div className="kicker mb-1">本次修订对证据的影响</div>
-                    <p
-                      className={`text-[11.5px] leading-5 ${
-                        revImpact.regressed && !revImpact.improved
-                          ? "text-amber-300"
-                          : revImpact.improved && !revImpact.regressed
-                            ? "text-jade-300"
-                            : "text-mist-400"
-                      }`}
-                    >
-                      {deltaText(revImpact)}
-                    </p>
-                    <p className="mt-1 text-[10.5px] leading-5 text-mist-600">
-                      对比口径：只统计结论正文里的引用地址（按证据力分级）与政策文号数；工具留存跨运行累积，不参与对比。
-                    </p>
-                  </div>
-                )}
-                <div className="glow-card mb-4 px-4 py-3">
-                  <div className="text-[12px] font-semibold text-mist-100 print:text-gray-900">目录</div>
-                  <ul className="mt-1 list-decimal pl-5 text-[11px] leading-5 text-mist-400 print:text-gray-700">
-                    {toc.map((h, i) => (
-                      // key 带上下标：目录文字已剥掉 Markdown 记号，两个不同层级的同名小节会撞 key
-                      <li key={`${i}-${h}`}>
-                        <button
-                          type="button"
-                          className="underline decoration-transparent underline-offset-2 transition-colors hover:text-glow-300 hover:decoration-glow-400 print:hover:text-gray-700"
-                          onClick={() =>
-                            document.getElementById(`sec-${i}`)?.scrollIntoView({ block: "start", behavior: "smooth" })
-                          }
-                        >
-                          {h}
-                        </button>
-                        <button
-                          type="button"
-                          className="action-btn no-print !px-1 !py-0"
-                          title="复制段落深链"
-                          onClick={() =>
-                            void navigator.clipboard
-                              ?.writeText(
-                                `${window.location.origin}${window.location.pathname}#/agent/${agent.id}/task/${task.id}/tab/result/sec/${i}`,
-                              )
-                              .catch(() => undefined)
-                          }
-                        >
-                          <IconExternal className="h-3 w-3" />
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
                 <div className="no-print mb-3 flex items-center gap-2 rounded-md border border-line bg-night-850 px-3 py-1.5 text-[11.5px] text-mist-500">
                   <IconPrint className="h-3.5 w-3.5 shrink-0 text-glow-400" />
                   打印 / PDF 导出将沿用当前版式主题，可在下方「交付」区切换四套纸张版式后预览。
@@ -2586,6 +2590,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                 status={liveStatus}
                 citations={citations}
                 allCitations={allCitations}
+                grades={citationGrades}
                 searches={searches}
                 searchNote={searchNote}
                 retentionText={retentionText}
@@ -2601,19 +2606,21 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                   uncited: weakUncitedItems,
                   disclaimed: weakDisclaimedItems,
                 }}
-                sheet={sheet}
+                sheet={sheetData}
                 onOpenUrl={openReader}
                 linkChecks={linkChecks}
                 linkBusy={linkBusy}
                 linkCheckedAt={linkCheckedAt}
                 linkSummary={linkSummary}
-                onCheckLinks={() => checkCitationLinks(allCitations.map((c) => c.url))}
+                onCheckLinks={handleCheckLinks}
                 onDownloadReport={() => download(`${task.title}-审查报告.md`, finalResult)}
                 onDownloadSheet={() =>
-                  download(`${task.title}-证据核对表.md`, `${evidenceSheetDocument(sheet).join("\n")}\n`)
+                  download(`${task.title}-证据核对表.md`, `${evidenceSheetDocument(currentSheet()).join("\n")}\n`)
                 }
                 onCopySheet={() =>
-                  void navigator.clipboard?.writeText(evidenceSheetDocument(sheet).join("\n")).catch(() => undefined)
+                  void navigator.clipboard
+                    ?.writeText(evidenceSheetDocument(currentSheet()).join("\n"))
+                    .catch(() => undefined)
                 }
                 onDownloadCitations={() =>
                   download(
@@ -2717,8 +2724,8 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
             </button>
           )}
           {tab === "result" && toc.length > 3 && (
-            <div className="no-print absolute bottom-4 right-6 z-10 w-44 rounded-lg border border-line bg-night-900/95 p-2 shadow-xl">
-              <div className="kicker mb-1">目录</div>
+            <details open className="no-print absolute bottom-4 right-6 z-10 w-44 rounded-lg border border-line bg-night-900/95 p-2 shadow-xl xl:hidden">
+              <summary className="kicker mb-1 cursor-pointer list-none select-none" title="点击收起/展开目录，避免遮挡正文">目录</summary>
               <ul className="max-h-40 space-y-0.5 overflow-y-auto">
                 {toc.map((h, i) => (
                   <li key={`${i}-${h}`}>
@@ -2734,7 +2741,7 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
                   </li>
                 ))}
               </ul>
-            </div>
+            </details>
           )}
         </div>
 
@@ -2744,6 +2751,91 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
           }`}
         >
           <div className="kicker">任务指令</div>
+          <div className="h6-card h6-railcard px-4 py-3">
+            <div className="text-[12px] font-semibold text-mist-100 print:text-gray-900">目录</div>
+            <ul className="mt-1 list-decimal pl-5 text-[11px] leading-5 text-mist-400 print:text-gray-700">
+              {toc.map((h, i) => (
+                // key 带上下标：目录文字已剥掉 Markdown 记号，两个不同层级的同名小节会撞 key
+                <li key={`${i}-${h}`}>
+                  <button
+                    type="button"
+                    className="underline decoration-transparent underline-offset-2 transition-colors hover:text-glow-300 hover:decoration-glow-400 print:hover:text-gray-700"
+                    onClick={() =>
+                      document.getElementById(`sec-${i}`)?.scrollIntoView({ block: "start", behavior: "smooth" })
+                    }
+                  >
+                    {h}
+                  </button>
+                  <button
+                    type="button"
+                    className="action-btn no-print !px-1 !py-0"
+                    title="复制段落深链"
+                    onClick={() =>
+                      void navigator.clipboard
+                        ?.writeText(
+                          `${window.location.origin}${window.location.pathname}#/agent/${agent.id}/task/${task.id}/tab/result/sec/${i}`,
+                        )
+                        .catch(() => undefined)
+                    }
+                  >
+                    <IconExternal className="h-3 w-3" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="h6-card h6-railcard">
+          {revImpact && (
+            <div className="h6-card h6-railcard px-3 py-2">
+              <div className="kicker mb-1">本次修订对证据的影响</div>
+              <p
+                className={`text-[11.5px] leading-5 ${
+                  revImpact.regressed && !revImpact.improved
+                    ? "text-amber-300"
+                    : revImpact.improved && !revImpact.regressed
+                      ? "text-jade-300"
+                      : "text-mist-400"
+                }`}
+              >
+                {deltaText(revImpact)}
+              </p>
+              <p className="mt-1 text-[10.5px] leading-5 text-mist-600">
+                对比口径：只统计结论正文里的引用地址（按证据力分级）与政策文号数；工具留存跨运行累积，不参与对比。
+              </p>
+            </div>
+          )}
+            <div className="h6-card-h">
+              <h2>本次运行</h2>
+              <span className="h6-meta">{task.runCount ?? 1} 次运行</span>
+            </div>
+            <div className="h6-card-b h6-kv">
+              <dt>工具调用</dt>
+              <dd>
+                {tlStats.total} · 成功 {tlStats.ok}
+              </dd>
+              <dt>总耗时</dt>
+              <dd>{totalDuration || "—"}</dd>
+              <dt>产物</dt>
+              <dd>{artifacts.length} 份</dd>
+            </div>
+          </div>
+          <div className="h6-card h6-railcard">
+            <div className="h6-card-h">
+              <h2>工具次数</h2>
+              <span className="h6-meta">Top {railToolTop.length}</span>
+            </div>
+            <div className="h6-card-b h6-stack">
+              {railToolTop.map(([name, n], i) => (
+                <div key={name} className="h6-toolrow">
+                  <span className="h6-mono h6-toolname">{name}</span>
+                  <i className="h6-toolbar">
+                    <b style={{ width: `${(n / Math.max(1, railToolTop[0]?.[1] ?? 1)) * 100}%` }} />
+                  </i>
+                  <span className="h6-toolnum">{n}</span>
+                </div>
+              ))}
+            </div>
+          </div>
           {/* data-keep-raw：这两处是用户输入的逐字回显，有意不剥 Markdown 记号（见 verify-md-text
               最后一条断言）。标出来是为了让界面扫描脚本（scan-ui-markdown）认识它、不当成残留。 */}
           <p
@@ -2903,17 +2995,25 @@ export function TaskWorkbench({ agent, task, files, tab, onTabChange, onRerun, s
 }
 
 const KIND_LEGEND = [
-  { id: "run_started", label: "运行开始", color: "#38bdf8" },
-  { id: "tool_start", label: "工具调用", color: "#22d3ee" },
-  { id: "agent_text", label: "结论输出", color: "#34d399" },
-  { id: "agent_status", label: "状态", color: "#64798f" },
-  { id: "run_completed", label: "运行结束", color: "#a3e635" },
-  { id: "run_failed", label: "运行失败", color: "#fb7185" },
+  { id: "run_started", label: "运行开始", color: "#7795a5" },
+  { id: "tool_start", label: "工具调用", color: "#cfa95f" },
+  { id: "agent_text", label: "结论输出", color: "#8ab06b" },
+  { id: "agent_status", label: "状态", color: "#6d6a64" },
+  { id: "run_completed", label: "运行结束", color: "#a9b878" },
+  { id: "run_failed", label: "运行失败", color: "#c0705c" },
 ];
 
-const kindColor = (k: string) => KIND_LEGEND.find((x) => x.id === k)?.color ?? "#64798f";
+const kindColor = (k: string) => KIND_LEGEND.find((x) => x.id === k)?.color ?? "#6d6a64";
 
-function TimelineView({
+function findLast<T>(items: readonly T[], predicate: (item: T) => boolean): T | undefined {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item !== undefined && predicate(item)) return item;
+  }
+  return undefined;
+}
+
+const TimelineView = memo(function TimelineView({
   instruction,
   items,
   toolCalls,
@@ -2937,6 +3037,7 @@ function TimelineView({
   autoFollow: boolean;
   onToggleAutoFollow: () => void;
 }) {
+  const openUrl = useCallback((url: string) => onOpenUrl({ kind: "url", url }), [onOpenUrl]);
   const kindCounts = useMemo(() => {
     const m: Record<string, number> = {};
     for (const it of items) m[it.kind] = (m[it.kind] ?? 0) + 1;
@@ -2984,7 +3085,12 @@ function TimelineView({
 
   // 每次运行的时间窗与归属产物：导出 MD 与运行头部角标共用同一套判定
   const windows = useMemo(() => runWindows(items), [items]);
-  const artsOfRun = (runIdx: number) => artifactsOfRun(artifacts, windows.find((w) => w.run === runIdx));
+  const artsByRun = useMemo(() => {
+    const map = new Map<number, ArtifactInfo[]>();
+    for (const win of windows) map.set(win.run, artifactsOfRun(artifacts, win));
+    return map;
+  }, [artifacts, windows]);
+  const artsOfRun = (runIdx: number) => artsByRun.get(runIdx) ?? [];
 
   const buildMd = (list: TItem[]): string[] => {
     const lines: string[] = [];
@@ -3049,7 +3155,16 @@ function TimelineView({
   };
   const counters = useRef<Record<string, number>>({});
   counters.current = {};
-  const lastTextId = [...items].reverse().find((t) => t.kind === "agent_text" && t.detail)?.id;
+  const lastTextId = useMemo(() => findLast(items, (t) => t.kind === "agent_text" && Boolean(t.detail))?.id, [items]);
+  const collapsedPreviews = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const it of items) {
+      if (it.kind === "agent_text" && !it.streaming && (it.detail ?? "").length > 1200) {
+        map.set(it.id, plainSnippet(it.detail ?? "", 1200));
+      }
+    }
+    return map;
+  }, [items]);
   const [collapseOld, setCollapseOld] = useState(false);
   const [expandedRuns, setExpandedRuns] = useState<Set<number>>(new Set());
   const [legendKind, setLegendKind] = useState<string | null>(null);
@@ -3388,7 +3503,7 @@ function TimelineView({
           const name = String((item.payload as { toolName?: string } | undefined)?.toolName ?? "");
           const idx = counters.current[name] ?? 0;
           counters.current[name] = idx + 1;
-          const call = toolCalls.filter((c) => c.toolName === name)[idx];
+          const call = callOfItem.get(item);
           if (view === "fails" && call?.ok !== false) return null;
           if (q && !name.toLowerCase().includes(q)) return null;
           return (
@@ -3493,11 +3608,15 @@ function TimelineView({
                     : undefined
                 }
               >
-                <MarkdownView
-                  text={item.detail ?? ""}
-                  live={item.streaming}
-                  onOpenUrl={(url) => onOpenUrl({ kind: "url", url })}
-                />
+                {!item.streaming && !expanded.has(item.id) && (item.detail ?? "").length > 1200 ? (
+                  <div className="md-body">{collapsedPreviews.get(item.id) ?? ""}</div>
+                ) : (
+                  <MarkdownView
+                    text={item.detail ?? ""}
+                    live={item.streaming}
+                    onOpenUrl={openUrl}
+                  />
+                )}
                 {!item.streaming && !expanded.has(item.id) && (item.detail ?? "").length > 1200 && (
                   <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-night-900 to-transparent" />
                 )}
@@ -3536,7 +3655,7 @@ function TimelineView({
                         title={`${c.url}\n证据力：${GRADE_TEXT[c.grade]} · ${c.gradeReason}`}
                         className={`inline-flex max-w-[260px] items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] transition-colors ${
                           c.grade === "weak"
-                            ? "border-amber-400/45 bg-amber-400/10 text-amber-200 hover:border-amber-400"
+                            ? "border-amber-400/45 bg-amber-400/10 text-amber-700 hover:border-amber-400"
                             : "border-glow-500/40 bg-glow-500/10 text-glow-300 hover:border-glow-400"
                         }`}
                       >
@@ -3600,9 +3719,9 @@ function TimelineView({
       })}
     </div>
   );
-}
+});
 
-function ToolRow({
+const ToolRow = memo(function ToolRow({
   name,
   call,
   ts,
@@ -3615,21 +3734,22 @@ function ToolRow({
   ts?: string;
   autoOpen?: boolean;
 }) {
+  const [open, setOpen] = useState(autoOpen);
   const isSearch = SEARCH_TOOLS.has(name);
   const duration =
     call && call.ok !== null && call.endedAt
       ? fmtSecondsShort(Math.max(0, (Date.parse(call.endedAt) - Date.parse(call.at)) / 1000))
       : "";
   // 折叠态显示首个字符串入参作为摘要（如检索词、文件路径）
-  const argPreview = (() => {
+  const argPreview = useMemo(() => {
     const a = call?.args as Record<string, unknown> | null | undefined;
     if (!a || typeof a !== "object") return "";
     const v = Object.values(a).find((x) => typeof x === "string" && x.trim().length > 0);
     if (typeof v !== "string") return "";
     return v.length > 40 ? `${v.slice(0, 40)}…` : v;
-  })();
+  }, [call?.args]);
   // 成功时结果首关键字段预览（如 accuracyPercent、count）
-  const resultPreview = (() => {
+  const resultPreview = useMemo(() => {
     if (!call || call.ok !== true || typeof call.result !== "string") return "";
     try {
       const r = JSON.parse(call.result) as Record<string, unknown>;
@@ -3642,9 +3762,9 @@ function ToolRow({
     } catch {
       return "";
     }
-  })();
+  }, [call?.ok, call?.result]);
   // 失败时提取错误原因一行摘要（error/message/detail 或原文首行）
-  const errorPreview = (() => {
+  const errorPreview = useMemo(() => {
     if (!call || call.ok !== false || typeof call.result !== "string") return "";
     const clip = (v: string) => (v.length > 48 ? `${v.slice(0, 48)}…` : v);
     try {
@@ -3656,20 +3776,23 @@ function ToolRow({
       const first = (call.result.split("\n")[0] ?? "").trim();
       return first ? clip(first) : "";
     }
-  })();
+  }, [call?.ok, call?.result]);
+  const argsJson = useMemo(
+    () => (open ? JSON.stringify(call?.args ?? null, null, 2) : ""),
+    [open, call?.args],
+  );
+  const resultJson = useMemo(
+    () => (open ? JSON.stringify(call?.result ?? null, null, 2) : ""),
+    [open, call?.result],
+  );
   const copyText = (text: string) => {
     void navigator.clipboard?.writeText(text).catch(() => undefined);
   };
   return (
     <details
       className="tool-row glow-card"
-      ref={(el) => {
-        // 运行中的工具行挂载时自动展开，便于观察入参/返回流
-        if (el && autoOpen && !el.dataset.init) {
-          el.open = true;
-          el.dataset.init = "1";
-        }
-      }}
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
     >
       <summary className="flex items-center gap-2 px-3.5 py-2">
         {ts && <span className="font-mono text-[9.5px] text-mist-600">{ts}</span>}
@@ -3712,43 +3835,321 @@ function ToolRow({
         )}
         <span className="chev ml-1 text-[10px] text-glow-400">▶</span>
       </summary>
-      <div className="grid gap-3 border-t border-line px-3.5 py-2.5 md:grid-cols-2">
-        <div>
-          <div className="flex items-center justify-between">
-            <div className="kicker">入参</div>
-            <button
-              type="button"
-              className="action-btn"
-              title="复制入参 JSON"
-              onClick={() => copyText(JSON.stringify(call?.args ?? null, null, 2))}
-            >
-              复制
-            </button>
+      {open && (
+        <div className="grid gap-3 border-t border-line px-3.5 py-2.5 md:grid-cols-2">
+          <div>
+            <div className="flex items-center justify-between">
+              <div className="kicker">入参</div>
+              <button
+                type="button"
+                className="action-btn"
+                title="复制入参 JSON"
+                onClick={() => copyText(argsJson)}
+              >
+                复制
+              </button>
+            </div>
+            <pre className="mt-1 max-h-52 overflow-auto rounded bg-night-950 px-2.5 py-2 font-mono text-[11.5px] leading-5 text-mist-300">
+              {argsJson}
+            </pre>
           </div>
-          <pre className="mt-1 max-h-52 overflow-auto rounded bg-night-950 px-2.5 py-2 font-mono text-[11.5px] leading-5 text-mist-300">
-            {JSON.stringify(call?.args ?? null, null, 2)}
-          </pre>
-        </div>
-        <div>
-          <div className="flex items-center justify-between">
-            <div className="kicker">返回</div>
-            <button
-              type="button"
-              className="action-btn"
-              title="复制返回 JSON"
-              onClick={() => copyText(JSON.stringify(call?.result ?? null, null, 2))}
-            >
-              复制
-            </button>
+          <div>
+            <div className="flex items-center justify-between">
+              <div className="kicker">返回</div>
+              <button
+                type="button"
+                className="action-btn"
+                title="复制返回 JSON"
+                onClick={() => copyText(resultJson)}
+              >
+                复制
+              </button>
+            </div>
+            <pre className="mt-1 max-h-52 overflow-auto rounded bg-night-950 px-2.5 py-2 font-mono text-[11.5px] leading-5 text-mist-300">
+              {call?.ok === null || call === undefined ? "—" : resultJson}
+            </pre>
           </div>
-          <pre className="mt-1 max-h-52 overflow-auto rounded bg-night-950 px-2.5 py-2 font-mono text-[11.5px] leading-5 text-mist-300">
-            {call?.ok === null || call === undefined ? "—" : JSON.stringify(call.result, null, 2)}
-          </pre>
         </div>
-      </div>
+      )}
     </details>
   );
-}
+});
+
+const CitationPill = memo(function CitationPill({
+  citation: c,
+  check: chk,
+  onOpenUrl,
+}: {
+  citation: Citation;
+  check: LinkCheck | undefined;
+  onOpenUrl: (url: string) => void;
+}) {
+  const verdict = chk ? linkVerdict(chk) : null;
+  const weak = c.grade === "weak";
+  return (
+    <button
+      type="button"
+      onClick={() => onOpenUrl(c.url)}
+      title={`${c.url}\n来源：${c.via === "conclusion" ? "结论正文引用" : `工具留存（${c.via}）`}\n证据力：${GRADE_TEXT[c.grade]} · ${c.gradeReason}${
+        weak ? `\n${GRADE_HINT.weak}` : ""
+      }${
+        chk && verdict
+          ? `\n核验：${
+              verdict === "ok"
+                ? `可访问 HTTP ${chk.status}`
+                : `${VERDICT_TEXT[verdict]}（${chk.status ?? chk.error ?? "无响应"}）· ${VERDICT_HINT[verdict]}`
+            } · ${chk.ms} ms`
+          : ""
+      }`}
+      className={`inline-flex max-w-full items-center gap-1.5 rounded-full border bg-night-850 px-2.5 py-1 text-[11.5px] transition-colors ${
+        verdict === "dead"
+          ? "border-rose-400/50 text-rose-200 hover:border-rose-400"
+          : weak
+            ? "border-amber-400/45 text-amber-700 hover:border-amber-400"
+            : "border-line text-mist-300 hover:border-glow-500 hover:text-glow-300"
+      }`}
+    >
+      <IconExternal className={`h-3 w-3 shrink-0 ${weak ? "text-amber-400" : "text-glow-400"}`} />
+      <span className="truncate">{c.title}</span>
+      <span
+        className={`shrink-0 rounded px-1 text-[9.5px] ${
+          c.grade === "official"
+            ? "bg-jade-400/15 text-jade-300"
+            : c.grade === "professional"
+              ? "bg-sky-400/15 text-sky-300"
+              : "bg-amber-400/15 text-amber-300"
+        }`}
+        title={`${GRADE_TEXT[c.grade]}：${c.gradeReason}`}
+      >
+        {GRADE_TEXT[c.grade]}
+      </span>
+      {chk && verdict && (
+        <span
+          className={`shrink-0 rounded px-1 font-mono text-[9.5px] ${
+            verdict === "ok"
+              ? "bg-jade-400/15 text-jade-300"
+              : verdict === "dead"
+                ? "bg-rose-400/15 text-rose-300"
+                : verdict === "blocked"
+                  ? "bg-sky-400/15 text-sky-300"
+                  : "bg-night-700 text-mist-500"
+          }`}
+          title={VERDICT_HINT[verdict]}
+        >
+          {verdict === "ok" ? chk.status : VERDICT_TEXT[verdict]}
+        </span>
+      )}
+    </button>
+  );
+});
+
+const CitationsPanel = memo(function CitationsPanel({
+  citations,
+  allCitations,
+  grades,
+  searches,
+  searchNote,
+  retentionText,
+  linkChecks,
+  linkBusy,
+  linkCheckedAt,
+  linkSummary,
+  onOpenUrl,
+  onCheckLinks,
+}: {
+  citations: Citation[];
+  allCitations: Citation[];
+  grades: GradeSummary;
+  searches: SearchEvidence;
+  searchNote: string | null;
+  retentionText: string | null;
+  linkChecks: Record<string, LinkCheck>;
+  linkBusy: boolean;
+  linkCheckedAt: string | null;
+  linkSummary: LinkSummary;
+  onOpenUrl: (target: ReaderTarget) => void;
+  onCheckLinks: () => void;
+}) {
+  const openUrl = useCallback((url: string) => onOpenUrl({ kind: "url", url }), [onOpenUrl]);
+  return (
+    <>
+      {citations.length === 0 && searchNote && (
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="kicker">联网检索留痕</span>
+            <span
+              className="rounded bg-night-700 px-1.5 py-0.5 text-[10px] text-mist-500"
+              title={`工具：${searches.tools.join(" / ")}${
+                searches.providers.length > 0 ? `\nprovider：${searches.providers.join("、")}` : ""
+              }`}
+            >
+              {searches.calls} 次调用 · 未留存来源清单
+            </span>
+          </div>
+          <p className="mt-1.5 text-[11px] leading-5 text-mist-600" style={{ whiteSpace: "pre-line" }}>
+            {searchNote}
+          </p>
+        </div>
+      )}
+
+      {retentionText && (
+        <div>
+          <span className="kicker">留存正文截断</span>
+          <p className="mt-1.5 text-[11px] leading-5 text-mist-600">{retentionText}</p>
+        </div>
+      )}
+
+      {citations.length > 0 && (
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="kicker">联网引用</span>
+            <span className="rounded bg-glow-500/15 px-1.5 py-0.5 font-mono text-[10px] text-glow-300">
+              {citations.length}
+            </span>
+            {searches.metadataOnly > 0 && (
+              <span
+                className="rounded bg-night-700 px-1.5 py-0.5 text-[10px] text-mist-500"
+                title={`联网检索留痕：共 ${searches.calls} 次调用（${searches.tools.join(" / ")}）\n留下可引用来源 ${
+                  searches.withUrls
+                } 次 · 只留查询元数据 ${searches.metadataOnly} 次${
+                  searches.reportedResults > 0 ? ` · 扩展自报命中 ${searches.reportedResults} 条` : ""
+                }${searches.providers.length > 0 ? `\nprovider：${searches.providers.join("、")}` : ""}${
+                  searches.queries.length > 0
+                    ? `\n检索词：\n${searches.queries
+                        .slice(0, 6)
+                        .map((q) => `· ${q}`)
+                        .join("\n")}`
+                    : ""
+                }`}
+              >
+                检索 {searches.calls} 次 · 仅元数据 {searches.metadataOnly} 次
+              </span>
+            )}
+            <button
+              type="button"
+              className="action-btn"
+              title="复制引用清单（编号+标题+URL）"
+              onClick={() =>
+                void navigator.clipboard
+                  ?.writeText(
+                    citations
+                      .map((c, i) => `${i + 1}. ${c.title}\n   ${c.url}\n   证据力：${GRADE_TEXT[c.grade]}`)
+                      .join("\n"),
+                  )
+                  .catch(() => undefined)
+              }
+            >
+              <IconCopy className="h-3 w-3" />
+              复制清单
+            </button>
+            <button
+              type="button"
+              className="action-btn disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={linkBusy}
+              title="按需核验全部引用链接是否仍可访问（服务端 GET，8 秒超时，不下载正文）"
+              onClick={onCheckLinks}
+            >
+              {linkBusy ? "核验中…" : linkCheckedAt ? `重新核验（${ageText(linkCheckedAt)}）` : "核验链接"}
+            </button>
+          </div>
+          <p className="mt-1.5 text-[11px] text-mist-600">
+            证据力：官方来源 {grades.official} · 专业来源 {grades.professional}
+            {allCitations.length > citations.length && (
+              <span title="界面只列前若干条，分级与交付自检按全量计算">
+                {" "}
+                · 共 {allCitations.length} 条，下方列出前 {citations.length} 条
+              </span>
+            )}
+            {grades.weak > 0 ? (
+              <span className="text-amber-300" title={GRADE_HINT.weak}>
+                {" "}
+                · 证据力弱 {grades.weak}（门户首页 / 百科词条 / 检索页，交付前请替换为政策原文）
+              </span>
+            ) : (
+              <span className="text-jade-300"> · 无门户首页或百科类引用</span>
+            )}
+          </p>
+          {linkCheckedAt && (
+            <p className="mt-1.5 text-[11px] text-mist-600">
+              最近核验 {dateTimeStamp(linkCheckedAt)} · 可访问 {linkSummary.ok}/{linkSummary.total}
+              {freshness(linkCheckedAt) === "stale" && (
+                <span className="text-amber-300"> · 核验已超过 72 小时，建议重新核验</span>
+              )}
+              {linkSummary.dead > 0 && <span className="text-rose-300"> · 失效 {linkSummary.dead}</span>}
+              {linkSummary.blocked > 0 && (
+                <span className="text-sky-300"> · 拒绝自动访问 {linkSummary.blocked}</span>
+              )}
+              {linkSummary.unreachable > 0 && <span> · 无法核验 {linkSummary.unreachable}</span>}
+              {linkSummary.dead > 0 && <span className="text-rose-300">（失效链接交付前请替换或补充依据）</span>}
+            </p>
+          )}
+          <div className="mt-2 flex flex-wrap gap-2">
+            {citations.map((c) => (
+              <CitationPill key={c.url} citation={c} check={linkChecks[c.url]} onOpenUrl={openUrl} />
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+});
+
+
+const EvidenceSheetTable = memo(function EvidenceSheetTable({
+  rows,
+  todoGroups,
+}: {
+  rows: SheetRow[];
+  todoGroups: SheetTodoGroup[];
+}) {
+  return (
+    <>
+      <table className="mt-2 w-full border-collapse text-[11.5px]">
+        <thead>
+          <tr className="text-left text-mist-500">
+            <th className="w-7 border-b border-line py-1 pr-2 font-normal">#</th>
+            <th className="w-[128px] border-b border-line py-1 pr-2 font-normal">核对项</th>
+            <th className="w-[140px] border-b border-line py-1 pr-2 font-normal">结论</th>
+            <th className="border-b border-line py-1 font-normal">说明</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, n) => (
+            // key 带下标：核对项名来自同一份文案，重复即撞 key（行号本来就在旁边显示）
+            <tr key={`${n}-${r.item}`} className="align-top">
+              <td className="border-b border-line/60 py-1 pr-2 font-mono text-[10.5px] text-mist-600">{n + 1}</td>
+              <td className="border-b border-line/60 py-1 pr-2 text-mist-300">{r.item}</td>
+              <td className="border-b border-line/60 py-1 pr-2 text-mist-100">{r.value}</td>
+              <td className="border-b border-line/60 py-1 text-mist-500">{r.note}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="mt-3">
+        <div className="kicker mb-1">交付前待办</div>
+        {todoGroups.length === 0 ? (
+          <p className="text-[11.5px] text-jade-300">{NO_TODO_TEXT}</p>
+        ) : (
+          <ul className="space-y-1 text-[11.5px] leading-5 text-mist-400">
+            {todoGroups.map((g, gi) => (
+              <li key={`${gi}-${g.label}`}>
+                {g.label}（{g.list.length} 项）
+                <ul className="mt-0.5 space-y-0.5 pl-4 text-mist-500">
+                  {g.list.slice(0, 8).map((x, k) => (
+                    <li key={`${g.label}-${k}`} className="break-all">
+                      {x}
+                    </li>
+                  ))}
+                  {g.list.length > 8 && <li>等 {g.list.length} 项，完整清单见上文对应小节</li>}
+                </ul>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </>
+  );
+});
 
 function ResultView({
   result,
@@ -3756,6 +4157,7 @@ function ResultView({
   status,
   citations,
   allCitations,
+  grades,
   searches,
   searchNote,
   retentionText,
@@ -3792,6 +4194,8 @@ function ResultView({
   citations: Citation[];
   /** 不截断的全量引用清单：分级汇总与「共 N 条」按它算，capsule 列表仍只渲染上面那份截断清单 */
   allCitations: Citation[];
+  /** 引用分级汇总：父层已按 allCitations 缓存，避免结果页每次渲染重复分级 */
+  grades: GradeSummary;
   /** 联网检索留痕汇总（用于「检索过但没留下来源清单」的如实说明） */
   searches: SearchEvidence;
   searchNote: string | null;
@@ -3814,8 +4218,8 @@ function ResultView({
     /** 结论里已声明「仅作背景参考，不作为政策依据」的弱证据引用（逐条，可点开原文核对判据） */
     disclaimed: Array<{ url: string; title: string }>;
   };
-  /** 证据核对表输入（与整页交付 MD 用的是同一份数据） */
-  sheet: SheetInput;
+  /** 证据核对表展示数据；导出动作发生时再补当下 generatedAt */
+  sheet: SheetData;
   onOpenUrl: (target: ReaderTarget) => void;
   onDownloadReport: () => void;
   /** 单独下载这一页证据核对表（纸质归档常常只需要这一页） */
@@ -3845,10 +4249,9 @@ function ResultView({
   linkSummary: LinkSummary;
   onCheckLinks: () => void;
 }) {
-  // 引用证据力汇总（与整页 MD、交付自检同一口径）
-  // 分级按全量算：界面胶囊只列前若干条，但「官方来源 X 条」不能跟着截断，
-  // 否则它与交付自检、整页 MD、平台看板上的同一个数字对不上
-  const grades = summarizeGrades(allCitations);
+  const openUrl = useCallback((url: string) => onOpenUrl({ kind: "url", url }), [onOpenUrl]);
+  const todoGroups = useMemo(() => evidenceSheetTodoGroups(sheet), [sheet]);
+  const sheetRows = useMemo(() => evidenceSheetRows(sheet), [sheet]);
   // 有 error 不等于什么都没有。实测 4bb22d34：error 是「服务重启导致执行中断」，而它已经有
   // 16365 字结论正文、33 次工具调用（其中 6 次被联网工具截断）。此前这里一见 error 就整块
   // return，结果页只剩一行错误——联网引用、检索留痕、留存截断说明、文号 / 金额溯源、交付自检、
@@ -3879,7 +4282,7 @@ function ResultView({
       <article className="glow-card px-6 py-5">
         <MarkdownView
           text={result}
-          onOpenUrl={(url) => onOpenUrl({ kind: "url", url })}
+          onOpenUrl={openUrl}
           headingIds
           className={fs === "md" ? "" : `fs-${fs}`}
           annotations={annotations}
@@ -3983,256 +4386,23 @@ function ResultView({
         </span>
       </div>
 
-      {citations.length === 0 && searchNote && (
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="kicker">联网检索留痕</span>
-            <span
-              className="rounded bg-night-700 px-1.5 py-0.5 text-[10px] text-mist-500"
-              title={`工具：${searches.tools.join(" / ")}${
-                searches.providers.length > 0 ? `\nprovider：${searches.providers.join("、")}` : ""
-              }`}
-            >
-              {searches.calls} 次调用 · 未留存来源清单
-            </span>
-          </div>
-          <p className="mt-1.5 text-[11px] leading-5 text-mist-600" style={{ whiteSpace: "pre-line" }}>
-            {searchNote}
-          </p>
-        </div>
-      )}
-
-      {retentionText && (
-        <div>
-          <span className="kicker">留存正文截断</span>
-          <p className="mt-1.5 text-[11px] leading-5 text-mist-600">{retentionText}</p>
-        </div>
-      )}
-
-      {citations.length > 0 && (
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="kicker">联网引用</span>
-            <span className="rounded bg-glow-500/15 px-1.5 py-0.5 font-mono text-[10px] text-glow-300">
-              {citations.length}
-            </span>
-            {searches.metadataOnly > 0 && (
-              <span
-                className="rounded bg-night-700 px-1.5 py-0.5 text-[10px] text-mist-500"
-                title={`联网检索留痕：共 ${searches.calls} 次调用（${searches.tools.join(" / ")}）\n留下可引用来源 ${
-                  searches.withUrls
-                } 次 · 只留查询元数据 ${searches.metadataOnly} 次${
-                  searches.reportedResults > 0 ? ` · 扩展自报命中 ${searches.reportedResults} 条` : ""
-                }${searches.providers.length > 0 ? `\nprovider：${searches.providers.join("、")}` : ""}${
-                  searches.queries.length > 0
-                    ? `\n检索词：\n${searches.queries
-                        .slice(0, 6)
-                        .map((q) => `· ${q}`)
-                        .join("\n")}`
-                    : ""
-                }`}
-              >
-                检索 {searches.calls} 次 · 仅元数据 {searches.metadataOnly} 次
-              </span>
-            )}
-            <button
-              type="button"
-              className="action-btn"
-              title="复制引用清单（编号+标题+URL）"
-              onClick={() =>
-                void navigator.clipboard
-                  ?.writeText(
-                    citations
-                      .map((c, i) => `${i + 1}. ${c.title}\n   ${c.url}\n   证据力：${GRADE_TEXT[c.grade]}`)
-                      .join("\n"),
-                  )
-                  .catch(() => undefined)
-              }
-            >
-              <IconCopy className="h-3 w-3" />
-              复制清单
-            </button>
-            <button
-              type="button"
-              className="action-btn disabled:cursor-not-allowed disabled:opacity-40"
-              disabled={linkBusy}
-              title="按需核验全部引用链接是否仍可访问（服务端 GET，8 秒超时，不下载正文）"
-              onClick={onCheckLinks}
-            >
-              {linkBusy ? "核验中…" : linkCheckedAt ? `重新核验（${ageText(linkCheckedAt)}）` : "核验链接"}
-            </button>
-          </div>
-          <p className="mt-1.5 text-[11px] text-mist-600">
-            证据力：官方来源 {grades.official} · 专业来源 {grades.professional}
-            {allCitations.length > citations.length && (
-              <span title="界面只列前若干条，分级与交付自检按全量计算">
-                {" "}
-                · 共 {allCitations.length} 条，下方列出前 {citations.length} 条
-              </span>
-            )}
-            {grades.weak > 0 ? (
-              <span className="text-amber-300" title={GRADE_HINT.weak}>
-                {" "}
-                · 证据力弱 {grades.weak}（门户首页 / 百科词条 / 检索页，交付前请替换为政策原文）
-              </span>
-            ) : (
-              <span className="text-jade-300"> · 无门户首页或百科类引用</span>
-            )}
-          </p>
-          {linkCheckedAt && (
-            <p className="mt-1.5 text-[11px] text-mist-600">
-              最近核验 {dateTimeStamp(linkCheckedAt)} · 可访问 {linkSummary.ok}/
-              {linkSummary.total}
-              {freshness(linkCheckedAt) === "stale" && (
-                <span className="text-amber-300"> · 核验已超过 72 小时，建议重新核验</span>
-              )}
-              {linkSummary.dead > 0 && <span className="text-rose-300"> · 失效 {linkSummary.dead}</span>}
-              {linkSummary.blocked > 0 && (
-                <span className="text-sky-300"> · 拒绝自动访问 {linkSummary.blocked}</span>
-              )}
-              {linkSummary.unreachable > 0 && <span> · 无法核验 {linkSummary.unreachable}</span>}
-              {linkSummary.dead > 0 && <span className="text-rose-300">（失效链接交付前请替换或补充依据）</span>}
-            </p>
-          )}
-          <div className="mt-2 flex flex-wrap gap-2">
-            {citations.map((c) => {
-              const chk = linkChecks[c.url];
-              const verdict = chk ? linkVerdict(chk) : null;
-              const weak = c.grade === "weak";
-              return (
-                <button
-                  key={c.url}
-                  type="button"
-                  onClick={() => onOpenUrl({ kind: "url", url: c.url })}
-                  title={`${c.url}\n来源：${c.via === "conclusion" ? "结论正文引用" : `工具留存（${c.via}）`}\n证据力：${GRADE_TEXT[c.grade]} · ${c.gradeReason}${
-                    weak ? `\n${GRADE_HINT.weak}` : ""
-                  }${
-                    chk && verdict
-                      ? `\n核验：${
-                          verdict === "ok"
-                            ? `可访问 HTTP ${chk.status}`
-                            : `${VERDICT_TEXT[verdict]}（${chk.status ?? chk.error ?? "无响应"}）· ${VERDICT_HINT[verdict]}`
-                        } · ${chk.ms} ms`
-                      : ""
-                  }`}
-                  className={`inline-flex max-w-full items-center gap-1.5 rounded-full border bg-night-850 px-2.5 py-1 text-[11.5px] transition-colors ${
-                    verdict === "dead"
-                      ? "border-rose-400/50 text-rose-200 hover:border-rose-400"
-                      : weak
-                        ? "border-amber-400/45 text-amber-100 hover:border-amber-400"
-                        : "border-line text-mist-300 hover:border-glow-500 hover:text-glow-300"
-                  }`}
-                >
-                  <IconExternal className={`h-3 w-3 shrink-0 ${weak ? "text-amber-400" : "text-glow-400"}`} />
-                  <span className="truncate">{c.title}</span>
-                  <span
-                    className={`shrink-0 rounded px-1 text-[9.5px] ${
-                      c.grade === "official"
-                        ? "bg-jade-400/15 text-jade-300"
-                        : c.grade === "professional"
-                          ? "bg-sky-400/15 text-sky-300"
-                          : "bg-amber-400/15 text-amber-300"
-                    }`}
-                    title={`${GRADE_TEXT[c.grade]}：${c.gradeReason}`}
-                  >
-                    {GRADE_TEXT[c.grade]}
-                  </span>
-                  {chk && verdict && (
-                    <span
-                      className={`shrink-0 rounded px-1 font-mono text-[9.5px] ${
-                        verdict === "ok"
-                          ? "bg-jade-400/15 text-jade-300"
-                          : verdict === "dead"
-                            ? "bg-rose-400/15 text-rose-300"
-                            : verdict === "blocked"
-                              ? "bg-sky-400/15 text-sky-300"
-                              : "bg-night-700 text-mist-500"
-                      }`}
-                      title={VERDICT_HINT[verdict]}
-                    >
-                      {verdict === "ok" ? chk.status : VERDICT_TEXT[verdict]}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-          {citationRecheck.disclaimed.length > 0 && (
-            <div className="mt-2 rounded border border-jade-400/25 bg-jade-400/5 px-2.5 py-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="kicker">已声明为背景参考的弱证据</span>
-                <span className="text-[10.5px] leading-5 text-mist-600">
-                  {citationRecheck.disclaimed.length} 条已在结论里写明「仅作背景参考，不作为政策依据」，不再催办；点开原文、或在结论里搜这个标题，可核对声明是不是真的写了
-                </span>
-              </div>
-              <ul className="mt-1.5 space-y-1">
-                {citationRecheck.disclaimed.slice(0, WEAK_SETTLED_LIST_LIMIT).map((c) => (
-                  <li key={c.url} className="flex items-center gap-2 rounded bg-night-800 px-2 py-1">
-                    <span
-                      className="min-w-0 flex-1 truncate text-[11px] text-mist-400"
-                      title={c.title === "" ? c.url : c.title}
-                    >
-                      {c.title === "" ? c.url : c.title}
-                    </span>
-                    <button
-                      type="button"
-                      className="action-btn shrink-0"
-                      title={`${c.title === "" ? c.url : c.title}\n${c.url}\n点按在侧边阅读器打开`}
-                      onClick={() => onOpenUrl({ kind: "url", url: c.url })}
-                    >
-                      <IconExternal className="h-3 w-3" />
-                      原文
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              {citationRecheck.disclaimed.length > WEAK_SETTLED_LIST_LIMIT && (
-                <p className="mt-1 text-[10.5px] text-mist-600">
-                  另有 {citationRecheck.disclaimed.length - WEAK_SETTLED_LIST_LIMIT} 条未列出
-                </p>
-              )}
-            </div>
-          )}
-          {citationRecheck.uncited.length > 0 && (
-            <div className="mt-2 rounded border border-line bg-night-850 px-2.5 py-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="kicker">未进结论正文的弱证据</span>
-                <span className="text-[10.5px] leading-5 text-mist-600">
-                  {citationRecheck.uncited.length} 条只在检索留存里、从未被写进结论，不是这份交付材料的依据，无需替换；点开原文可核对这个判据对不对
-                </span>
-              </div>
-              <ul className="mt-1.5 space-y-1">
-                {citationRecheck.uncited.slice(0, WEAK_SETTLED_LIST_LIMIT).map((c) => (
-                  <li key={c.url} className="flex items-center gap-2 rounded bg-night-800 px-2 py-1">
-                    <span
-                      className="min-w-0 flex-1 truncate text-[11px] text-mist-400"
-                      title={c.title === "" ? c.url : c.title}
-                    >
-                      {c.title === "" ? c.url : c.title}
-                    </span>
-                    <button
-                      type="button"
-                      className="action-btn shrink-0"
-                      title={`${c.title === "" ? c.url : c.title}\n${c.url}\n点按在侧边阅读器打开`}
-                      onClick={() => onOpenUrl({ kind: "url", url: c.url })}
-                    >
-                      <IconExternal className="h-3 w-3" />
-                      原文
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              {citationRecheck.uncited.length > WEAK_SETTLED_LIST_LIMIT && (
-                <p className="mt-1 text-[10.5px] text-mist-600">
-                  另有 {citationRecheck.uncited.length - WEAK_SETTLED_LIST_LIMIT} 条未列出
-                </p>
-              )}
-            </div>
-          )}
-          {citationRecheck.targets.length > 0 && (
-            <div className="mt-2 rounded border border-amber-400/30 bg-amber-400/5 px-2.5 py-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="kicker">弱证据引用找官方原文</span>
+      <CitationsPanel
+        citations={citations}
+        allCitations={allCitations}
+        grades={grades}
+        searches={searches}
+        searchNote={searchNote}
+        retentionText={retentionText}
+        linkChecks={linkChecks}
+        linkBusy={linkBusy}
+        linkCheckedAt={linkCheckedAt}
+        linkSummary={linkSummary}
+        onOpenUrl={onOpenUrl}
+        onCheckLinks={onCheckLinks}
+      />
+      {citationRecheck.targets.length > 0 && (
+        <div className="mt-2 rounded border border-amber-400/30 bg-amber-400/5 px-2.5 py-2">
+          <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[10.5px] text-mist-600">
                   {citationRecheck.targets.length} 条引用指向门户首页、百科词条或检索页
                   {citationRecheck.summary.total > 0 &&
@@ -4317,8 +4487,6 @@ function ResultView({
               </p>
             </div>
           )}
-        </div>
-      )}
 
       <div>
         <div className="kicker">交付</div>
@@ -4394,49 +4562,7 @@ function ResultView({
               复制
             </button>
           </div>
-          <table className="mt-2 w-full border-collapse text-[11.5px]">
-            <thead>
-              <tr className="text-left text-mist-500">
-                <th className="w-7 border-b border-line py-1 pr-2 font-normal">#</th>
-                <th className="w-[128px] border-b border-line py-1 pr-2 font-normal">核对项</th>
-                <th className="w-[140px] border-b border-line py-1 pr-2 font-normal">结论</th>
-                <th className="border-b border-line py-1 font-normal">说明</th>
-              </tr>
-            </thead>
-            <tbody>
-              {evidenceSheetRows(sheet).map((r, n) => (
-                // key 带下标：核对项名来自同一份文案，重复即撞 key（行号本来就在旁边显示）
-                <tr key={`${n}-${r.item}`} className="align-top">
-                  <td className="border-b border-line/60 py-1 pr-2 font-mono text-[10.5px] text-mist-600">{n + 1}</td>
-                  <td className="border-b border-line/60 py-1 pr-2 text-mist-300">{r.item}</td>
-                  <td className="border-b border-line/60 py-1 pr-2 text-mist-100">{r.value}</td>
-                  <td className="border-b border-line/60 py-1 text-mist-500">{r.note}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div className="mt-3">
-            <div className="kicker mb-1">交付前待办</div>
-            {evidenceSheetTodoGroups(sheet).length === 0 ? (
-              <p className="text-[11.5px] text-jade-300">{NO_TODO_TEXT}</p>
-            ) : (
-              <ul className="space-y-1 text-[11.5px] leading-5 text-mist-400">
-                {evidenceSheetTodoGroups(sheet).map((g, gi) => (
-                  <li key={`${gi}-${g.label}`}>
-                    {g.label}（{g.list.length} 项）
-                    <ul className="mt-0.5 space-y-0.5 pl-4 text-mist-500">
-                      {g.list.slice(0, 8).map((x, k) => (
-                        <li key={`${g.label}-${k}`} className="break-all">
-                          {x}
-                        </li>
-                      ))}
-                      {g.list.length > 8 && <li>等 {g.list.length} 项，完整清单见上文对应小节</li>}
-                    </ul>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          <EvidenceSheetTable rows={sheetRows} todoGroups={todoGroups} />
           <p className="mt-3 text-[10.5px] text-mist-600">
             核对人＿＿＿＿＿＿　日期＿＿＿＿＿＿　本表由平台按真实运行数据生成，口径与界面、整页交付 MD 一致。
           </p>
