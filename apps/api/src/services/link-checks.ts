@@ -65,13 +65,13 @@ export async function checkLink(raw: string): Promise<LinkCheck> {
   }
 }
 
+const listLinkChecksStmt = db.prepare(
+  // 按 URL 排序保证列表稳定：单个链接重新核验不会让整份清单跳序
+  `SELECT url, ok, status, final_url, ms, error, checked_at FROM link_checks WHERE task_id = ? ORDER BY url ASC`,
+);
+
 export function listLinkChecks(taskId: string): LinkCheck[] {
-  const rows = db
-    .prepare(
-      // 按 URL 排序保证列表稳定：单个链接重新核验不会让整份清单跳序
-      `SELECT url, ok, status, final_url, ms, error, checked_at FROM link_checks WHERE task_id = ? ORDER BY url ASC`,
-    )
-    .all(taskId) as unknown as Array<{
+  const rows = listLinkChecksStmt.all(taskId) as unknown as Array<{
     url: string;
     ok: number;
     status: number | null;

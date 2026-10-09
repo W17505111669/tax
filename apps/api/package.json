@@ -23,6 +23,7 @@
     "verify:mdtext": "tsx scripts/verify-md-text.ts",
     "verify:mdrender": "tsx scripts/verify-md-render.ts",
     "verify:jsxkeys": "tsx scripts/verify-jsx-keys.ts",
+    "verify:listfields": "tsx scripts/verify-list-fields.ts",
     "scan:uimd": "tsx scripts/scan-ui-markdown.ts",
     "perf:render": "tsx scripts/scan-render-perf.ts",
     "verify:tfails": "tsx scripts/verify-tool-failures.ts",

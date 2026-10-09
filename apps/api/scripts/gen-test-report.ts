@@ -204,6 +204,7 @@ const VERIFY_SCRIPTS: Array<{ name: string; cmd: string; scope: string }> = [
   { name: "verify:rdtools", cmd: "pnpm verify:rdtools", scope: "智研税审的两个业务工具（加计扣除测算 / 归集核查）" },
   { name: "verify:runcmd", cmd: "pnpm verify:runcmd", scope: "脚本头部运行命令与 package.json 一致（正向解析 + qa:all 反向核对 + 对外文档命令存在性）" },
   { name: "verify:promptreg", cmd: "pnpm verify:promptreg", scope: "提示词回归（「渲染实测」任务的结论与工具轨迹是否真遵守了系统提示词里的约束）" },
+  { name: "verify:listfields", cmd: "pnpm verify:listfields", scope: "列表附带字段（单任务比对比率/覆盖率/正文引用数）与独立重算对账 + 缓存复取一致 + 空库防空跑" },
 ];
 
 function runVerify(cmd: string): { pass: boolean; output: string } {

@@ -10,6 +10,7 @@ import { CreateTaskInputSchema } from "@tax/shared-schemas";
 import { parseOne } from "@tax/document-tools";
 import { allowedExtensions, dirs, maxUploadBytes } from "../config.ts";
 import { getAgent } from "../agents.ts";
+import { replayEvents } from "../services/event-replay.ts";
 import { eventBus, isRunning, runTask } from "../services/agent-runner.ts";
 import {
   extractIssues,
@@ -37,6 +38,7 @@ import {
   toTargets,
 } from "../services/ref-checks.ts";
 import { topicHint } from "../../../web/src/domain-keywords.ts";
+import { compactEvents } from "../services/event-compaction.ts";
 import {
   appendEvent,
   createTask,
@@ -185,9 +187,10 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
       stream.write(`data: ${JSON.stringify(data)}\n\n`);
     };
 
-    for (const event of listEvents(id)) send(event);
-
-    const unsubscribe = eventBus.subscribe(id, send);
+    const unsubscribe = replayEvents(id, (event) => send(event), {
+      listEvents: (taskId) => compactEvents(listEvents(taskId)),
+      subscribe: (taskId, listener) => eventBus.subscribe(taskId, listener),
+    });
     const heartbeat = setInterval(() => stream.write(": ping\n\n"), 15000);
 
     stream.on("close", () => {

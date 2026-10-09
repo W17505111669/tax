@@ -216,6 +216,22 @@ expect(
   0,
 );
 expect(
+  "工具层字数不依赖扩展自带的 truncated 标记（字段在就照我们自己的留痕口径计数）",
+  retentionStats([
+    { toolName: "fetch_content", result: { retainedText: "正文", retainedChars: 10, omittedChars: 0, toolOmittedChars: 6745 } },
+  ]),
+  {
+    retainedCalls: 1,
+    truncatedCalls: 0,
+    retainedChars: 10,
+    omittedChars: 0,
+    maxOmitted: 0,
+    toolTruncatedCalls: 0,
+    toolTruncatedNoBody: 0,
+    toolOmittedChars: 6745,
+  },
+);
+expect(
   "两层都没截断就不给说明（不为了显示而显示）",
   retentionNote({
     retainedCalls: 3,
@@ -440,6 +456,15 @@ function retentionDefects(rec: Record<string, unknown>): string[] {
   if (om > 0 && chars !== MAX_RETAINED_TEXT) bad.push(`omittedChars=${om} 但 retainedChars=${chars}（截断时留存必须顶到上限）`);
   if (chars < MAX_RETAINED_TEXT && om !== 0) bad.push(`retainedChars=${chars} 没顶到上限却有 omittedChars=${om}`);
   if (text.length !== chars + (om > 0 ? 1 : 0)) bad.push(`正文 ${text.length} 字与 retainedChars=${chars} 不匹配（截断时结尾多一个省略号）`);
+  // `toolOmittedChars` 是撞名时从工具那层挪过来的字数（agent-factory.ts:98）。它走的是同一条
+  // 「typeof === "number" 就照抄」的判断，而 `typeof NaN === "number"`——工具层给个 NaN 或负数，
+  // 我们会原样存下来，界面那边 `numOf` 再把它静默归零（search-evidence.ts:54-56），报出来的
+  // 字数就少了，而且没有任何一行会红。真实行走的正是这一份判据，所以补在这儿。
+  if ("toolOmittedChars" in rec) {
+    const toolOm = rec.toolOmittedChars;
+    if (typeof toolOm !== "number" || !Number.isFinite(toolOm)) bad.push(`toolOmittedChars 不是有限的数（${String(toolOm)}）`);
+    else if (toolOm < 0) bad.push(`toolOmittedChars 为负（${toolOm}）`);
+  }
   return bad;
 }
 
@@ -460,7 +485,26 @@ expect(
   RETAIN_SWEEP.some((n) => n > MAX_RETAINED_TEXT) && RETAIN_SWEEP.some((n) => n < MAX_RETAINED_TEXT),
   true,
 );
+// 撞名那份字数的判据必须配阳性对照：库里 363 行 tool_calls 查下来 **0 行**带 `toolOmittedChars`
+//（撞名至今没在真实数据里发生过），所以真实侧永远发现不了这条判据写废——没对照它就是永远绿。
+// 坏样本用 withRetainedText 自己造：它只按 typeof 决定要不要挪，NaN 与负数都会被原样挪进来，
+// 这不是假想输入，是我们自己的写入路径就能产出的形状。
+const collideBody = "字".repeat(MAX_RETAINED_TEXT + 1);
+const collideOf = (toolOm: number) =>
+  withRetainedText("fetch_content", { url: "https://x.gov.cn/a", omittedChars: toolOm }, collideBody) as Record<string, unknown>;
+expect(
+  "撞名样本确实造出了 toolOmittedChars（写入侧那个 typeof 判断还在，否则下面两条是空跑）",
+  [collideOf(Number.NaN), collideOf(-5), collideOf(6745)].every((r) => "toolOmittedChars" in r),
+  true,
+);
+expect(
+  "撞名字段判据确实能命中 NaN 与负数（界面会把它们静默归零，字数少报却全绿）",
+  [collideOf(Number.NaN), collideOf(-5)].map((r) => retentionDefects(r).some((d) => d.includes("toolOmittedChars"))),
+  [true, true],
+);
+expect("自洽的撞名行不被误判（阴性对照）", retentionDefects(collideOf(6745)), []);
 let retainTotal = 0;
+let retainToolOm = 0;
 let retainTruncated = 0;
 let retainCharsSum = 0;
 let retainOmittedSum = 0;
@@ -508,6 +552,7 @@ for (const t of listTasks()) {
     retainCharsSum += chars;
     retainOmittedSum += om;
     if (om > 0) retainTruncated += 1;
+    if ("toolOmittedChars" in rec) retainToolOm += 1;
     const b = retainByTool.get(c.toolName) ?? { n: 0, trunc: 0, chars: 0, max: 0 };
     b.n += 1;
     if (om > 0) b.trunc += 1;
@@ -555,7 +600,12 @@ for (const t of listTasks()) {
   }
 }
 expect("确实量到了库里的留存正文（不是这个功能没跑过在这儿空跑）", retainTotal >= 1, true);
-expect("库里每一行留存正文的三个字段都自洽（不自洽＝界面在报一个错的截断数）", retainBad, []);
+expect("库里每一行留存正文各自洽，含撞名挪出来的 toolOmittedChars（不自洽＝界面在报一个错的截断数）", retainBad, []);
+// 这个数刻意只报不断：断 `=== 0` 等于把「撞名从没发生过」冻成判据，第一次真撞名就会红，
+// 而那恰恰是好事；断 `>= 1` 现在就是红的。所以如实报数，让空白可见而不是沉默。
+console.log(
+  `[verify] 撞名留存：库里 ${retainTotal} 行留存正文中带 toolOmittedChars 的 ${retainToolOm} 行（0 行＝撞名至今没在真实数据里发生过，这一档只有合成覆盖）`,
+);
 // 上限「够覆盖」这句话是 agent-factory.ts 注释里对外讲的理由，它必须可被证伪：
 // 一旦三分之一的联网调用都顶到上限，那就不是「个别长页面」而是「常态截断」，
 // 该重新评估上限（或改成按页分段留存），而不是继续默默截掉、只在界面上写一句「留存不完整」。

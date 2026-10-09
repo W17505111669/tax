@@ -35,21 +35,22 @@ function fmtVal(v: unknown): string {
  * 改之前全平台 135 条待复核里，43 条来自一个 failed 任务、15 条来自与自身模板的比对、还有一批来自
  * 被后续运行取代的旧比对——真正要人看的项被埋在里面。
  */
+const taskResultStmt = db.prepare(`SELECT result FROM tasks WHERE id = ?`);
+const successfulToolCallsStmt = db.prepare(
+  `SELECT id, tool_name, args, result, started_at FROM tool_calls
+   WHERE task_id = ? AND ok = 1 AND result IS NOT NULL ORDER BY started_at ASC`,
+);
+
 export function extractIssues(taskId: string): TaskIssue[] {
   // 没有结论就没有可交付物：失败或中断那次运行留下的差异与缺失项是残渣，不是待复核欠账
   //（与「没有结论的任务不计证据欠账」同一条口径）。直接读库而不走 task-store：task-store 反过来
   // 依赖本模块的 pendingReviewCount，互相 import 会成环
-  const taskRow = db.prepare(`SELECT result FROM tasks WHERE id = ?`).get(taskId) as
+  const taskRow = taskResultStmt.get(taskId) as
     | { result: string | null }
     | undefined;
   if (String(taskRow?.result ?? "").trim() === "") return [];
 
-  const calls = db
-    .prepare(
-      `SELECT id, tool_name, args, result, started_at FROM tool_calls
-        WHERE task_id = ? AND ok = 1 AND result IS NOT NULL ORDER BY started_at ASC`,
-    )
-    .all(taskId) as unknown as Array<{
+  const calls = successfulToolCallsStmt.all(taskId) as unknown as Array<{
     id: string;
     tool_name: string;
     args: string | null;
@@ -145,10 +146,17 @@ export function extractIssues(taskId: string): TaskIssue[] {
   return [...seen.values()];
 }
 
+const listReviewsStmt = db.prepare(
+  `SELECT issue_id, decision, comment, created_at FROM reviews WHERE task_id = ? ORDER BY created_at ASC`,
+);
+
 export function listReviews(taskId: string): ReviewRecord[] {
-  const rows = db
-    .prepare(`SELECT issue_id, decision, comment, created_at FROM reviews WHERE task_id = ? ORDER BY created_at ASC`)
-    .all(taskId) as unknown as Array<{ issue_id: string; decision: string; comment: string | null; created_at: string }>;
+  const rows = listReviewsStmt.all(taskId) as unknown as Array<{
+    issue_id: string;
+    decision: string;
+    comment: string | null;
+    created_at: string;
+  }>;
   return rows.map((r) => ({
     issueId: r.issue_id,
     decision: r.decision as ReviewRecord["decision"],
@@ -187,16 +195,17 @@ export function selectReopenTargets(tasks: Array<{ id: string; status: string; p
 /** 待复核数量缓存：列表接口要为每个任务算一次，按工具调用/复核记录的变化签名失效 */
 const pendingCache = new Map<string, { sig: string; pending: number }>();
 
+const pendingToolSigStmt = db.prepare(
+  `SELECT COUNT(*) AS n, COALESCE(MAX(started_at), '') AS s, COALESCE(MAX(ended_at), '') AS e
+   FROM tool_calls WHERE task_id = ? AND ok = 1`,
+);
+const pendingReviewSigStmt = db.prepare(
+  `SELECT COUNT(*) AS n, COALESCE(MAX(created_at), '') AS last FROM reviews WHERE task_id = ?`,
+);
+
 function pendingSig(taskId: string): string {
-  const c = db
-    .prepare(
-      `SELECT COUNT(*) AS n, COALESCE(MAX(started_at), '') AS s, COALESCE(MAX(ended_at), '') AS e
-       FROM tool_calls WHERE task_id = ? AND ok = 1`,
-    )
-    .get(taskId) as { n: number; s: string; e: string };
-  const r = db
-    .prepare(`SELECT COUNT(*) AS n, COALESCE(MAX(created_at), '') AS last FROM reviews WHERE task_id = ?`)
-    .get(taskId) as { n: number; last: string };
+  const c = pendingToolSigStmt.get(taskId) as { n: number; s: string; e: string };
+  const r = pendingReviewSigStmt.get(taskId) as { n: number; last: string };
   return `${c.n}|${c.s}|${c.e}|${r.n}|${r.last}`;
 }
 

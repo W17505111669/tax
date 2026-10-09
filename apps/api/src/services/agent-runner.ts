@@ -15,8 +15,10 @@ import {
   markFilesParsed,
   recordToolCall,
   setTaskStatus,
+  updateEventMessage,
 } from "./task-store.ts";
 import { pendingReviewIssues } from "./issues.ts";
+import { DeltaEventWriter } from "./delta-event-writer.ts";
 import { revisionAllowedTools, revisionBlockedNames } from "../../../web/src/revision-mode.ts";
 
 export const eventBus = new TaskEventBus();
@@ -90,6 +92,11 @@ export async function runTask(
   /** 兜底：SDK 没给 toolCallId 时才退回按工具名配对 */
   const pendingByName = new Map<string, string>();
   let session: Awaited<ReturnType<typeof createTaxAgentSession>> | undefined;
+  const deltaWriter = new DeltaEventWriter({
+    appendEvent,
+    updateEventMessage,
+    publish: (event) => eventBus.publish(event),
+  });
 
   try {
     session = await createTaxAgentSession({
@@ -102,9 +109,10 @@ export async function runTask(
       onEvent: (event: NormalizedAgentEvent) => {
         switch (event.kind) {
           case "agent_text_delta":
-            emit(taskId, "agent_text_delta", event.text);
+            deltaWriter.push(taskId, event.text);
             break;
           case "agent_text":
+            deltaWriter.close();
             emit(taskId, "agent_text", event.text);
             break;
           case "tool_start": {
@@ -175,9 +183,11 @@ export async function runTask(
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    deltaWriter.close();
     setTaskStatus(taskId, "failed", { error: message });
     emit(taskId, "run_failed", `执行失败：${message}`, { error: message });
   } finally {
+    deltaWriter.close();
     session?.dispose();
     running.delete(taskId);
   }

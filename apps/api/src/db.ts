@@ -55,7 +55,13 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_files_task ON files(task_id);
   CREATE INDEX IF NOT EXISTS idx_events_task ON events(task_id, seq);
-  CREATE INDEX IF NOT EXISTS idx_toolcalls_task ON tool_calls(task_id);
+  CREATE INDEX IF NOT EXISTS idx_events_run_started ON events(task_id) WHERE kind = 'run_started';
+  CREATE INDEX IF NOT EXISTS idx_events_run_completed ON events(task_id) WHERE kind = 'run_completed';
+  DROP INDEX IF EXISTS idx_toolcalls_task;
+  CREATE INDEX IF NOT EXISTS idx_toolcalls_task_started ON tool_calls(task_id, started_at);
+  CREATE INDEX IF NOT EXISTS idx_toolcalls_ok_task ON tool_calls(task_id) WHERE ok = 1;
+  CREATE INDEX IF NOT EXISTS idx_toolcalls_task_tool_started
+    ON tool_calls(task_id, tool_name, started_at DESC) WHERE ok = 1 AND result IS NOT NULL;
 
   CREATE TABLE IF NOT EXISTS reviews (
     id TEXT PRIMARY KEY,
@@ -105,7 +111,8 @@ db.exec(`
     PRIMARY KEY (task_id, ref_key)
   );
 
-  CREATE INDEX IF NOT EXISTS idx_refchecks_task ON ref_checks(task_id);
+  DROP INDEX IF EXISTS idx_refchecks_task;
+  CREATE INDEX IF NOT EXISTS idx_refchecks_task_text ON ref_checks(task_id, text);
 `);
 
 export function nowIso(): string {

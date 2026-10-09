@@ -686,10 +686,10 @@ type Row = {
 const VERDICTS = new Set<RefCheckVerdict>(["matched", "candidate", "empty", "error"]);
 
 /** 读取某任务已持久化的复查结果（按文号原文排序，保证列表稳定） */
+const listRefChecksStmt = db.prepare(`SELECT * FROM ref_checks WHERE task_id = ? ORDER BY text ASC`);
+
 export function listRefChecks(taskId: string): RefCheckRecord[] {
-  const rows = db
-    .prepare(`SELECT * FROM ref_checks WHERE task_id = ? ORDER BY text ASC`)
-    .all(taskId) as unknown as Row[];
+  const rows = listRefChecksStmt.all(taskId) as unknown as Row[];
   return rows.map((r) => {
     let attempts: SearchAttempt[] = [];
     try {

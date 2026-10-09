@@ -20,6 +20,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { launchChromium, WEB_URL } from "./browser-lib.ts";
 import { db } from "../src/db.ts";
+import { compactEvents } from "../src/services/event-compaction.ts";
+import { listEvents, listTasks } from "../src/services/task-store.ts";
 
 const failures: string[] = [];
 let checks = 0;
@@ -38,6 +40,24 @@ const SLOWEST_BUDGET_MS = 20000;
  * 这个数在两个脚本里各存一份，所以下面有一条断言把两份钉同源：改一边就红。
  */
 const MIN_CHARS = 400;
+/**
+ * 薄页谓词单独抽出来，是为了让它能被阳性对照钉住。下面那条「白屏不算快」是**扫总体收违规项、
+ * 断言列表为空**型判据，它有一种假绿是「确实测到了页面」和「薄页线同源」两条都拦不住的：
+ * 谓词方向写反，或 `chars` 采集成 `undefined`（`undefined < 400` 为 false），违规列表都会变空
+ * 而不是变红——门禁绿得和「每页都真渲染出来了」一模一样。前者只保证 rows 非空，后者只保证
+ * 两个脚本里的常量数字相等，都钉不住谓词本身。
+ */
+const isThinPage = (r: { chars: number }): boolean => r.chars < MIN_CHARS;
+expect(
+  "薄页判据确实能命中（已知白屏样本；顺带钉住「正好等于阈值不算薄页」这个边界）",
+  [
+    { label: "合成白屏页", chars: 0 },
+    { label: "合成正常页", chars: MIN_CHARS },
+  ]
+    .filter(isThinPage)
+    .map((r) => r.label),
+  ["合成白屏页"],
+);
 const TASKS = 5;
 const TABS = ["timeline", "result"];
 
@@ -49,10 +69,11 @@ for (const t of db.prepare(`SELECT id, agent_id FROM tasks`).all() as Array<{ id
   agentOf.set(t.id, t.agent_id);
 }
 const totalEvents = (db.prepare(`SELECT COUNT(*) AS n FROM events`).get() as { n: number }).n;
+const totalSseEvents = listTasks().reduce((sum, task) => sum + compactEvents(listEvents(task.id)).length, 0);
 
 // 一次遍历同时取节点数与字符数：节点数用于「耗时与规模相关」那组断言，字符数用于薄页判据
 const COUNT = `(function(){let n=0,c=0;const w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);while(w.nextNode()){n++;c+=(w.currentNode.nodeValue||"").length}return {nodes:n,chars:c}})()`;
-const rows: Array<{ label: string; events: number; ms: number; nodes: number; chars: number }> = [];
+const rows: Array<{ label: string; events: number; sseEvents: number; ms: number; nodes: number; chars: number }> = [];
 
 if (top.length > 0) {
   const browser = await launchChromium();
@@ -79,8 +100,11 @@ if (top.length > 0) {
         }
       }
       const ms = Date.now() - t0;
-      rows.push({ label: `${r.task_id.slice(0, 8)} ${tab}`, events: r.n, ms, nodes, chars });
-      console.log(`  ${r.task_id.slice(0, 8)} ${tab}：events ${r.n} 行 → ${ms} ms 后 DOM 稳定，文本节点 ${nodes} / ${chars} 字`);
+      const sseEvents = compactEvents(listEvents(r.task_id)).length;
+      rows.push({ label: `${r.task_id.slice(0, 8)} ${tab}`, events: r.n, sseEvents, ms, nodes, chars });
+      console.log(
+        `  ${r.task_id.slice(0, 8)} ${tab}：events ${r.n} 行（SSE ${sseEvents} 条）→ ${ms} ms 后 DOM 稳定，文本节点 ${nodes} / ${chars} 字`,
+      );
     }
   }
   await browser.close();
@@ -91,7 +115,9 @@ const slowest = sorted[0];
 // 走查型断言必须同时断「确实检查到了东西」：前端没起、库是空的、选择器失效，都会让 rows 为空，
 // 那时「最慢 0 ms」会是一个漂亮的绿
 expect("确实测到了页面（不是空跑）", rows.length, TASKS * TABS.length);
-expect("每页都真渲染出了内容（字数超过薄页线，否则「秒开」是白屏不是快）", rows.filter((r) => r.chars < MIN_CHARS).map((r) => r.label), []);
+expect("每页都真渲染出了内容（字数超过薄页线，否则「秒开」是白屏不是快）", rows.filter(isThinPage).map((r) => r.label), []);
+expect("SSE 历史回放事件数确实少于原始 events 行数", totalSseEvents < totalEvents, true);
+expect("确实统计到了 SSE 历史回放事件数（不是空跑）", totalSseEvents > 0, true);
 // 薄页线在 scan:uimd 里也存了一份（那边是 `found.chars < 400`）。两份常量各改各的就会静默分叉：
 // 这边把线调低，「白屏也算快」就没人拦了。所以直接从那边源码里把数取出来比——取不到（NaN）也算红。
 const scanSrc = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "scan-ui-markdown.ts"), "utf8");
@@ -142,6 +168,7 @@ for (const tab of TABS) {
   );
 }
 
+console.log(`[perf] SSE 回放事件数：${totalSseEvents} 条（原始 events ${totalEvents} 行）`);
 console.log(
   `[perf] 渲染耗时：全库 events ${totalEvents} 行 · 取事件最多的 ${TASKS} 个任务 × ${TABS.length} 个 tab = ${rows.length} 次加载 · 最慢 ${slowest?.label ?? "-"} ${slowest?.ms ?? 0} ms · 中位 ${sorted[Math.floor(sorted.length / 2)]?.ms ?? 0} ms · 最快 ${sorted[sorted.length - 1]?.ms ?? 0} ms（每个数含约 1.2–1.6 秒的稳定确认开销，是上界）`,
 );

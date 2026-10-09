@@ -10,8 +10,12 @@ import { matchToolCalls } from "../../web/src/timeline-calls.ts";
 import { applyEvent, createEventsAcc, FLUSH_MS } from "../../web/src/task-events.ts";
 import type { AgentEvent } from "../../web/src/types.ts";
 import { db } from "../src/db.ts";
-import { listConclusions, listEvents, listTasks } from "../src/services/task-store.ts";
+import { DeltaEventWriter, DELTA_FLUSH_CHARS } from "../src/services/delta-event-writer.ts";
+import { compactEvents } from "../src/services/event-compaction.ts";
+import { replayEvents } from "../src/services/event-replay.ts";
+import { appendEvent, listConclusions, listEvents, listTasks, updateEventMessage } from "../src/services/task-store.ts";
 
+const here = path.dirname(fileURLToPath(import.meta.url));
 const failures: string[] = [];
 let checks = 0;
 
@@ -166,6 +170,122 @@ expect("run_completed 推进状态", st.status, "completed");
 applyEvent(st, ev(6, "run_failed"));
 expect("run_failed 推进状态", st.status, "failed");
 
+// ---- 流式正文写入侧瘦身：SSE 每片照发，events 同一段只留一行 ----
+const appended: AgentEvent[] = [];
+const updates: Array<[string, number, string]> = [];
+const published: AgentEvent[] = [];
+let syntheticSeq = 0;
+const writer = new DeltaEventWriter({
+  appendEvent: (taskId, kind, message) => {
+    syntheticSeq += 1;
+    const event: AgentEvent = { seq: syntheticSeq, taskId, kind, message, at: "2026-10-07T00:00:00.000Z" };
+    appended.push(event);
+    return event;
+  },
+  updateEventMessage: (taskId, seq, message) => {
+    updates.push([taskId, seq, message]);
+    return 1;
+  },
+  publish: (event) => published.push(event),
+});
+const deltaCount = DELTA_FLUSH_CHARS + 37;
+for (let i = 0; i < deltaCount; i++) writer.push("delta-writer", "字");
+writer.close();
+writer.push("delta-writer", "下");
+expect("首片落库、后续片段不再各占一行", appended.length, 2);
+expect("每片仍实时广播（不牺牲流式体验）", published.length, deltaCount + 1);
+expect("阈值与收口都会写回累计正文（首片已落库，所以第一次阈值在 1025 字）", updates.map(([, , message]) => message.length), [
+  DELTA_FLUSH_CHARS + 1,
+  deltaCount,
+]);
+const live = createEventsAcc();
+for (const event of published.slice(0, deltaCount)) applyEvent(live, event);
+const replay = createEventsAcc();
+applyEvent(replay, { ...appended[0]!, message: updates[updates.length - 1]![2]! });
+expect("实时流式与历史回放重组出同一段全文", [
+  live.timeline[0]?.detail?.length,
+  replay.timeline[0]?.detail?.length,
+  live.timeline[0]?.detail === replay.timeline[0]?.detail,
+], [deltaCount, deltaCount, true]);
+const runnerSrc = fs.readFileSync(path.resolve(here, "..", "src", "services", "agent-runner.ts"), "utf8");
+expect("agent_runner 确实接入 DeltaEventWriter", [
+  runnerSrc.includes("new DeltaEventWriter"),
+  runnerSrc.includes("deltaWriter.push"),
+  runnerSrc.includes("deltaWriter.close()"),
+], [true, true, true]);
+expect("agent_runner 不再每个 delta 都 appendEvent", /emit\(\s*taskId,\s*"agent_text_delta"/.test(runnerSrc), false);
+
+// updateEventMessage 直接用真实 SQLite 走一遍，但包在事务里回滚，不污染库。
+const dbTaskId = "__verify_delta_event_writer__";
+db.exec("BEGIN");
+try {
+  expect("写入侧事务测试任务初始不存在", db.prepare(`SELECT COUNT(*) n FROM events WHERE task_id = ?`).get(dbTaskId), { n: 0 });
+  appendEvent(dbTaskId, "run_started", "开始");
+  const realWriter = new DeltaEventWriter({ appendEvent, updateEventMessage, publish: () => undefined });
+  const fullText = "字".repeat(deltaCount);
+  for (let i = 0; i < deltaCount; i++) realWriter.push(dbTaskId, "字");
+  realWriter.close();
+  const textEvent = appendEvent(dbTaskId, "agent_text", fullText);
+  appendEvent(dbTaskId, "run_completed", "任务完成", { result: fullText });
+  const rows = db.prepare(`SELECT kind, message FROM events WHERE task_id = ? ORDER BY seq ASC`).all(dbTaskId) as Array<{
+    kind: string;
+    message: string;
+  }>;
+  expect("真实 SQLite 写入侧：1061 片只落一行 delta", rows.filter((r) => r.kind === "agent_text_delta").length, 1);
+  expect("真实 SQLite 写入侧：delta 行保存累计全文", rows.find((r) => r.kind === "agent_text_delta")?.message, fullText);
+  expect("真实 SQLite 写入侧：结论重组等于全文", listConclusions(dbTaskId), [fullText]);
+  expect("真实 SQLite 写入侧：不会误改 agent_text 行", updateEventMessage(dbTaskId, textEvent.seq, "不该改"), 0);
+} finally {
+  db.exec("ROLLBACK");
+}
+expect("事务回滚后不留下写入侧测试事件", db.prepare(`SELECT COUNT(*) n FROM events WHERE task_id = ?`).get(dbTaskId), { n: 0 });
+
+// ---- SSE 重放：先订阅、再读库，不能在读库与订阅之间漏事件 ----
+const replayed: AgentEvent[] = [];
+let replayEmit: ((event: AgentEvent) => void) | undefined;
+const replayHistory = [ev(1, "run_started"), ev(2, "agent_text_delta", { message: "一" })];
+const replayUnsubscribe = replayEvents("event-replay", (event) => replayed.push(event), {
+  listEvents: () => {
+    replayEmit?.(replayHistory[1]!);
+    return replayHistory;
+  },
+  subscribe: (_taskId, listener) => {
+    replayEmit = listener;
+    return () => undefined;
+  },
+});
+replayEmit?.(ev(3, "tool_start", { payload: { toolName: "web_search", callId: "r" } }));
+replayUnsubscribe();
+expect("重放器补上订阅与读库之间的事件且不重复", replayed.map((event) => event.seq), [1, 2, 3]);
+const routeSrc = fs.readFileSync(path.resolve(here, "..", "src", "routes", "tasks.ts"), "utf8");
+expect("SSE 路由改用重放器", routeSrc.includes("replayEvents("), true);
+expect("SSE 路由不再先读库后订阅", routeSrc.includes("for (const event of listEvents(id)) send(event);"), false);
+
+// ---- 历史回放压缩：连续 delta 合并，前端聚合结果不变 ----
+const compactSource = [
+  ev(1, "run_started"),
+  ev(2, "agent_text_delta", { message: "一、" }),
+  ev(3, "agent_text_delta", { message: "结论" }),
+  ev(4, "agent_text"),
+  ev(5, "agent_text_delta", { message: "补" }),
+];
+const compacted = compactEvents(compactSource);
+expect("连续 delta 在历史回放中合并成一条", compacted.map((event) => [event.seq, event.kind, event.message]), [
+  [1, "run_started", ""],
+  [2, "agent_text_delta", "一、结论"],
+  [4, "agent_text", ""],
+  [5, "agent_text_delta", "补"],
+]);
+const beforeCompact = createEventsAcc();
+for (const event of compactSource) applyEvent(beforeCompact, event);
+const afterCompact = createEventsAcc();
+for (const event of compacted) applyEvent(afterCompact, event);
+expect("合并 delta 后前端时间线正文不变", [beforeCompact.timeline.map((x) => x.detail), afterCompact.timeline.map((x) => x.detail)], [
+  beforeCompact.timeline.map((x) => x.detail),
+  beforeCompact.timeline.map((x) => x.detail),
+]);
+expect("SSE 路由确实压缩历史回放", routeSrc.includes("compactEvents("), true);
+
 // 就地聚合是批量刷新的前提：一旦每条事件都换新数组，hook 那边的批处理就白做了
 const inplace = createEventsAcc();
 const timelineRef = inplace.timeline;
@@ -195,7 +315,6 @@ expect("聚合层不是瓶颈（1 万条以上也要在 5 秒内跑完）", bigM
 console.log(`[verify] 事件聚合：${BIG_N} 条事件耗时 ${bigMs} ms（界面此前每条事件一次 setState + 一次全量数组复制）`);
 
 // hook 那侧必须真的批处理，否则聚合层再快也白搭
-const here = path.dirname(fileURLToPath(import.meta.url));
 const hookSrc = fs.readFileSync(path.resolve(here, "..", "..", "web", "src", "hooks", "useTaskEvents.ts"), "utf8");
 expect("hook 里不再每条事件复制一次时间线数组", hookSrc.includes("setTimeline((prev)"), false);
 expect("hook 里不再每条事件复制一次调用数组", hookSrc.includes("setToolCalls((prev)"), false);

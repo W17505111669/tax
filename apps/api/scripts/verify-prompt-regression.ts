@@ -158,6 +158,61 @@ expect("金额两位小数这一组确实被检查过", hit.money >= 1, true);
 expect("工具顺序这一组确实被检查过", hit.order >= 1, true);
 expect("表格这一组确实被检查过", hit.table >= 1, true);
 expect("mermaid 图后说明这一组确实被检查过", hit.mermaid >= 1, true);
+/**
+ * 全库产出率。上面那一半是「指令要求了就必须有」的逐条硬判据，只覆盖标题以「渲染实测」开头的
+ * 任务（实测 11 个）；这一半量的是**全库**带结论任务的呈现形式产出率，看的是真实使用有没有塌方。
+ *
+ * 只给表格设下限、mermaid 只报数不设线，依据是提示词原文的措辞差别：
+ * 「用表格呈现比对与测算数据」是对每份结论说的（rd-audit:48 / land-vat:39），
+ * 而 mermaid 那句写的是「**涉及关系或流程时**使用」（rd-audit:50 / land-vat:41）——有条件的要求
+ * 拿去判「缺图」就是误报，这正是上面那一半要按指令关键词触发的同一个理由。
+ */
+const TABLE_ROW = /^\s*\|.*\|\s*$/m;
+const TABLE_RULE = /^\s*\|[\s:|-]*-{3,}[\s:|-]*\|\s*$/m;
+const MERMAID_BLOCK = /```mermaid/;
+// 阳性 + 阴性对照：这三条模式驱动的是一个**比率**，写废了会让比率变低而变红（自保护），
+// 但写宽了会让比率虚高而变绿，所以还得断它们不误伤普通文字。
+expect(
+  "表格判据确实能命中真表格、且不误伤普通段落",
+  [TABLE_ROW.test("| 项目 | 金额 |") && TABLE_RULE.test("| --- | ---: |"), TABLE_ROW.test("这是一段普通结论文字")],
+  [true, false],
+);
+expect(
+  "mermaid 判据确实能命中代码块、且不误伤行内反引号",
+  [MERMAID_BLOCK.test("```mermaid\ngraph TD;\n```"), MERMAID_BLOCK.test("见 `render_matching_diagram`")],
+  [true, false],
+);
+const concluded = listTasks()
+  .map((t) => ({ id: t.id, agentId: t.agentId, title: t.title, md: String(getTask(t.id)?.result ?? "") }))
+  .filter((t) => t.md.trim() !== "");
+const byAgent = new Map<string, { n: number; table: number; mermaid: number }>();
+const noTable: string[] = [];
+for (const t of concluded) {
+  const s = byAgent.get(t.agentId) ?? { n: 0, table: 0, mermaid: 0 };
+  s.n += 1;
+  if (TABLE_ROW.test(t.md) && TABLE_RULE.test(t.md)) s.table += 1;
+  else noTable.push(`${t.agentId}/${t.id.slice(0, 8)} ${t.title.slice(0, 20)}`);
+  if (MERMAID_BLOCK.test(t.md)) s.mermaid += 1;
+  byAgent.set(t.agentId, s);
+}
+const sum = [...byAgent.values()].reduce(
+  (a, s) => ({ n: a.n + s.n, table: a.table + s.table, mermaid: a.mermaid + s.mermaid }),
+  { n: 0, table: 0, mermaid: 0 },
+);
+const pct = (a: number): string => ((100 * a) / Math.max(1, sum.n)).toFixed(0);
+expect("全库产出率确实量到了带结论的任务（不是库空了在这儿空跑）", sum.n >= 30, true);
+expect(
+  "全库表格产出率不低于 85%（提示词对每份结论都要求用表格呈现比对与测算数据，塌方就是没被遵守）",
+  (100 * sum.table) / Math.max(1, sum.n) >= 85,
+  true,
+);
+console.log(
+  `[verify] 全库呈现形式产出率：带结论 ${sum.n} 个任务 · 含表格 ${sum.table}（${pct(sum.table)}%）· 含 mermaid ${sum.mermaid}（${pct(sum.mermaid)}%，提示词里这条是有条件的，只报数不设线）`,
+);
+console.log(
+  `[verify] 逐作品产出率：${[...byAgent.entries()].map(([k, s]) => `${k} ${s.n} 个 / 表格 ${s.table} / 图 ${s.mermaid}`).join(" · ")}`,
+);
+console.log(`[verify] 结论里没有表格的 ${noTable.length} 个：${noTable.join("；") || "无"}`);
 console.log(
   `[verify] 提示词回归任务 ${targets.length} 个 · 触发情况：金额 ${hit.money} · 工具顺序 ${hit.order} · 比例取自工具 ${hit.ratio} · 抓取失败标注 ${hit.failNote} · 表格 ${hit.table} · mermaid ${hit.mermaid} · 有序列表 ${hit.ordered}`,
 );

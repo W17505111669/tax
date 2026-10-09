@@ -632,7 +632,16 @@ async function main(): Promise<void> {
 
   const browser = await launchChromium();
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
-  const pages: Array<{ label: string; url: string; tab: string; taskId: string; agentId: string }> = [];
+  const pages: Array<{
+    label: string;
+    url: string;
+    tab: string;
+    taskId: string;
+    agentId: string;
+    thinMin?: number;
+  }> = [];
+  pages.push({ label: "简介页 #/", url: `${WEB}/#/`, tab: "", taskId: "", agentId: "", thinMin: 100 });
+  pages.push({ label: "主界面 #/home", url: `${WEB}/#/home`, tab: "", taskId: "", agentId: "" });
   if (args.overview) {
     // 作品名单取 shared-schemas 的 AGENT_IDS：此前这里手抄了一份 ["rd-audit", "land-vat"]，
     // 多一个作品时看板会整个漏扫，而且漏得悄无声息（页数少两页而已）
@@ -747,7 +756,7 @@ async function main(): Promise<void> {
    */
   const perScan: Array<{ label: string; nodes: number; chars: number }> = [];
   const thin: string[] = [];
-  const scanOnce = async (label: string): Promise<void> => {
+  const scanOnce = async (label: string, thinMin = 400): Promise<void> => {
     // 字符串形式的 pageFunction 在 playwright 里是「表达式求值」，不会自动调用也不接参数，
     // 必须自己包成 IIFE 并把判据序列化进去（第一版直接传参，拿到的是函数本身，for-of 就炸了）。
     const found = (await page.evaluate(`(${scanSource})(${JSON.stringify(PATTERNS)})`)) as {
@@ -760,7 +769,7 @@ async function main(): Promise<void> {
     charsTotal += found.chars;
     perScan.push({ label, nodes: found.nodes, chars: found.chars });
     // 页面内容太少说明没渲染出来（路由错、任务不存在、数据还在加载）：这种页面扫出 0 处不算通过
-    if (found.chars < 400) thin.push(`${label}（${found.chars} 字）`);
+    if (found.chars < thinMin) thin.push(`${label}（${found.chars} 字）`);
     for (const h of found.hits) allHits.push({ page: label, ...h });
   };
 
@@ -835,7 +844,7 @@ async function main(): Promise<void> {
     }
     // mermaid 与流式渲染都是异步的，多等一会儿再扫，避免把半成品当成残留
     await page.waitForTimeout(1800);
-    await scanOnce(p.label);
+    await scanOnce(p.label, p.thinMin ?? 400);
     pageScans += 1;
     if (p.tab === "result" && p.taskId !== "") {
       const want = expectOf.get(p.taskId);
@@ -1247,7 +1256,7 @@ async function main(): Promise<void> {
     // 看板页：台账合计行是界面这条腿上数字最密的一处（一行 15 个数），逐个与看板取数对。
     // 判据钉的是渲染出来的文本，所以版式一改（少一个空格、换个词）这里就会红——那是有意的：
     // 这一行是复核人扫一眼就看全平台欠账的地方，改了版式就得同时确认数字还是同一份取数。
-    if (p.tab === "" && p.taskId === "") {
+    if (p.tab === "" && p.taskId === "" && p.agentId !== "") {
       const bodyText = ((await page.evaluate(`document.body.innerText`)) as string).replace(/\s+/g, " ");
       // 看板顶部那一排 KPI 卡是全平台最显眼的 6 个数字（22px），此前一项都没被核对过：
       // scan 在这一页只核过台账合计行与台账表格。按位置逐张对标签 / 数值 / 单位串——
@@ -1646,7 +1655,7 @@ async function main(): Promise<void> {
         }
         interacted += 1;
         toggleLabels.add(t.label);
-        await scanOnce(`${p.label} · 展开「${t.label}」`);
+        await scanOnce(`${p.label} · 展开「${t.label}」`, p.thinMin ?? 400);
         if (t.iconOnly) {
           iconOnlyClicked += 1;
           iconOnlyLabels.add(t.label);
@@ -1699,7 +1708,7 @@ async function main(): Promise<void> {
       if (via) {
         readerOpened += 1;
         readerVias.add(via);
-        await scanOnce(`${p.label} · 侧边阅读器（${via}）`);
+        await scanOnce(`${p.label} · 侧边阅读器（${via}）`, p.thinMin ?? 400);
       }
     }
   }

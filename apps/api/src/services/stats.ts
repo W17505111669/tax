@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { db } from "../db.ts";
 import { dirs } from "../config.ts";
-import { pendingReviewCount, pendingReviewIssues } from "./issues.ts";
+import { extractIssues, listReviews, pendingReviewCount, pendingReviewIssues } from "./issues.ts";
 import { groupPendingIssues, type PendingIssueRow } from "../../../web/src/review-queue.ts";
 import { filterSearchResults, minRelevanceScore, type WebSearchResult } from "@tax/business-tools";
 import { compareRates } from "@tax/document-tools";
@@ -238,6 +238,17 @@ export interface PlatformStats {
   perTool: Array<{ name: string; calls: number; ok: number }>;
   /** 全平台待复核问题总数（含 waiting_review 任务在内的未复核项） */
   reviewPendingIssues: number;
+  /** 累计复核处置（reviews 表全量聚合）：确认 / 驳回 */
+  reviewDecided: { confirm: number; dismiss: number };
+  reviewDecidedItems: Array<{
+    taskId: string;
+    taskTitle: string;
+    issueType: string;
+    description: string;
+    decision: "confirm" | "dismiss";
+    comment: string;
+    decidedAt: string;
+  }>;
   /**
    * 待复核问题按「类型 + 描述原文」跨任务分组，出现次数多的在前。
    * 同一件事在多个任务里各出现一次时，复核的人一次看清、一次处置，不必逐任务点六遍「全部确认」。
@@ -250,7 +261,45 @@ export interface PlatformStats {
 }
 
 /** 平台级应用效果统计：全部来自数据库真实运行记录。 */
+const taskToolCallsStmt = db.prepare(
+  `SELECT ok, tool_name, args, result, started_at FROM tool_calls WHERE task_id = ?`,
+);
+const taskRefChecksStmt = db.prepare(
+  `SELECT ref_key, kind, text, verdict, checked_at FROM ref_checks WHERE task_id = ?`,
+);
+
 export function computePlatformStats(): PlatformStats {
+  return computePlatformStatsInner();
+}
+
+const STATS_SIG_STMT = db.prepare(
+  `SELECT
+    (SELECT COUNT(*) FROM tasks) AS t,
+    (SELECT IFNULL(MAX(updated_at), '') FROM tasks) AS tu,
+    (SELECT IFNULL(MAX(at), '') FROM events) AS ev,
+    (SELECT IFNULL(MAX(started_at), '') FROM tool_calls) AS tc,
+    (SELECT IFNULL(MAX(created_at), '') FROM reviews) AS rv,
+    (SELECT IFNULL(MAX(checked_at), '') FROM ref_checks) AS rc,
+    (SELECT IFNULL(MAX(created_at), '') FROM files) AS fl`,
+);
+let statsCache: { sig: string; payload: PlatformStats } | null = null;
+/**
+ * /api/stats 失效签名缓存：签名 = 各表行数与最近写入时间戳拼接，任何写路径
+ * （任务/事件/工具调用/复核/复查/资料）都会改变签名，缓存不会读到旧值；
+ * 15 秒轮询在数据未变时直接复用上次结果，避免每 tick 重解析全部结论正文。
+ */
+export function platformStatsCached(): PlatformStats {
+  const row = STATS_SIG_STMT.get() as Record<string, unknown>;
+  const sig = Object.values(row)
+    .map((v) => String(v ?? ""))
+    .join("|");
+  if (statsCache && statsCache.sig === sig) return statsCache.payload;
+  const payload = computePlatformStatsInner();
+  statsCache = { sig, payload };
+  return payload;
+}
+
+function computePlatformStatsInner(): PlatformStats {
   const tasks = db.prepare(`SELECT id, agent_id, status, title, result, instruction FROM tasks`).all() as unknown as Array<{
     id: string;
     agent_id: string;
@@ -288,6 +337,16 @@ export function computePlatformStats(): PlatformStats {
   let reviewPendingIssues = 0;
   const reviewBacklog: Array<{ id: string; title: string; agentId: string; pending: number }> = [];
   const reviewRows: PendingIssueRow[] = [];
+  /** 复核处置历史（reviews 表 join 当前提取的问题原文）：队列页「已确认/已驳回」过滤用 */
+  const reviewDecidedItems: Array<{
+    taskId: string;
+    taskTitle: string;
+    issueType: string;
+    description: string;
+    decision: "confirm" | "dismiss";
+    comment: string;
+    decidedAt: string;
+  }> = [];
   // 台账行单独收集，返回时排序后并入
   const evidence: Omit<EvidenceStats, "ledger"> = {
     searchCalls: 0,
@@ -337,9 +396,7 @@ export function computePlatformStats(): PlatformStats {
     agent.tasks += 1;
     if (task.status === "completed") agent.completed += 1;
 
-    const calls = db
-      .prepare(`SELECT ok, tool_name, args, result, started_at FROM tool_calls WHERE task_id = ?`)
-      .all(task.id) as unknown as Array<{
+    const calls = taskToolCallsStmt.all(task.id) as unknown as Array<{
       ok: number | null;
       tool_name: string;
       args: string | null;
@@ -381,7 +438,7 @@ export function computePlatformStats(): PlatformStats {
 
     const dir = path.join(dirs.outputs, task.id);
     if (fs.existsSync(dir)) {
-      const n = fs.readdirSync(dir).filter((f) => fs.statSync(path.join(dir, f)).isFile()).length;
+      const n = fs.readdirSync(dir, { withFileTypes: true }).filter((entry) => entry.isFile()).length;
       agent.artifacts += n;
       artifacts += n;
     }
@@ -398,6 +455,22 @@ export function computePlatformStats(): PlatformStats {
           issueId: i.id,
           issueType: i.issueType,
           description: i.description,
+        });
+      }
+    }
+    const reviewsOfTask = listReviews(task.id);
+    if (reviewsOfTask.length > 0) {
+      const issueById = new Map(extractIssues(task.id).map((i) => [i.id, i]));
+      for (const rv of reviewsOfTask) {
+        const issue = issueById.get(rv.issueId);
+        reviewDecidedItems.push({
+          taskId: task.id,
+          taskTitle: String(task.title ?? task.id),
+          issueType: issue?.issueType ?? "(问题已不存在)",
+          description: issue?.description ?? "(问题原文已不存在，仅存处置记录)",
+          decision: rv.decision,
+          comment: rv.comment,
+          decidedAt: rv.createdAt,
         });
       }
     }
@@ -449,9 +522,7 @@ export function computePlatformStats(): PlatformStats {
           return null;
         }
       });
-    const rcRows = db
-      .prepare(`SELECT ref_key, kind, text, verdict, checked_at FROM ref_checks WHERE task_id = ?`)
-      .all(task.id) as unknown as Array<{
+    const rcRows = taskRefChecksStmt.all(task.id) as unknown as Array<{
       ref_key: string;
       kind: string;
       text: string;
@@ -647,8 +718,19 @@ export function computePlatformStats(): PlatformStats {
   compareOnlyA = peerAgg.onlyA;
   compareOnlyB = peerAgg.onlyB;
   const overallRates = compareRates(compareMatched, compareMismatched, compareOnlyA);
+  const decidedRows = db
+    .prepare(`SELECT decision, COUNT(*) AS n FROM reviews GROUP BY decision`)
+    .all() as Array<{ decision: string; n: number }>;
+  // 累计复核处置：reviews 表全量聚合（确认/驳回），队列页 KPI 用；转待复核走任务状态不回写 reviews，故不计
+  const reviewDecided = { confirm: 0, dismiss: 0 };
+  for (const r of decidedRows) {
+    if (r.decision === "confirm") reviewDecided.confirm = r.n;
+    else if (r.decision === "dismiss") reviewDecided.dismiss = r.n;
+  }
   return {
     tasks: tasks.length,
+    reviewDecided,
+    reviewDecidedItems,
     completed: tasks.filter((t) => t.status === "completed").length,
     toolCalls,
     toolOk,
