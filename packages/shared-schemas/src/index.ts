@@ -38,6 +38,12 @@ export interface TaxTask {
    * 列表接口不带 error 全文，因此由服务端判好再给一个布尔，前端不必猜错误串。
    */
   interrupted?: boolean;
+  /** 本任务最近一次同行评审记录级比对一致率（百分数；仅列表接口附带，null=有比对但算不出，undefined=无比对记录） */
+  compareMatchRate?: number | null;
+  /** 本任务最近一次同行评审记录级比对覆盖率（口径同上） */
+  compareCoverage?: number | null;
+  /** 结论正文引用条数（仅列表接口附带；平台总引用另含工具留存部分） */
+  citationCount?: number;
 }
 
 export interface BusinessFile {

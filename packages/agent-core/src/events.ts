@@ -3,7 +3,7 @@ import type { AgentEvent } from "@tax/shared-schemas";
 type Listener = (event: AgentEvent) => void;
 
 /**
- * 任务事件总线：Agent 运行事件先落库，再实时推给 SSE 订阅者。
+ * 任务事件总线：Agent 运行事件先落库（流式 delta 合并进同一行），再实时推给 SSE 订阅者。
  * 保留环形缓冲，使晚到的前端也能回放本次任务已发生的事件。
  */
 export class TaskEventBus {

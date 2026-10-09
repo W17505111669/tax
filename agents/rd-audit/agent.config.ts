@@ -19,7 +19,7 @@ export const rdAuditAgent: TaxAgentConfig = {
     "其他相关费用限额确定性测算",
     "异常事项与待复核清单输出",
   ],
-  accent: "#0f766e",
+  accent: "#6f9a8d",
   // 惰性读取，不在模块顶层 readFileSync：改完 system-prompt.md 下一个任务就生效，不必重启 API。
   // agent-factory 里是 `systemPromptOverride: () => agent.systemPrompt`，每次建会话都会重新取值。
   get systemPrompt() {

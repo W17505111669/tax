@@ -18,7 +18,7 @@ export const landVatAgent: TaxAgentConfig = {
     "金额差异核验与待核查清单",
     "原始 Excel 底稿模板保留式填列",
   ],
-  accent: "#9a3412",
+  accent: "#b0713f",
   // 惰性读取，不在模块顶层 readFileSync：改完 system-prompt.md 下一个任务就生效，不必重启 API。
   // agent-factory 里是 `systemPromptOverride: () => agent.systemPrompt`，每次建会话都会重新取值。
   get systemPrompt() {
